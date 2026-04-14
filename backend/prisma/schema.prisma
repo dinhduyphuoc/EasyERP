@@ -13,7 +13,7 @@ datasource db {
 }
 
 model Category {
-  category_id   String    @id
+  category_id   Int    @id @default(autoincrement())
   category_name String
   products      Product[]
 
@@ -49,13 +49,15 @@ model ShippingUnit {
 // ---------------------------------------------------------
 
 model Product {
-  product_id   String   @id
+  product_id   Int      @id @default(autoincrement())
   product_name String
-  image        String?
+  sku          String?   @unique
+  unit         String?   
+  image_url    String?
   status       String?
   description  String?
-  createdAt    DateTime?
-  category_id  String?
+  createdAt    DateTime @default(now())
+  category_id  Int?
   category     Category? @relation(fields: [category_id], references: [category_id])
 
   attributes Attribute[]
@@ -67,7 +69,7 @@ model Product {
 model Attribute {
   id         Int     @id @default(autoincrement())
   name       String // "Màu sắc", "Size", "Chất liệu"
-  product_id String
+  product_id Int
   product    Product @relation(fields: [product_id], references: [product_id])
 
   values AttributeValue[]
@@ -88,7 +90,7 @@ model AttributeValue {
 
 model ProductVariant {
   sku              String                  @id
-  product_id       String
+  product_id       Int
   product          Product                 @relation(fields: [product_id], references: [product_id])
   selling_price    Decimal                 @db.Decimal(12, 2)
   cost_price_ref   Decimal                 @db.Decimal(12, 2)

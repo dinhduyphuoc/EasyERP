@@ -1,11 +1,10 @@
 export interface CreateProductInput {
-  product_id: string;
   product_name: string;
-  image?: string;
+  image_url?: string;
   status?: string;
   description?: string;
   createdAt?: string | Date;
-  category_id?: string;
+  category_id?: number;
   attributes?: {
     name: string;
     values: string[];

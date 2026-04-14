@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { ProductService } from "@/modules/product/product.service";
+import { ProductController } from "@/modules/product/product.controller";
 
 function sendJson(
   res: ServerResponse,
@@ -19,13 +19,16 @@ export async function app(req: IncomingMessage, res: ServerResponse) {
   }
 
   if (method === "GET" && url === "/products") {
-    try {
-      const products = await ProductService.getProducts();
-      return sendJson(res, 200, products);
-    } catch (error) {
-      console.error("Failed to fetch products", error);
-      return sendJson(res, 500, { message: "Failed to fetch products" });
-    }
+    return ProductController.getProducts(req, res);
+  }
+
+  if (method === "POST" && url === "/products") {
+    return ProductController.createProduct(req, res);
+  }
+
+  if (method === "GET" && url.startsWith("/products/")) {
+    const productId = url.split("/")[2];
+    return ProductController.getProductById(req, res, productId);
   }
 
   return sendJson(res, 404, { message: "Route not found" });
