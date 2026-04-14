@@ -1,0 +1,197 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Category {
+  category_id   String    @id
+  category_name String
+  products      Product[]
+
+  @@map("categories")
+}
+
+model SalesChannel {
+  channel_id   Int     @id @default(autoincrement())
+  channel_name String
+  orders       Order[]
+
+  @@map("sales_channels")
+}
+
+model OrderStatus {
+  status_id   Int     @id @default(autoincrement())
+  status_name String
+  orders      Order[]
+
+  @@map("order_statuses")
+}
+
+model ShippingUnit {
+  unit_id   Int     @id @default(autoincrement())
+  unit_name String
+  orders    Order[]
+
+  @@map("shipping_units")
+}
+
+// ---------------------------------------------------------
+// 2. Nhóm Sản phẩm
+// ---------------------------------------------------------
+
+model Product {
+  product_id   String   @id
+  product_name String
+  image        String?
+  status       String?
+  description  String?
+  createdAt    DateTime?
+  category_id  String?
+  category     Category? @relation(fields: [category_id], references: [category_id])
+
+  attributes Attribute[]
+  variants   ProductVariant[]
+
+  @@map("products")
+}
+
+model Attribute {
+  id         Int     @id @default(autoincrement())
+  name       String // "Màu sắc", "Size", "Chất liệu"
+  product_id String
+  product    Product @relation(fields: [product_id], references: [product_id])
+
+  values AttributeValue[]
+
+  @@map("attributes")
+}
+
+model AttributeValue {
+  id           Int       @id @default(autoincrement())
+  value        String // "Đỏ", "Xanh", "Size 32"...
+  attribute_id Int
+  attribute    Attribute @relation(fields: [attribute_id], references: [id])
+
+  variant_links VariantAttributeValue[]
+
+  @@map("attribute_values")
+}
+
+model ProductVariant {
+  sku              String                  @id
+  product_id       String
+  product          Product                 @relation(fields: [product_id], references: [product_id])
+  selling_price    Decimal                 @db.Decimal(12, 2)
+  cost_price_ref   Decimal                 @db.Decimal(12, 2)
+  image_url        String?
+  attribute_values VariantAttributeValue[]
+  order_details    OrderDetail[]
+  inventory_logs   InventoryLog[]
+  // --------------------------------------------
+
+  @@map("product_variants")
+}
+
+model VariantAttributeValue {
+  variant_sku        String
+  attribute_value_id Int
+
+  variant         ProductVariant @relation(fields: [variant_sku], references: [sku])
+  attribute_value AttributeValue @relation(fields: [attribute_value_id], references: [id])
+
+  @@id([variant_sku, attribute_value_id])
+  @@map("variant_attribute_values")
+}
+
+// ---------------------------------------------------------
+// 3. Nhóm Khách hàng & Địa lý
+// ---------------------------------------------------------
+
+model Customer {
+  customer_id  String  @id
+  full_name    String
+  phone_number String  @unique
+  display_name String?
+  orders       Order[]
+
+  @@map("customers")
+}
+
+model Location {
+  location_id Int    @id @default(autoincrement())
+  state       String // Tỉnh/Thành
+  city        String // Quận/Huyện
+  district    String // Phường/Xã
+
+  @@map("locations")
+}
+
+// ---------------------------------------------------------
+// 4. Nhóm Đơn hàng
+// ---------------------------------------------------------
+
+model Order {
+  order_id    String       @id
+  customer_id String
+  customer    Customer     @relation(fields: [customer_id], references: [customer_id])
+  order_date  DateTime     @default(now())
+  channel_id  Int
+  channel     SalesChannel @relation(fields: [channel_id], references: [channel_id])
+  status_id   Int
+  status      OrderStatus  @relation(fields: [status_id], references: [status_id])
+
+  shipping_unit_id Int
+  shipping_unit    ShippingUnit @relation(fields: [shipping_unit_id], references: [unit_id])
+
+  tracking_number       String?
+  shipping_address      String
+  shipping_fee_system   Decimal       @default(0) @db.Decimal(12, 2)
+  shipping_fee_customer Decimal       @default(0) @db.Decimal(12, 2)
+  discount_amount       Decimal       @default(0) @db.Decimal(12, 2)
+  payment_method        String
+  notes                 String?
+  details               OrderDetail[]
+
+  @@map("orders")
+}
+
+model OrderDetail {
+  order_id   String
+  order      Order          @relation(fields: [order_id], references: [order_id])
+  sku        String
+  variant    ProductVariant @relation(fields: [sku], references: [sku])
+  quantity   Int
+  unit_cost  Decimal        @db.Decimal(12, 2)
+  unit_price Decimal        @db.Decimal(12, 2)
+  notes      String?
+
+  @@id([order_id, sku]) // Composite PK
+  @@map("order_details")
+}
+
+// ---------------------------------------------------------
+// 5. Kho vận
+// ---------------------------------------------------------
+
+model InventoryLog {
+  log_id           Int            @id @default(autoincrement())
+  batch_id         String? // Mã lô hàng
+  sku              String
+  variant          ProductVariant @relation(fields: [sku], references: [sku])
+  transaction_date DateTime       @default(now())
+  transaction_type String // Nhập hàng, Xuất bán, Nhập trả...
+  quantity         Int
+  unit_cost        Decimal        @db.Decimal(12, 2)
+  notes            String?
+
+  @@map("inventory_logs")
+}
