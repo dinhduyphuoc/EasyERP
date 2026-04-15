@@ -1,12 +1,10 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { ProductController } from "@/modules/product/product.controller";
 
-function sendJson(
-  res: ServerResponse,
-  statusCode: number,
-  payload: unknown,
-) {
-  res.writeHead(statusCode, { "content-type": "application/json; charset=utf-8" });
+function sendJson(res: ServerResponse, statusCode: number, payload: unknown) {
+  res.writeHead(statusCode, {
+    "content-type": "application/json; charset=utf-8",
+  });
   res.end(JSON.stringify(payload));
 }
 
