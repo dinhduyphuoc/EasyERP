@@ -1,17 +1,19 @@
-export interface SidebarBaseItem {
-  id: string
-  label: string
-}
+import type { SvgIconComponent } from '@mui/icons-material'
 
-export interface SidebarLinkItem extends SidebarBaseItem {
+export type SidebarLinkItem = {
+  id: string
   kind: 'item'
+  label: string
   to: string
   exact?: boolean
+  icon?: SvgIconComponent
 }
 
-export interface SidebarGroupItem extends SidebarBaseItem {
+export type SidebarGroupItem = {
+  id: string
   kind: 'group'
-  to?: string
+  label: string
+  icon?: SvgIconComponent
   children: SidebarLinkItem[]
 }
 
