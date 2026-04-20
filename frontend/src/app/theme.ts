@@ -25,7 +25,7 @@ export const theme = createTheme({
     divider: alpha('#132238', 0.08),
   },
   shape: {
-    borderRadius: 4,
+    borderRadius: 1,
   },
   typography: {
     fontFamily: "'Be Vietnam Pro', 'Segoe UI', sans-serif",

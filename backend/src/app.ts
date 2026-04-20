@@ -1,33 +1,30 @@
-import type { IncomingMessage, ServerResponse } from "node:http";
-import { ProductController } from "@/modules/product/product.controller";
+import express, { type Request, type Response } from "express";
+import cors from "cors";
+import { errorHandler, notFoundHandler } from "@/common";
+import { productRouter } from "@/modules/product/product.routes";
+import { customerRouter, locationRouter } from "@/modules/customer/customer.routes";
+import { inventoryRouter } from "@/modules/inventory/inventory.routes";
+import { orderRouter } from "@/modules/order/order.routes";
 
-function sendJson(res: ServerResponse, statusCode: number, payload: unknown) {
-  res.writeHead(statusCode, {
-    "content-type": "application/json; charset=utf-8",
-  });
-  res.end(JSON.stringify(payload));
-}
+const app = express();
 
-export async function app(req: IncomingMessage, res: ServerResponse) {
-  const method = req.method ?? "GET";
-  const url = req.url ?? "/";
+app.use(cors({
+  origin: "http://localhost:5173",
+}));
 
-  if (method === "GET" && url === "/health") {
-    return sendJson(res, 200, { ok: true, service: "backend" });
-  }
+app.use(express.json());
 
-  if (method === "GET" && url === "/products") {
-    return ProductController.getProducts(req, res);
-  }
+app.get("/health", (_req: Request, res: Response) => {
+  return res.status(200).json({ ok: true, service: "backend" });
+});
 
-  if (method === "POST" && url === "/products") {
-    return ProductController.createProduct(req, res);
-  }
+app.use("/products", productRouter);
+app.use("/customers", customerRouter);
+app.use("/locations", locationRouter);
+app.use("/inventory", inventoryRouter);
+app.use("/orders", orderRouter);
 
-  if (method === "GET" && url.startsWith("/products/")) {
-    const productId = url.split("/")[2];
-    return ProductController.getProductById(req, res, productId);
-  }
+app.use(notFoundHandler);
+app.use(errorHandler);
 
-  return sendJson(res, 404, { message: "Route not found" });
-}
+export default app;

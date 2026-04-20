@@ -78,6 +78,7 @@ function SidebarLink({
         '&:hover': {
           bgcolor: (theme) =>
             isActive ? alpha(theme.palette.primary.light, 0.28) : alpha(theme.palette.common.white, 0.08),
+            borderRadius: "4px",
         },
       }}
     >

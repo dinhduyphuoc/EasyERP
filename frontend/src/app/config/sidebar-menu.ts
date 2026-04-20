@@ -13,6 +13,7 @@ import LocalShippingOutlinedIcon from '@mui/icons-material/LocalShippingOutlined
 import ReceiptLongOutlinedIcon from '@mui/icons-material/ReceiptLongOutlined'
 import SellOutlinedIcon from '@mui/icons-material/SellOutlined'
 import WalletOutlinedIcon from '@mui/icons-material/WalletOutlined'
+import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined';
 
 export const sidebarMenu: SidebarItem[] = [
   {
@@ -98,10 +99,10 @@ export const sidebarMenu: SidebarItem[] = [
     children: [
       { id: 'inventory-stock', kind: 'item', label: 'Tồn kho', to: '/inventory/stock', icon: Inventory2OutlinedIcon },
       {
-        id: 'inventory-purchase-orders',
+        id: 'inventory-audit',
         kind: 'item',
-        label: 'Đặt hàng nhập',
-        to: '/inventory/purchase-orders',
+        label: 'Kiểm kho',
+        to: '/inventory/audit',
         icon: Inventory2OutlinedIcon,
       },
       { id: 'inventory-goods-receipt', kind: 'item', label: 'Nhập hàng', to: '/inventory/receipts', icon: Inventory2OutlinedIcon },
@@ -150,6 +151,13 @@ export const sidebarMenu: SidebarItem[] = [
     to: '/reports',
     icon: AssessmentOutlinedIcon,
   },
+  {
+    id: 'settings',
+    kind: 'item',
+    label: 'Cài đặt',
+    to: '/settings',
+    icon: SettingsOutlinedIcon,
+  }
 ]
 
 export function isSidebarLinkActive(item: SidebarLinkItem, pathname: string): boolean {

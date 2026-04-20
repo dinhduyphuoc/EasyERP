@@ -1,0 +1,98 @@
+export const INVENTORY_BUCKET_FIELDS = [
+  "on_hand",
+  "available",
+  "committed",
+  "packing",
+  "incoming",
+] as const;
+
+export type InventoryBucketField = (typeof INVENTORY_BUCKET_FIELDS)[number];
+
+export type InventoryActorInput = {
+  id?: string | null;
+  name?: string | null;
+};
+
+export type InventoryReferenceInput = {
+  reference_type?: string | null;
+  reference_id?: string | null;
+  reference_code?: string | null;
+};
+
+export type InventoryCommandMetaInput = InventoryReferenceInput & {
+  actor?: InventoryActorInput | null;
+  note?: string | null;
+  idempotency_key?: string | null;
+  metadata?: Record<string, unknown> | null;
+};
+
+export type InventoryInitializeInput = InventoryCommandMetaInput & {
+  product_variant_id: string;
+  initial_on_hand: number;
+};
+
+export type InventoryQuantityCommandInput = InventoryCommandMetaInput & {
+  product_variant_id: string;
+  qty: number;
+};
+
+export type InventoryAdjustInput = InventoryCommandMetaInput & {
+  product_variant_id: string;
+  mode: "delta" | "absolute";
+  qty?: number;
+  target_on_hand?: number;
+  reason_code:
+    | "actual_count"
+    | "damaged"
+    | "customer_return"
+    | "transfer"
+    | "manufacturing"
+    | "lost"
+    | "other";
+};
+
+export type InventoryParams = {
+  productVariantId: string;
+};
+
+export type InventoryHistoryQuery = {
+  limit?: string;
+  cursor?: string;
+};
+
+export type InventoryStockListQuery = {
+  search?: string;
+};
+
+export type InventoryAuditStatusInput =
+  | "draft"
+  | "completed";
+
+export type InventoryAuditLineInput = {
+  product_variant_id: string;
+  counted_on_hand?: number | null;
+  note?: string | null;
+};
+
+export type InventoryAuditUpsertInput = {
+  audit_code?: string | null;
+  status?: "draft";
+  note?: string | null;
+  counted_at?: string | Date | null;
+  account?: InventoryActorInput | null;
+  lines: InventoryAuditLineInput[];
+};
+
+export type InventoryAuditFinalizeInput = {
+  note?: string | null;
+  account?: InventoryActorInput | null;
+};
+
+export type InventoryAuditListQuery = {
+  status?: InventoryAuditStatusInput;
+  search?: string;
+};
+
+export type InventoryAuditParams = {
+  id?: string;
+};

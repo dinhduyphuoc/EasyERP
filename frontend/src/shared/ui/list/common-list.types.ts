@@ -28,6 +28,14 @@ export type ListColumn<T> = {
   render: (row: T) => ReactNode
 }
 
+export type ListRowClickHandler<T> = (row: T) => void
+
+export type ListRowSelectionConfig<T> = {
+  selectedRowKeys: string[]
+  onSelectedRowKeysChange: (keys: string[]) => void
+  getRowLabel?: (row: T) => string
+}
+
 export type ListPaginationConfig = {
   page: number
   pageSize: number
@@ -36,4 +44,3 @@ export type ListPaginationConfig = {
   onPageSizeChange?: (pageSize: number) => void
   pageSizeOptions?: number[]
 }
-

@@ -1,99 +1,126 @@
-import type { IncomingMessage, ServerResponse } from "node:http";
+import type { Request, Response } from "express";
+import { BadRequestError } from "@/common";
 import { ProductService } from "./product.service";
-import type { CreateProductInput } from "./product.types";
+import type {
+  BulkDeleteRequestInput,
+  ProductCategoryParams,
+  ProductCategoryRequestInput,
+  ProductParams,
+  ProductRequestInput,
+} from "./product.types";
 
-const sendJson = (
-  res: ServerResponse,
-  statusCode: number,
-  payload: unknown,
-) => {
-  res.writeHead(statusCode, { "content-type": "application/json; charset=utf-8" });
-  res.end(JSON.stringify(payload));
+const parseId = (value: string | undefined) => {
+  const id = Number(value);
+
+  if (!value || Number.isNaN(id) || id <= 0) {
+    throw new BadRequestError("Invalid id");
+  }
+
+  return id;
 };
 
-const readJsonBody = async <T>(req: IncomingMessage): Promise<T> => {
-  const chunks: Buffer[] = [];
-
-  for await (const chunk of req) {
-    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+const parsePayload = <T>(body: unknown) => {
+  if (!body || typeof body !== "object") {
+    throw new BadRequestError("Request body is required");
   }
 
-  const rawBody = Buffer.concat(chunks).toString("utf-8").trim();
-
-  if (!rawBody) {
-    throw new Error("Request body is required");
-  }
-
-  return JSON.parse(rawBody) as T;
+  return body as T;
 };
 
-const parseProductId = (value: string | undefined) => {
-  const productId = Number(value);
+const parseIds = (body: unknown) => {
+  const payload = parsePayload<BulkDeleteRequestInput>(body);
 
-  if (!value || Number.isNaN(productId) || productId <= 0) {
-    return null;
+  if (!Array.isArray(payload.ids) || payload.ids.length === 0) {
+    throw new BadRequestError("ids must be a non-empty array");
   }
 
-  return productId;
+  const ids = payload.ids.map((value) => Number(value));
+
+  if (ids.some((id) => Number.isNaN(id) || id <= 0 || !Number.isInteger(id))) {
+    throw new BadRequestError("ids must contain valid positive integers");
+  }
+
+  return [...new Set(ids)];
 };
 
 export const ProductController = {
-  getProducts: async (_req: IncomingMessage, res: ServerResponse) => {
-    try {
-      const products = await ProductService.getProducts();
-      return sendJson(res, 200, products);
-    } catch (error) {
-      console.error("Failed to fetch products", error);
-      return sendJson(res, 500, { message: "Failed to fetch products" });
-    }
+  getCategories: async (_req: Request, res: Response) => {
+    const categories = await ProductService.getCategories();
+    return res.status(200).json(categories);
   },
 
-  getProductById: async (
-    _req: IncomingMessage,
-    res: ServerResponse,
-    productIdParam: string | undefined,
+  getCategoryById: async (
+    req: Request<ProductCategoryParams>,
+    res: Response,
   ) => {
-    const productId = parseProductId(productIdParam);
+    const category = await ProductService.getCategoryById(parseId(req.params.id));
 
-    if (!productId) {
-      return sendJson(res, 400, { message: "Invalid product_id" });
-    }
-
-    try {
-      const product = await ProductService.getProductById(productId);
-
-      if (!product) {
-        return sendJson(res, 404, { message: "Product not found" });
-      }
-
-      return sendJson(res, 200, product);
-    } catch (error) {
-      console.error(`Failed to fetch product ${productId}`, error);
-      return sendJson(res, 500, { message: "Failed to fetch product" });
-    }
+    return res.status(200).json(category);
   },
 
-  createProduct: async (req: IncomingMessage, res: ServerResponse) => {
-    try {
-      const payload = await readJsonBody<CreateProductInput>(req);
+  getProducts: async (_req: Request, res: Response) => {
+    const products = await ProductService.getProducts();
+    return res.status(200).json(products);
+  },
 
-      if (!payload.product_name?.trim()) {
-        return sendJson(res, 400, { message: "product_name is required" });
-      }
+  getProductById: async (req: Request<ProductParams>, res: Response) => {
+    const product = await ProductService.getProductById(parseId(req.params.id));
 
-      const product = await ProductService.createProduct(payload);
-      return sendJson(res, 201, product);
-    } catch (error) {
-      if (error instanceof SyntaxError) {
-        return sendJson(res, 400, { message: "Invalid JSON body" });
-      }
+    return res.status(200).json(product);
+  },
 
-      if (error instanceof Error && error.message === "Request body is required") {
-        return sendJson(res, 400, { message: error.message });
-      }
+  createProduct: async (
+    req: Request<{}, {}, ProductRequestInput>,
+    res: Response,
+  ) => {
+    const product = await ProductService.createProduct(
+      parsePayload<ProductRequestInput>(req.body),
+    );
+    return res.status(201).json(product);
+  },
 
-      console.error("Failed to create product", error);
-      return sendJson(res, 500, { message: "Failed to create product" });
-    }
-  }
+  createCategory: async (
+    req: Request<{}, {}, ProductCategoryRequestInput>,
+    res: Response,
+  ) => {
+    const category = await ProductService.createCategory(
+      parsePayload<ProductCategoryRequestInput>(req.body),
+    );
+
+    return res.status(201).json(category);
+  },
+
+  editProduct: async (
+    req: Request<ProductParams, {}, ProductRequestInput>,
+    res: Response,
+  ) => {
+    const updatedProduct = await ProductService.editProduct(
+      parseId(req.params.id),
+      parsePayload<ProductRequestInput>(req.body),
+    );
+
+    return res.status(200).json(updatedProduct);
+  },
+
+  editCategory: async (
+    req: Request<ProductCategoryParams, {}, ProductCategoryRequestInput>,
+    res: Response,
+  ) => {
+    const category = await ProductService.editCategory(
+      parseId(req.params.id),
+      parsePayload<ProductCategoryRequestInput>(req.body),
+    );
+
+    return res.status(200).json(category);
+  },
+
+  deleteCategories: async (req: Request<{}, {}, BulkDeleteRequestInput>, res: Response) => {
+    await ProductService.deleteCategories(parseIds(req.body));
+    return res.status(204).send();
+  },
+
+  deleteProducts: async (req: Request<{}, {}, BulkDeleteRequestInput>, res: Response) => {
+    const result = await ProductService.deleteProducts(parseIds(req.body));
+    return res.status(200).json(result);
+  },
 };

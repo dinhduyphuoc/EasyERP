@@ -13,35 +13,68 @@ datasource db {
 }
 
 model Category {
-  category_id   Int    @id @default(autoincrement())
+  id            Int    @id @default(autoincrement())
   category_name String
   products      Product[]
 
-  @@map("categories")
 }
 
 model SalesChannel {
-  channel_id   Int     @id @default(autoincrement())
+  id           Int     @id @default(autoincrement())
   channel_name String
-  orders       Order[]
 
-  @@map("sales_channels")
 }
 
 model OrderStatus {
-  status_id   Int     @id @default(autoincrement())
+  id          Int     @id @default(autoincrement())
   status_name String
-  orders      Order[]
 
-  @@map("order_statuses")
 }
 
 model ShippingUnit {
-  unit_id   Int     @id @default(autoincrement())
+  id        Int     @id @default(autoincrement())
   unit_name String
-  orders    Order[]
 
-  @@map("shipping_units")
+}
+
+enum ProductStatus {
+  active
+  inactive
+  draft
+  deleted
+}
+
+enum ProductVariantStatus {
+  active
+  inactive
+  deleted
+}
+
+enum CustomerStatus {
+  active
+  inactive
+  deleted
+}
+
+enum OrderPaymentStatus {
+  unpaid
+  paid
+  deposit
+}
+
+enum OrderProcessingStatus {
+  draft
+  placed
+  confirmed
+  picked_up
+  delivering
+  completed
+  returned
+}
+
+enum OrderType {
+  sale
+  return
 }
 
 // ---------------------------------------------------------
@@ -49,151 +82,398 @@ model ShippingUnit {
 // ---------------------------------------------------------
 
 model Product {
-  product_id   Int      @id @default(autoincrement())
+  id           Int      @id @default(autoincrement())
   product_name String
   sku          String?   @unique
   unit         String?   
+  base_price   Decimal?  @db.Decimal(12, 2)
+  cogs         Decimal?  @db.Decimal(12, 2)
   image_url    String?
-  status       String?
+  status       ProductStatus @default(draft)
   description  String?
   createdAt    DateTime @default(now())
-  category_id  Int?
-  category     Category? @relation(fields: [category_id], references: [category_id])
+  updatedAt    DateTime @default(now()) @updatedAt
+  categoryId   Int?
+  category     Category? @relation(fields: [categoryId], references: [id])
 
   attributes Attribute[]
   variants   ProductVariant[]
+  order_items OrderItem[]
 
-  @@map("products")
 }
 
 model Attribute {
   id         Int     @id @default(autoincrement())
-  name       String // "Màu sắc", "Size", "Chất liệu"
-  product_id Int
-  product    Product @relation(fields: [product_id], references: [product_id])
+  name       String // "MÃ u sáº¯c", "Size", "Cháº¥t liá»‡u"
+  productId    Int
+  product   Product @relation(fields: [productId], references: [id])
 
   values AttributeValue[]
 
-  @@map("attributes")
 }
 
 model AttributeValue {
   id           Int       @id @default(autoincrement())
-  value        String // "Đỏ", "Xanh", "Size 32"...
-  attribute_id Int
-  attribute    Attribute @relation(fields: [attribute_id], references: [id])
+  value        String // "Äá»", "Xanh", "Size 32"...
+  attributeId   Int
+  attribute   Attribute @relation(fields: [attributeId], references: [id])
 
   variant_links VariantAttributeValue[]
 
-  @@map("attribute_values")
 }
 
 model ProductVariant {
   sku              String                  @id
-  product_id       Int
-  product          Product                 @relation(fields: [product_id], references: [product_id])
+  productId        Int
+  product          Product                 @relation(fields: [productId], references: [id])
   selling_price    Decimal                 @db.Decimal(12, 2)
-  cost_price_ref   Decimal                 @db.Decimal(12, 2)
+  cogs             Decimal                 @default(0) @db.Decimal(12, 2)
   image_url        String?
+  status           ProductVariantStatus    @default(active)
+  created_at       DateTime                @default(now())
+  updated_at       DateTime                @default(now()) @updatedAt
   attribute_values VariantAttributeValue[]
-  order_details    OrderDetail[]
-  inventory_logs   InventoryLog[]
+  order_items      OrderItem[]
+  inventory_stock  InventoryStock?
+  inventory_transactions InventoryTransaction[]
+  inventory_audit_lines InventoryAuditLine[]
   // --------------------------------------------
 
-  @@map("product_variants")
+}
+
+enum InventoryTransactionType {
+  initialize
+  adjust
+  reserve
+  release
+  move_to_packing
+  pack_cancel
+  fulfill
+  return_restock
+  incoming_create
+  incoming_receive
+}
+
+enum InventoryReasonCode {
+  initialize
+  actual_count
+  damaged
+  customer_return
+  transfer
+  manufacturing
+  lost
+  order_reserved
+  order_released
+  packing_started
+  packing_cancelled
+  order_fulfilled
+  purchase_incoming
+  purchase_received
+  other
+}
+
+enum InventoryFieldName {
+  on_hand
+  available
+  committed
+  packing
+  incoming
+}
+
+enum InventoryAuditStatus {
+  draft
+  completed
 }
 
 model VariantAttributeValue {
   variant_sku        String
-  attribute_value_id Int
+  attributeValueId Int
 
   variant         ProductVariant @relation(fields: [variant_sku], references: [sku])
-  attribute_value AttributeValue @relation(fields: [attribute_value_id], references: [id])
+  attribute_value AttributeValue @relation(fields: [attributeValueId], references: [id])
 
-  @@id([variant_sku, attribute_value_id])
-  @@map("variant_attribute_values")
+  @@id([variant_sku, attributeValueId])
 }
 
 // ---------------------------------------------------------
-// 3. Nhóm Khách hàng & Địa lý
+// 3. NhÃ³m KhÃ¡ch hÃ ng & Äá»‹a lÃ½
 // ---------------------------------------------------------
 
-model Customer {
-  customer_id  String  @id
-  full_name    String
-  phone_number String  @unique
-  display_name String?
-  orders       Order[]
+model CustomerCategory {
+  id              Int        @id @default(autoincrement())
+  category_code   String?    @unique
+  category_name   String
+  normalized_name String
+  is_active       Boolean    @default(true)
+  created_at      DateTime   @default(now())
+  updated_at      DateTime   @default(now()) @updatedAt
 
+  customers       Customer[]
+
+  @@unique([normalized_name])
+  @@map("customer_categories")
+}
+
+model Customer {
+  id                   Int               @id @default(autoincrement())
+  client_code          String            @unique
+  full_name            String
+  phone                String            @unique
+  status               CustomerStatus    @default(active)
+  customer_category_id Int?
+  created_at           DateTime          @default(now())
+  updated_at           DateTime          @default(now()) @updatedAt
+
+  customer_category    CustomerCategory? @relation(fields: [customer_category_id], references: [id])
+  orders               Order[]
+
+  @@index([full_name])
+  @@index([client_code])
+  @@index([status])
   @@map("customers")
 }
 
 model Location {
-  location_id Int    @id @default(autoincrement())
-  state       String // Tỉnh/Thành
-  city        String // Quận/Huyện
-  district    String // Phường/Xã
+  id          Int    @id @default(autoincrement())
+  state       String // Tá»‰nh/ThÃ nh
+  city        String // Quáº­n/Huyá»‡n
+  district    String // PhÆ°á»ng/XÃ£
 
-  @@map("locations")
 }
 
 // ---------------------------------------------------------
-// 4. Nhóm Đơn hàng
+// 4. NhÃ³m ÄÆ¡n hÃ ng
 // ---------------------------------------------------------
 
+model State {
+  id              Int        @id @default(autoincrement())
+  code            String     @unique
+  name            String
+  normalized_name String     @unique
+  is_active       Boolean    @default(true)
+  created_at      DateTime   @default(now())
+  updated_at      DateTime   @default(now()) @updatedAt
+
+  cities          City[]
+
+  @@map("states")
+}
+
+model City {
+  id              Int        @id @default(autoincrement())
+  state_id        Int
+  code            String
+  name            String
+  normalized_name String
+  is_active       Boolean    @default(true)
+  created_at      DateTime   @default(now())
+  updated_at      DateTime   @default(now()) @updatedAt
+
+  state           State      @relation(fields: [state_id], references: [id])
+  districts       District[]
+
+  @@unique([state_id, code])
+  @@unique([state_id, normalized_name])
+  @@index([state_id])
+  @@map("cities")
+}
+
+model District {
+  id              Int       @id @default(autoincrement())
+  city_id         Int
+  code            String
+  name            String
+  normalized_name String
+  is_active       Boolean   @default(true)
+  created_at      DateTime  @default(now())
+  updated_at      DateTime  @default(now()) @updatedAt
+
+  city            City      @relation(fields: [city_id], references: [id])
+
+  @@unique([city_id, code])
+  @@unique([city_id, normalized_name])
+  @@index([city_id])
+  @@map("districts")
+}
+
 model Order {
-  order_id    String       @id
-  customer_id String
-  customer    Customer     @relation(fields: [customer_id], references: [customer_id])
-  order_date  DateTime     @default(now())
-  channel_id  Int
-  channel     SalesChannel @relation(fields: [channel_id], references: [channel_id])
-  status_id   Int
-  status      OrderStatus  @relation(fields: [status_id], references: [status_id])
+  id                        Int                   @id @default(autoincrement())
+  order_code                String                @unique
+  order_type                OrderType             @default(sale)
+  order_date                DateTime              @default(now())
+  customer_id               Int?
+  customer                  Customer?             @relation(fields: [customer_id], references: [id])
+  customer_code             String?
+  customer_name             String
+  customer_phone            String
+  customer_email            String?
+  customer_address          String?
+  sub_total                 Decimal               @default(0) @db.Decimal(12, 2)
+  tax_amount                Decimal               @default(0) @db.Decimal(12, 2)
+  shipping_fee              Decimal               @default(0) @db.Decimal(12, 2)
+  total_amount              Decimal               @default(0) @db.Decimal(12, 2)
+  deposit_amount            Decimal               @default(0) @db.Decimal(12, 2)
+  paid_amount               Decimal               @default(0) @db.Decimal(12, 2)
+  outstanding_amount        Decimal               @default(0) @db.Decimal(12, 2)
+  payment_status            OrderPaymentStatus    @default(unpaid)
+  processing_status         OrderProcessingStatus @default(draft)
+  shipping_service          String?
+  sales_channel             String?
+  order_notes               String?
+  payment_notes             String?
+  warehouse_status          String?
+  tracking_code             String?
+  shipping_status           String?
+  invoice_code              String?
+  created_by                String?
+  confirmed_by              String?
+  status_timeline           Json                  @default("{}")
+  created_at                DateTime              @default(now())
+  updated_at                DateTime              @default(now()) @updatedAt
 
-  shipping_unit_id Int
-  shipping_unit    ShippingUnit @relation(fields: [shipping_unit_id], references: [unit_id])
+  items                     OrderItem[]
+  history                   OrderHistory[]
 
-  tracking_number       String?
-  shipping_address      String
-  shipping_fee_system   Decimal       @default(0) @db.Decimal(12, 2)
-  shipping_fee_customer Decimal       @default(0) @db.Decimal(12, 2)
-  discount_amount       Decimal       @default(0) @db.Decimal(12, 2)
-  payment_method        String
-  notes                 String?
-  details               OrderDetail[]
-
+  @@index([order_code])
+  @@index([order_date])
+  @@index([payment_status])
+  @@index([processing_status])
+  @@index([order_type])
+  @@index([customer_id])
   @@map("orders")
 }
 
-model OrderDetail {
-  order_id   String
-  order      Order          @relation(fields: [order_id], references: [order_id])
-  sku        String
-  variant    ProductVariant @relation(fields: [sku], references: [sku])
-  quantity   Int
-  unit_cost  Decimal        @db.Decimal(12, 2)
-  unit_price Decimal        @db.Decimal(12, 2)
-  notes      String?
+model OrderItem {
+  id                  Int            @id @default(autoincrement())
+  order_id            Int
+  order               Order          @relation(fields: [order_id], references: [id], onDelete: Cascade)
+  product_id          Int?
+  product             Product?       @relation(fields: [product_id], references: [id])
+  variant_sku         String?
+  variant             ProductVariant? @relation(fields: [variant_sku], references: [sku])
+  product_name        String
+  sku                 String
+  quantity            Int
+  unit_price          Decimal        @db.Decimal(12, 2)
+  discount_amount     Decimal        @default(0) @db.Decimal(12, 2)
+  sub_total           Decimal        @db.Decimal(12, 2)
+  notes               String?
+  created_at          DateTime       @default(now())
+  updated_at          DateTime       @default(now()) @updatedAt
 
-  @@id([order_id, sku]) // Composite PK
-  @@map("order_details")
+  @@index([order_id])
+  @@index([product_id])
+  @@index([variant_sku])
+  @@map("order_items")
+}
+
+model OrderHistory {
+  id                  Int      @id @default(autoincrement())
+  order_id            Int
+  order               Order    @relation(fields: [order_id], references: [id], onDelete: Cascade)
+  event_type          String
+  description         String
+  actor_name          String?
+  metadata            Json     @default("{}")
+  created_at          DateTime @default(now())
+
+  @@index([order_id, created_at(sort: Desc)])
+  @@map("order_history")
 }
 
 // ---------------------------------------------------------
-// 5. Kho vận
+// 5. Kho váº­n
 // ---------------------------------------------------------
 
-model InventoryLog {
-  log_id           Int            @id @default(autoincrement())
-  batch_id         String? // Mã lô hàng
-  sku              String
-  variant          ProductVariant @relation(fields: [sku], references: [sku])
-  transaction_date DateTime       @default(now())
-  transaction_type String // Nhập hàng, Xuất bán, Nhập trả...
-  quantity         Int
-  unit_cost        Decimal        @db.Decimal(12, 2)
-  notes            String?
+model InventoryStock {
+  id                 Int      @id @default(autoincrement())
+  product_variant_id String   @unique
+  on_hand            Int      @default(0)
+  available          Int      @default(0)
+  committed          Int      @default(0)
+  packing            Int      @default(0)
+  incoming           Int      @default(0)
+  version            Int      @default(0)
+  created_at         DateTime @default(now())
+  updated_at         DateTime @updatedAt
 
-  @@map("inventory_logs")
+  product_variant ProductVariant @relation(fields: [product_variant_id], references: [sku])
+
+  @@map("InventoryStock")
+}
+
+model InventoryTransaction {
+  id                 Int                      @id @default(autoincrement())
+  product_variant_id String
+  transaction_type   InventoryTransactionType
+  reason_code        InventoryReasonCode
+  reference_type     String?
+  reference_id       String?
+  reference_code     String?
+  actor_id           String?
+  actor_name         String?
+  note               String?
+  idempotency_key    String?                  @unique
+  metadata_json      Json                     @default("{}")
+  created_at         DateTime                 @default(now())
+
+  product_variant ProductVariant            @relation(fields: [product_variant_id], references: [sku])
+  lines           InventoryTransactionLine[]
+
+  @@index([product_variant_id, created_at(sort: Desc)])
+  @@index([reference_type, reference_id])
+  @@map("InventoryTransaction")
+}
+
+model InventoryAudit {
+  id                    Int                  @id @default(autoincrement())
+  audit_code            String               @unique
+  status                InventoryAuditStatus @default(draft)
+  note                  String?
+  account_id            String?
+  account_name          String?
+  counted_at            DateTime?
+  completed_at          DateTime?
+  created_at            DateTime             @default(now())
+  updated_at            DateTime             @updatedAt
+
+  lines                 InventoryAuditLine[]
+
+  @@index([status, created_at(sort: Desc)])
+  @@map("InventoryAudit")
+}
+
+model InventoryAuditLine {
+  id                    Int             @id @default(autoincrement())
+  audit_id              Int
+  product_variant_id    String
+  system_on_hand        Int
+  counted_on_hand       Int?
+  delta_qty             Int?
+  note                  String?
+  created_at            DateTime        @default(now())
+  updated_at            DateTime        @updatedAt
+
+  audit                 InventoryAudit  @relation(fields: [audit_id], references: [id], onDelete: Cascade)
+  product_variant       ProductVariant  @relation(fields: [product_variant_id], references: [sku])
+
+  @@unique([audit_id, product_variant_id])
+  @@index([audit_id])
+  @@index([product_variant_id])
+  @@map("InventoryAuditLine")
+}
+
+model InventoryTransactionLine {
+  id                 Int                @id @default(autoincrement())
+  transaction_id     Int
+  field_name         InventoryFieldName
+  delta_value        Int
+  value_after_change Int
+  created_at         DateTime           @default(now())
+
+  transaction InventoryTransaction @relation(fields: [transaction_id], references: [id], onDelete: Cascade)
+
+  @@unique([transaction_id, field_name])
+  @@index([transaction_id])
+  @@map("InventoryTransactionLine")
 }

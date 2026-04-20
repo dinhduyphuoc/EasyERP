@@ -1,84 +1,86 @@
-﻿import { useMemo, useState } from 'react'
-import {
-  Box,
-  Button,
-  Chip,
-  Link,
-  Paper,
-  Stack,
-  Typography,
-  alpha,
-} from '@mui/material'
+import { useEffect, useMemo, useState } from 'react'
+import { Box, Button, Chip, Link, Paper, Stack, Typography, alpha } from '@mui/material'
+import { Link as RouterLink, useNavigate } from 'react-router'
 import { CommonListLayout } from '@/shared/ui/list/common-list-layout'
 import { ListEmptyState } from '@/shared/ui/list/list-empty-state'
 import type { ListColumn, ListFilterConfig, ListTabConfig } from '@/shared/ui/list/common-list.types'
-import { categoryLabelMap, mockProducts, type ProductListItem } from '@/pages/products/product-list.data'
+import type { ProductListItem } from '@/pages/products/product-list.data'
+import { productApi, type ProductCategory } from '@/pages/products/product.api'
+import { appToast } from '@/shared/ui/toast/toast'
 
-type ProductStatus = 'Đang bán' | 'Sắp hết' | 'Hết hàng'
+type ProductStatus = 'active' | 'inactive' | 'draft' | 'deleted'
+
+type ProductListPageCache = {
+  activeTab: string
+  searchValue: string
+  filterValues: Record<string, string>
+  page: number
+  pageSize: number
+  products: ProductListItem[]
+  categories: ProductCategory[]
+}
+
+let productListPageCache: ProductListPageCache | null = null
 
 const productTabs: ListTabConfig[] = [
   { label: 'Tất cả', value: 'all' },
   { label: 'Đang bán', value: 'active' },
-  { label: 'Sắp hết', value: 'low-stock' },
-  { label: 'Hết hàng', value: 'out-of-stock' },
+  { label: 'Ngưng bán', value: 'inactive' },
+  { label: 'Nháp', value: 'draft' },
 ]
 
-const productFilters: ListFilterConfig[] = [
-  {
-    key: 'category',
-    label: 'Danh mục',
-    placeholder: 'Tất cả danh mục',
-    options: [
-      { label: 'Phụ kiện', value: 'Phụ kiện' },
-      { label: 'Thời trang nam', value: 'Thời trang nam' },
-      { label: 'Thời trang nữ', value: 'Thời trang nữ' },
-    ],
-  },
-  {
-    key: 'status',
-    label: 'Trạng thái',
-    placeholder: 'Tất cả trạng thái',
-    options: [
-      { label: 'Đang bán', value: 'Đang bán' },
-      { label: 'Sắp hết', value: 'Sắp hết' },
-      { label: 'Hết hàng', value: 'Hết hàng' },
-    ],
-  },
-]
+const productStatusFilter: ListFilterConfig = {
+  key: 'status',
+  label: 'Trạng thái',
+  placeholder: 'Tất cả trạng thái',
+  options: [
+    { label: 'Đang bán', value: 'active' },
+    { label: 'Ngưng bán', value: 'inactive' },
+    { label: 'Nháp', value: 'draft' },
+  ],
+}
 
 function getStatusColor(status: ProductStatus): 'success' | 'warning' | 'error' {
-  if (status === 'Đang bán') {
+  if (status === 'active') {
     return 'success'
   }
 
-  if (status === 'Sắp hết') {
+  if (status === 'draft') {
     return 'warning'
   }
 
   return 'error'
 }
 
+function getStatusLabel(status: ProductStatus) {
+  if (status === 'active') {
+    return 'Đang bán'
+  }
+
+  if (status === 'inactive') {
+    return 'Ngưng bán'
+  }
+
+  if (status === 'deleted') {
+    return 'Đã xóa'
+  }
+
+  return 'Nháp'
+}
+
 function matchesTab(row: ProductListItem, activeTab: string) {
-  if (activeTab === 'active') {
-    return row.status === 'Đang bán'
+  if (activeTab === 'all') {
+    return true
   }
 
-  if (activeTab === 'low-stock') {
-    return row.status === 'Sắp hết'
-  }
-
-  if (activeTab === 'out-of-stock') {
-    return row.status === 'Hết hàng'
-  }
-
-  return true
+  return (row.status ?? 'draft') === activeTab
 }
 
 function formatCurrency(value: string) {
   return `${Number(value).toLocaleString('vi-VN')} đ`
 }
 
-function getCategoryLabel(categoryId: number | null) {
+function getCategoryLabel(categoryId: number | null, categoryLabelMap: Record<number, string>) {
   if (!categoryId) {
     return '-'
   }
@@ -88,7 +90,7 @@ function getCategoryLabel(categoryId: number | null) {
 
 function getProductPriceLabel(product: ProductListItem) {
   if (product.variants.length === 0) {
-    return '-'
+    return product.base_price ? formatCurrency(product.base_price) : '-'
   }
 
   const prices = product.variants.map((variant) => Number(variant.selling_price)).sort((a, b) => a - b)
@@ -103,55 +105,158 @@ function getProductPriceLabel(product: ProductListItem) {
 }
 
 export function ProductListPage() {
-  const [activeTab, setActiveTab] = useState('all')
-  const [searchValue, setSearchValue] = useState('')
-  const [filterValues, setFilterValues] = useState<Record<string, string>>({
-    category: '',
-    status: '',
-  })
-  const [page, setPage] = useState(1)
-  const [pageSize, setPageSize] = useState(10)
+  const navigate = useNavigate()
+  const [activeTab, setActiveTab] = useState(productListPageCache?.activeTab ?? 'all')
+  const [searchValue, setSearchValue] = useState(productListPageCache?.searchValue ?? '')
+  const [filterValues, setFilterValues] = useState<Record<string, string>>(
+    productListPageCache?.filterValues ?? {
+      category: '',
+      status: '',
+    },
+  )
+  const [page, setPage] = useState(productListPageCache?.page ?? 1)
+  const [pageSize, setPageSize] = useState(productListPageCache?.pageSize ?? 10)
+  const [products, setProducts] = useState<ProductListItem[]>(productListPageCache?.products ?? [])
+  const [categories, setCategories] = useState<ProductCategory[]>(productListPageCache?.categories ?? [])
+  const [isLoading, setIsLoading] = useState(productListPageCache === null)
+  const [selectedProductIds, setSelectedProductIds] = useState<string[]>([])
+  const [isDeleting, setIsDeleting] = useState(false)
 
-  const tabCounts = useMemo(
-    () => ({
-      all: mockProducts.length,
-      active: mockProducts.filter((item) => item.status === 'Đang bán').length,
-      'low-stock': mockProducts.filter((item) => item.status === 'Sắp hết').length,
-      'out-of-stock': mockProducts.filter((item) => item.status === 'Hết hàng').length,
-    }),
-    [],
+  useEffect(() => {
+    const fetchProducts = async () => {
+      setIsLoading(products.length === 0)
+      try {
+        const [productData, categoryData] = await Promise.all([
+          productApi.getProducts(),
+          productApi.getProductCategories(),
+        ])
+        setProducts(productData)
+        setCategories(categoryData)
+      } catch (error) {
+        console.error('Lỗi khi tải danh sách sản phẩm:', error)
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    void fetchProducts()
+  }, [])
+
+  useEffect(() => {
+    productListPageCache = {
+      activeTab,
+      searchValue,
+      filterValues,
+      page,
+      pageSize,
+      products,
+      categories,
+    }
+  }, [activeTab, categories, filterValues, page, pageSize, products, searchValue])
+
+  const categoryLabelMap = useMemo(
+    () =>
+      Object.fromEntries(categories.map((category) => [category.id, category.category_name])) as Record<number, string>,
+    [categories],
+  )
+
+  const productFilters = useMemo<ListFilterConfig[]>(
+    () => [
+      {
+        key: 'category',
+        label: 'Danh mục',
+        placeholder: 'Tất cả danh mục',
+        options: categories.map((category) => ({
+          label: category.category_name,
+          value: category.category_name,
+        })),
+      },
+      productStatusFilter,
+    ],
+    [categories],
   )
 
   const tabs = useMemo(
     () =>
-      productTabs.map((tab) => ({
-        ...tab,
-        count: tabCounts[tab.value as keyof typeof tabCounts],
-      })),
-    [tabCounts],
+      productTabs.map((tab) => {
+        let count = 0
+        if (tab.value === 'all') {
+          count = products.length
+        } else {
+          count = products.filter((row) => (row.status ?? 'draft') === tab.value).length
+        }
+
+        return {
+          ...tab,
+          count,
+        }
+      }),
+    [products],
   )
 
   const filteredRows = useMemo(() => {
     const keyword = searchValue.trim().toLowerCase()
 
-    return mockProducts.filter((row) => {
+    return products.filter((row) => {
       const matchesKeyword =
         keyword.length === 0 ||
         row.product_name.toLowerCase().includes(keyword) ||
         row.sku?.toLowerCase().includes(keyword) ||
         row.variants.some((variant) => variant.sku.toLowerCase().includes(keyword))
 
-      const matchesCategory = !filterValues.category || getCategoryLabel(row.category_id) === filterValues.category
+      const matchesCategory =
+        !filterValues.category || getCategoryLabel(row.categoryId, categoryLabelMap) === filterValues.category
       const matchesStatus = !filterValues.status || row.status === filterValues.status
 
       return matchesKeyword && matchesCategory && matchesStatus && matchesTab(row, activeTab)
     })
-  }, [activeTab, filterValues.category, filterValues.status, searchValue])
+  }, [activeTab, categoryLabelMap, filterValues.category, filterValues.status, products, searchValue])
 
   const pagedRows = useMemo(() => {
     const start = (page - 1) * pageSize
     return filteredRows.slice(start, start + pageSize)
   }, [filteredRows, page, pageSize])
+
+  const handleDeleteSelected = async () => {
+    const idsToDelete = selectedProductIds
+      .map((id) => Number(id))
+      .filter((id) => Number.isInteger(id) && id > 0)
+
+    if (idsToDelete.length === 0 || isDeleting) {
+      return
+    }
+
+    setIsDeleting(true)
+    try {
+      const result = await productApi.deleteProducts(idsToDelete)
+      setProducts((current) => current.filter((row) => !result.deleted_ids.includes(row.id)))
+      setSelectedProductIds([])
+      appToast.success(
+        result.deleted_ids.length > 0
+          ? `Đã chuyển ${result.deleted_ids.length} sản phẩm sang trạng thái đã xóa.`
+          : 'Đã xử lý sản phẩm đã chọn.',
+      )
+    } catch (error) {
+      console.error('Lỗi khi xóa sản phẩm:', error)
+      const message =
+        typeof error === 'object' &&
+        error !== null &&
+        'response' in error &&
+        typeof error.response === 'object' &&
+        error.response !== null &&
+        'data' in error.response &&
+        typeof error.response.data === 'object' &&
+        error.response.data !== null &&
+        'message' in error.response.data &&
+        typeof error.response.data.message === 'string'
+          ? error.response.data.message
+          : 'Không thể xóa sản phẩm. Vui lòng thử lại!'
+
+      appToast.error(message)
+    } finally {
+      setIsDeleting(false)
+    }
+  }
 
   const columns = useMemo<ListColumn<ProductListItem>[]>(
     () => [
@@ -190,7 +295,7 @@ export function ProductListPage() {
       {
         key: 'category',
         title: 'Danh mục',
-        render: (row) => getCategoryLabel(row.category_id),
+        render: (row) => getCategoryLabel(row.categoryId, categoryLabelMap),
       },
       {
         key: 'variants',
@@ -210,14 +315,14 @@ export function ProductListPage() {
         render: (row) => (
           <Chip
             size="small"
-            label={row.status ?? 'Chưa cập nhật'}
-            color={getStatusColor((row.status ?? 'Hết hàng') as ProductStatus)}
+            label={getStatusLabel((row.status ?? 'draft') as ProductStatus)}
+            color={getStatusColor((row.status ?? 'draft') as ProductStatus)}
             variant="outlined"
           />
         ),
       },
     ],
-    [],
+    [categoryLabelMap],
   )
 
   const handleFilterChange = (key: string, value: string) => {
@@ -235,7 +340,7 @@ export function ProductListPage() {
         <>
           <Button variant="outlined">Xuất file</Button>
           <Button variant="outlined">Nhập file</Button>
-          <Button variant="contained" color="secondary">
+          <Button component={RouterLink} to="/products/create" variant="contained" color="secondary">
             Thêm sản phẩm
           </Button>
         </>
@@ -256,24 +361,44 @@ export function ProductListPage() {
       filterValues={filterValues}
       onFilterChange={handleFilterChange}
       toolbarActions={
-        <Button
-          variant="text"
-          onClick={() => {
-            setSearchValue('')
-            setFilterValues({ category: '', status: '' })
-            setPage(1)
-          }}
-        >
-          Đặt lại
-        </Button>
+        <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+          <Button
+            variant="text"
+            onClick={() => {
+              setSearchValue('')
+              setFilterValues({ category: '', status: '' })
+              setActiveTab('all')
+              setPage(1)
+            }}
+          >
+            Đặt lại
+          </Button>
+        </Box>
       }
+      bulkDelete={{
+        enabled: true,
+        selectedCount: selectedProductIds.length,
+        onDelete: handleDeleteSelected,
+        description: isDeleting
+          ? 'Đang xử lý sản phẩm đã chọn...'
+          : 'Xóa sản phẩm sẽ chuyển trạng thái sang đã xóa. Toàn bộ attributes, variants và dữ liệu lịch sử vẫn được giữ lại.',
+        selectionLabel: `Đã chọn ${selectedProductIds.length} sản phẩm`,
+        buttonLabel: isDeleting ? 'Đang xử lý...' : 'Xóa mềm sản phẩm',
+      }}
       columns={columns}
       rows={pagedRows}
-      rowKey={(row) => String(row.product_id)}
+      rowKey={(row) => String(row.id)}
+      rowSelection={{
+        selectedRowKeys: selectedProductIds,
+        onSelectedRowKeysChange: setSelectedProductIds,
+        getRowLabel: (row) => row.product_name,
+      }}
+      onRowClick={(row) => navigate(`/products/${row.id}/edit`)}
+      loading={isLoading && products.length === 0}
       emptyState={
         <ListEmptyState
           title="Không tìm thấy sản phẩm phù hợp"
-          description="Thử đổi từ khóa tìm kiếm hoặc xóa bớt bộ lọc để xem lại toàn bộ danh sách."
+          description="Thử đổi từ khóa tìm kiếm hoặc xóa bộ lọc để xem lại toàn bộ danh sách."
           action={
             <Button
               variant="contained"
@@ -311,8 +436,8 @@ export function ProductListPage() {
         >
           <Typography sx={{ fontWeight: 700 }}>Gợi ý triển khai tiếp</Typography>
           <Typography color="text.secondary" sx={{ mt: 1 }}>
-            Bộ `productSkeleton` và `mockProducts` đang bám theo format response của backend để bạn thay sang API
-            thật mà không cần sửa nhiều ở list view.
+            Danh sách này chỉ hiển thị product chưa bị xóa mềm. Các variants có trạng thái đã xóa cũng được ẩn khỏi response
+            để UI luôn khớp với logic restore mới.
           </Typography>
           <Link href="#" underline="hover" sx={{ display: 'inline-block', mt: 1.5 }}>
             Xem hướng dẫn tích hợp common list

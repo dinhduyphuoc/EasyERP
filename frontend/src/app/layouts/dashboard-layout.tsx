@@ -2,7 +2,6 @@
 import {
   Avatar,
   Box,
-  Button,
   Drawer,
   IconButton,
   OutlinedInput,
@@ -114,6 +113,9 @@ export function DashboardLayout() {
                 mb: 3,
                 px: { xs: 2, md: 3, xl: 4 },
                 py: { xs: 1.5, lg: 2 },
+                position: 'sticky',
+                top: 0,
+                zIndex: 1100,
                 border: (theme) => `1px solid ${alpha(theme.palette.primary.main, 0.08)}`,
                 background:
                   'linear-gradient(135deg, rgba(255,255,255,0.92) 0%, rgba(244,248,251,0.92) 100%)',
@@ -173,9 +175,6 @@ export function DashboardLayout() {
                   />
                 </Stack>
                 <Stack direction="row" spacing={2} sx={{ alignItems: 'center' }}>
-                  <Button variant="contained" color="secondary">
-                    Mời
-                  </Button>
                   <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
                     <Avatar sx={{ bgcolor: 'primary.main' }}>A</Avatar>
                     <Box>
@@ -196,4 +195,3 @@ export function DashboardLayout() {
     </Box>
   )
 }
-

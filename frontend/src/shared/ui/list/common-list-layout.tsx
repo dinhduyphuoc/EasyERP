@@ -1,5 +1,5 @@
-import type { ReactNode } from 'react'
-import { Box, Divider, Paper, Stack } from '@mui/material'
+﻿import type { ReactNode } from 'react'
+import { Box, Button, Divider, Paper, Stack, Typography } from '@mui/material'
 import { ListEmptyState } from '@/shared/ui/list/list-empty-state'
 import { ListPageHeader } from '@/shared/ui/list/list-page-header'
 import { ListPagination } from '@/shared/ui/list/list-pagination'
@@ -10,6 +10,8 @@ import type {
   ListColumn,
   ListFilterConfig,
   ListPaginationConfig,
+  ListRowClickHandler,
+  ListRowSelectionConfig,
   ListTabConfig,
 } from '@/shared/ui/list/common-list.types'
 
@@ -28,10 +30,20 @@ type CommonListLayoutProps<T> = {
   onFilterChange?: (key: string, value: string) => void
   toolbarActions?: ReactNode
   bulkActions?: ReactNode
+  bulkDelete?: {
+    enabled?: boolean
+    selectedCount: number
+    onDelete: () => void | Promise<void>
+    selectionLabel?: ReactNode
+    description?: ReactNode
+    buttonLabel?: ReactNode
+  }
   metaBar?: ReactNode
   columns: ListColumn<T>[]
   rows: T[]
   rowKey: (row: T) => string
+  onRowClick?: ListRowClickHandler<T>
+  rowSelection?: ListRowSelectionConfig<T>
   loading?: boolean
   emptyState?: ReactNode
   pagination?: ListPaginationConfig
@@ -53,15 +65,23 @@ export function CommonListLayout<T>({
   onFilterChange,
   toolbarActions,
   bulkActions,
+  bulkDelete,
   metaBar,
   columns,
   rows,
   rowKey,
+  onRowClick,
+  rowSelection,
   loading = false,
   emptyState,
   pagination,
   helper,
 }: CommonListLayoutProps<T>) {
+  const shouldShowBulkDelete =
+    bulkDelete !== undefined &&
+    bulkDelete.enabled !== false &&
+    bulkDelete.selectedCount > 0
+
   return (
 
     <Stack sx={{
@@ -87,6 +107,29 @@ export function CommonListLayout<T>({
         />
         </Box>
 
+        {shouldShowBulkDelete ? (
+          <Paper sx={{ borderRadius: 5, p: 2 }}>
+            <Stack
+              direction={{ xs: 'column', md: 'row' }}
+              spacing={2}
+              sx={{ alignItems: { xs: 'stretch', md: 'center' }, justifyContent: 'space-between' }}
+            >
+              <Box>
+                <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                  {bulkDelete.selectionLabel ?? `Đã chọn ${bulkDelete.selectedCount} dòng`}
+                </Typography>
+                {bulkDelete.description ? (
+                  <Typography variant="body2" color="text.secondary">
+                    {bulkDelete.description}
+                  </Typography>
+                ) : null}
+              </Box>
+              <Button variant="outlined" color="error" onClick={bulkDelete.onDelete}>
+                {bulkDelete.buttonLabel ?? 'Xóa các dòng đã chọn'}
+              </Button>
+            </Stack>
+          </Paper>
+        ) : null}
         {bulkActions ? <Paper sx={{ borderRadius: 5, p: 2 }}>{bulkActions}</Paper> : null}
         {metaBar ? (
           <>
@@ -98,6 +141,8 @@ export function CommonListLayout<T>({
             columns={columns}
             rows={rows}
             rowKey={rowKey}
+            onRowClick={onRowClick}
+            rowSelection={rowSelection}
             loading={loading}
             emptyState={emptyState ?? <ListEmptyState title="Chưa có dữ liệu" />}
           />
