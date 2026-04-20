@@ -1,8 +1,28 @@
 import { prisma } from "@lib/prisma";
 import { ProductService } from "@/modules/product/product.service";
+import { CustomerService } from "@/modules/customer/customer.service";
 import { InventoryService } from "@/modules/inventory/inventory.service";
+import { OrderService } from "@/modules/order/order.service";
 
 const DEMO_CATEGORY_NAME = "Demo Inventory";
+const DEMO_CUSTOMERS = [
+  {
+    full_name: "Nguyen Minh Chau",
+    phone: "0901000001",
+  },
+  {
+    full_name: "Tran Bao An",
+    phone: "0901000002",
+  },
+] as const;
+
+const DEMO_ORDER_CODES = {
+  draft: "DH9001",
+  placed: "DH9002",
+  delivering: "DH9003",
+  completed: "DH9004",
+  cancelled: "DH9005",
+} as const;
 
 async function ensureDemoCategory() {
   const existing = await prisma.category.findFirst({
@@ -42,7 +62,7 @@ async function ensureDemoProducts(categoryId: number) {
       sku: "MUG-EE",
       unit: "cai",
       base_price: 79000,
-      categoryId,
+      category_id: categoryId,
       image_url: "https://placehold.co/120x120?text=MUG",
       status: "active",
       description: "San pham demo inventory don gian",
@@ -60,7 +80,7 @@ async function ensureDemoProducts(categoryId: number) {
     await ProductService.createProduct({
       product_name: "Ao polo EasyERP",
       unit: "cai",
-      categoryId,
+      category_id: categoryId,
       image_url: "https://placehold.co/120x120?text=POLO",
       status: "active",
       description: "San pham demo inventory co bien the",
@@ -258,8 +278,227 @@ async function ensureSeedData() {
   return variants.map((variant) => variant.sku);
 }
 
+async function ensureDemoCustomers() {
+  const customers = [];
+
+  for (const input of DEMO_CUSTOMERS) {
+    const existing = await prisma.customer.findFirst({
+      where: { phone: input.phone },
+      select: {
+        id: true,
+        client_code: true,
+        full_name: true,
+        phone: true,
+      },
+    });
+
+    if (existing) {
+      customers.push(existing);
+      continue;
+    }
+
+    const created = await CustomerService.createCustomer({
+      full_name: input.full_name,
+      phone: input.phone,
+      status: "active",
+    });
+
+    customers.push(created);
+  }
+
+  return customers;
+}
+
+async function ensureDemoOrders(variantSkus: string[], customerIds: number[]) {
+  const [firstSku, secondSku = firstSku] = variantSkus;
+  const [firstCustomerId, secondCustomerId = firstCustomerId] = customerIds;
+
+  const ordersToCreate = [
+    {
+      order_code: DEMO_ORDER_CODES.draft,
+      order_date: "2026-04-18T09:00:00.000Z",
+      customer_id: firstCustomerId,
+      customer_info: {
+        name: "Nguyen Minh Chau",
+        phone: "0901000001",
+        address: "12 Nguyen Hue, Quan 1, TP.HCM",
+      },
+      payment_status: "unpaid" as const,
+      processing_status: "draft" as const,
+      sales_channel: "Facebook",
+      shipping_service: "GHN",
+      shipping_fee: 30000,
+      tax_amount: 0,
+      order_notes: "Don demo dang nhap lieu",
+      created_by: "Seed Script",
+      order_items: [
+        {
+          variant_sku: firstSku,
+          sku: firstSku,
+          quantity: 1,
+          unit_price: 79000,
+          discount_amount: 0,
+        },
+      ],
+    },
+    {
+      order_code: DEMO_ORDER_CODES.placed,
+      order_date: "2026-04-18T13:30:00.000Z",
+      customer_id: firstCustomerId,
+      customer_info: {
+        name: "Nguyen Minh Chau",
+        phone: "0901000001",
+        address: "12 Nguyen Hue, Quan 1, TP.HCM",
+      },
+      payment_status: "deposit" as const,
+      processing_status: "placed" as const,
+      sales_channel: "Website",
+      shipping_service: "GHTK",
+      shipping_fee: 25000,
+      tax_amount: 0,
+      deposit_amount: 50000,
+      paid_amount: 50000,
+      payment_notes: "Khach da chuyen khoan dat coc",
+      order_notes: "Cho xac nhan kho",
+      created_by: "Seed Script",
+      order_items: [
+        {
+          variant_sku: secondSku,
+          sku: secondSku,
+          quantity: 1,
+          unit_price: 249000,
+          discount_amount: 0,
+        },
+      ],
+    },
+    {
+      order_code: DEMO_ORDER_CODES.delivering,
+      order_date: "2026-04-19T08:45:00.000Z",
+      customer_id: secondCustomerId,
+      customer_info: {
+        name: "Tran Bao An",
+        phone: "0901000002",
+        address: "88 Le Loi, Quan 3, TP.HCM",
+      },
+      payment_status: "deposit" as const,
+      processing_status: "delivering" as const,
+      sales_channel: "TikTok Shop",
+      shipping_service: "Viettel Post",
+      shipping_fee: 35000,
+      tax_amount: 0,
+      deposit_amount: 120000,
+      paid_amount: 120000,
+      tracking_code: "VTPOST-DEMO-001",
+      shipping_status: "delivering",
+      warehouse_status: "ready_to_ship",
+      order_notes: "Don demo dang giao",
+      created_by: "Seed Script",
+      confirmed_by: "Warehouse Demo",
+      order_items: [
+        {
+          variant_sku: secondSku,
+          sku: secondSku,
+          quantity: 1,
+          unit_price: 249000,
+          discount_amount: 10000,
+        },
+      ],
+    },
+    {
+      order_code: DEMO_ORDER_CODES.completed,
+      order_date: "2026-04-19T16:20:00.000Z",
+      customer_id: secondCustomerId,
+      customer_info: {
+        name: "Tran Bao An",
+        phone: "0901000002",
+        address: "88 Le Loi, Quan 3, TP.HCM",
+      },
+      payment_status: "paid" as const,
+      processing_status: "completed" as const,
+      sales_channel: "POS",
+      shipping_service: "Ninja Van",
+      shipping_fee: 20000,
+      tax_amount: 0,
+      paid_amount: 269000,
+      shipping_status: "delivered",
+      warehouse_status: "done",
+      invoice_code: "EINV-DEMO-9004",
+      order_notes: "Don demo hoan tat",
+      created_by: "Seed Script",
+      confirmed_by: "Warehouse Demo",
+      order_items: [
+        {
+          variant_sku: firstSku,
+          sku: firstSku,
+          quantity: 2,
+          unit_price: 79000,
+          discount_amount: 0,
+        },
+        {
+          variant_sku: secondSku,
+          sku: secondSku,
+          quantity: 1,
+          unit_price: 249000,
+          discount_amount: 158000,
+        },
+      ],
+    },
+    {
+      order_code: DEMO_ORDER_CODES.cancelled,
+      order_date: "2026-04-20T07:30:00.000Z",
+      customer_id: firstCustomerId,
+      customer_info: {
+        name: "Nguyen Minh Chau",
+        phone: "0901000001",
+        address: "12 Nguyen Hue, Quan 1, TP.HCM",
+      },
+      payment_status: "unpaid" as const,
+      processing_status: "cancelled" as const,
+      sales_channel: "Zalo",
+      shipping_service: "GHN",
+      shipping_fee: 15000,
+      tax_amount: 0,
+      order_notes: "Don demo da huy",
+      created_by: "Seed Script",
+      order_items: [
+        {
+          variant_sku: firstSku,
+          sku: firstSku,
+          quantity: 1,
+          unit_price: 79000,
+          discount_amount: 0,
+        },
+      ],
+    },
+  ];
+
+  const createdOrderCodes: string[] = [];
+
+  for (const orderInput of ordersToCreate) {
+    const existing = await prisma.order.findFirst({
+      where: { order_code: orderInput.order_code },
+      select: { id: true, order_code: true },
+    });
+
+    if (existing) {
+      createdOrderCodes.push(existing.order_code);
+      continue;
+    }
+
+    const order = await OrderService.createOrder(orderInput);
+    createdOrderCodes.push(order.order_code);
+  }
+
+  return createdOrderCodes;
+}
+
 async function main() {
   const seededSkus = await ensureSeedData();
+  const customers = await ensureDemoCustomers();
+  const seededOrderCodes = await ensureDemoOrders(
+    seededSkus,
+    customers.map((customer) => customer.id),
+  );
   const stockList = await prisma.inventoryStock.findMany({
     where: {
       product_variant_id: {
@@ -273,6 +512,8 @@ async function main() {
 
   console.log("Inventory seed completed successfully.");
   console.log("Seeded variants:", seededSkus.join(", "));
+  console.log("Seeded customers:", customers.map((customer) => customer.client_code).join(", "));
+  console.log("Seeded orders:", seededOrderCodes.join(", "));
   console.log("Current stock snapshots:", JSON.stringify(stockList, null, 2));
 }
 

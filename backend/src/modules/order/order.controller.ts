@@ -2,9 +2,13 @@ import type { Request, Response } from "express";
 import { BadRequestError } from "@/common";
 import { OrderService } from "./order.service";
 import type {
+  DuplicateOrderRequestInput,
+  OrderActionName,
+  OrderActionRequestInput,
   OrderListQuery,
   OrderParams,
   OrderRequestInput,
+  UpdateOrderRequestInput,
 } from "./order.types";
 
 const parseId = (value: string | undefined) => {
@@ -52,5 +56,41 @@ export const OrderController = {
       parsePayload<OrderRequestInput>(req.body),
     );
     return res.status(201).json(order);
+  },
+
+  updateOrder: async (
+    req: Request<OrderParams, {}, UpdateOrderRequestInput>,
+    res: Response,
+  ) => {
+    const order = await OrderService.updateOrder(
+      parseId(req.params.id),
+      parsePayload<UpdateOrderRequestInput>(req.body),
+    );
+    return res.status(200).json(order);
+  },
+
+  duplicateOrder: async (
+    req: Request<OrderParams, {}, DuplicateOrderRequestInput>,
+    res: Response,
+  ) => {
+    const order = await OrderService.duplicateOrder(
+      parseId(req.params.id),
+      req.body && typeof req.body === "object"
+        ? (req.body as DuplicateOrderRequestInput)
+        : {},
+    );
+    return res.status(201).json(order);
+  },
+
+  runAction: async (
+    req: Request<OrderParams & { action: OrderActionName }, {}, OrderActionRequestInput>,
+    res: Response,
+  ) => {
+    const order = await OrderService.runAction(
+      parseId(req.params.id),
+      req.params.action,
+      parsePayload<OrderActionRequestInput>(req.body),
+    );
+    return res.status(200).json(order);
   },
 };

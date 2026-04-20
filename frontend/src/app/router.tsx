@@ -13,6 +13,7 @@ import { ProductListPage } from '@/pages/products/product-list-page'
 import { CustomerCreatePage } from '@/pages/customers/customer-create-page'
 import { CustomerListPage } from '@/pages/customers/customer-list-page'
 import { OrdersCreatePage } from '@/pages/orders/orders-create-page'
+import { OrdersCancelledPage } from '@/pages/orders/orders-cancelled-page'
 import { OrdersDetailPage } from '@/pages/orders/orders-detail-page'
 import { OrdersDraftsPage } from '@/pages/orders/orders-drafts-page'
 import { OrdersIncompletePage } from '@/pages/orders/orders-incomplete-page'
@@ -29,6 +30,7 @@ const customRouteElements: Record<string, ReactElement> = {
   '/orders': <OrdersListPage />,
   '/orders/drafts': <OrdersDraftsPage />,
   '/orders/incomplete': <OrdersIncompletePage />,
+  '/orders/cancelled': <OrdersCancelledPage />,
   '/orders/returns': <OrdersReturnsPage />,
   '/inventory/stock': <InventoryStockPage />,
   '/inventory/audit': <InventoryAuditListPage />,
@@ -81,6 +83,11 @@ childRoutes.push({
 childRoutes.push({
   path: 'orders/:id',
   element: <OrdersDetailPage />,
+})
+
+childRoutes.push({
+  path: 'orders/:id/edit',
+  element: <OrdersCreatePage />,
 })
 
 childRoutes.push({

@@ -4,11 +4,11 @@ export interface ProductRequestInput {
   product_name: string;
   sku?: string;
   unit?: string;
-  image_url?: string;
+  image_url?: string | null;
   status?: ProductStatusInput;
   description?: string;
-  createdAt?: string | Date;
-  categoryId?: number | null;
+  created_at?: string | Date;
+  category_id?: number | null;
   category?: string | null;
   base_price?: number | string | null;
   cogs?: number | string | null;
@@ -33,11 +33,11 @@ export interface ProductInput {
   unit?: string;
   base_price?: number | null;
   cogs?: number | null;
-  image_url?: string;
+  image_url?: string | null;
   status?: ProductStatusInput;
   description?: string;
-  createdAt?: string | Date;
-  categoryId: number | null;
+  created_at?: string | Date;
+  category_id: number | null;
   attributes: {
     name: string;
     values: string[];
@@ -46,7 +46,7 @@ export interface ProductInput {
     sku: string;
     selling_price: number;
     cogs: number;
-    image_url?: string;
+    image_url?: string | null;
     combinations: string[];
   }[];
 }

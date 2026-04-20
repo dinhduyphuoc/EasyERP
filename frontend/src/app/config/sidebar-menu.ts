@@ -47,6 +47,7 @@ export const sidebarMenu: SidebarItem[] = [
         to: '/orders/incomplete',
         icon: ReceiptLongOutlinedIcon,
       },
+      { id: 'orders-cancelled', kind: 'item', label: 'Đơn đã hủy', to: '/orders/cancelled', icon: ReceiptLongOutlinedIcon },
     ],
   },
   {

@@ -28,6 +28,7 @@ import {
 } from '@mui/material'
 import { productApi, type ProductCategory, type ProductUpsertPayload } from '@/pages/products/product.api'
 import type { ProductListItem } from '@/pages/products/product-list.data'
+import { defaultCardSx } from '@/shared/ui/paper'
 import { appToast } from '@/shared/ui/toast/toast'
 
 type AttributeRow = {
@@ -43,12 +44,6 @@ type VariantRow = {
   sku: string
   price: string
   cogs: string
-}
-
-const cardSx = {
-  p: { xs: 2, md: 2.5 },
-  borderRadius: '4px',
-  boxShadow: '0 0.5rem 1.5rem rgba(15,23,42,0.08)',
 }
 
 function sanitizeSku(value: string) {
@@ -131,7 +126,7 @@ function buildVariantSeedMap(product: ProductListItem) {
   product.variants.forEach((variant) => {
     const keyFromAttributeValues = variant.attribute_values
       .map((attributeValue) => {
-        const attributeName = attributeNameById.get(attributeValue.attribute_value.attributeId) ?? ''
+        const attributeName = attributeNameById.get(attributeValue.attribute_value.attribute_id) ?? ''
         return `${attributeName}:${attributeValue.attribute_value.value}`
       })
       .join('|')
@@ -177,7 +172,7 @@ export function ProductCreatePage(): ReactElement {
   const [name, setName] = useState('')
   const [sku, setSku] = useState('')
   const [unit, setUnit] = useState('')
-  const [status, setStatus] = useState<'active' | 'inactive' | 'draft' | 'deleted'>('draft')
+  const [status, setStatus] = useState<'active' | 'inactive' | 'draft' | 'deleted'>('active')
   const [category, setCategory] = useState<string | null>(null)
   const [categories, setCategories] = useState<ProductCategory[]>([])
   const [description, setDescription] = useState('')
@@ -233,7 +228,7 @@ export function ProductCreatePage(): ReactElement {
         setSku(product.sku ?? product.variants[0]?.sku.split('-').slice(0, -1).join('-') ?? '')
         setUnit(product.unit ?? '')
         setStatus(product.status ?? 'draft')
-        setCategory(product.categoryId ? categoryNameById.get(product.categoryId) ?? null : null)
+        setCategory(product.category_id ? categoryNameById.get(product.category_id) ?? null : null)
         setDescription(product.description ?? '')
         setImagePreview(product.image_url ?? product.variants[0]?.image_url ?? '')
         setHasAttemptedSave(false)
@@ -336,7 +331,7 @@ export function ProductCreatePage(): ReactElement {
         sku: sku.trim() || undefined,
         unit: unit.trim() || undefined,
         status,
-        image_url: imagePreview || undefined,
+        image_url: imagePreview.trim() ? imagePreview : null,
         category,
         description: description.trim() || undefined,
         base_price: variantMode ? null : parseCurrency(basePrice),
@@ -428,11 +423,39 @@ export function ProductCreatePage(): ReactElement {
     setDirty(true)
     setIsUploading(true)
     const previewUrl = URL.createObjectURL(file)
+    setImagePreview(previewUrl)
 
-    window.setTimeout(() => {
-      setImagePreview(previewUrl)
-      setIsUploading(false)
-    }, 700)
+    void (async () => {
+      try {
+        const uploaded = await productApi.uploadProductImage(file)
+        setImagePreview(uploaded.image_url)
+      } catch (error) {
+        console.error('Lỗi khi tải ảnh sản phẩm:', error)
+        setImagePreview('')
+
+        const message =
+          typeof error === 'object' &&
+          error !== null &&
+          'response' in error &&
+          typeof error.response === 'object' &&
+          error.response !== null &&
+          'data' in error.response &&
+          typeof error.response.data === 'object' &&
+          error.response.data !== null &&
+          'message' in error.response.data &&
+          typeof error.response.data.message === 'string'
+            ? error.response.data.message
+            : 'Không thể tải ảnh lên. Vui lòng thử lại!'
+
+        appToast.error(message)
+      } finally {
+        URL.revokeObjectURL(previewUrl)
+        setIsUploading(false)
+        if (fileInputRef.current) {
+          fileInputRef.current.value = ''
+        }
+      }
+    })()
   }
 
   return (
@@ -470,7 +493,7 @@ export function ProductCreatePage(): ReactElement {
 
       <Box sx={{ display: 'grid', gap: 3, gridTemplateColumns: { xs: '1fr', xl: 'minmax(0, 2fr) minmax(320px, 1fr)' } }}>
         <Stack spacing={3}>
-          <Paper sx={cardSx}>
+          <Paper sx={defaultCardSx}>
             <Stack spacing={3}>
               <Box>
                 <Typography variant="h6" sx={{ fontWeight: 600 }}>
@@ -513,7 +536,7 @@ export function ProductCreatePage(): ReactElement {
             </Stack>
           </Paper>
               {!variantMode && (
-                <Paper variant="outlined" sx={cardSx}>
+                <Paper variant="outlined" sx={defaultCardSx}>
                   <Typography variant="h6" sx={{ fontWeight: 600 }}>
                       Thông tin giá
                   </Typography>
@@ -546,7 +569,7 @@ export function ProductCreatePage(): ReactElement {
                 </Paper>
               )}
           {variantMode && (
-            <Paper sx={cardSx}>
+            <Paper sx={defaultCardSx}>
               <Stack spacing={2}>
                 <Stack direction="row" spacing={2} sx={{ justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap' }}>
                   <Box>
@@ -559,7 +582,7 @@ export function ProductCreatePage(): ReactElement {
                   </Box>
                 </Stack>
 
-                <Paper variant="outlined" sx={{ borderRadius: '18px', overflow: 'hidden', borderColor: '#eaecf0' }}>
+                <Paper variant="outlined" sx={{ overflow: 'hidden', borderColor: '#eaecf0' }}>
                   <Table>
                     <TableHead>
                       <TableRow sx={{ bgcolor: '#f8fafc' }}>
@@ -618,7 +641,7 @@ export function ProductCreatePage(): ReactElement {
               </Stack>
             </Paper>
           )}
-          <Paper sx={cardSx}>
+          <Paper sx={defaultCardSx}>
             <Stack spacing={2}>
               <Stack direction="row" spacing={2} sx={{ justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap' }}>
                 <Box>
@@ -666,7 +689,7 @@ export function ProductCreatePage(): ReactElement {
         </Stack>
 
         <Stack spacing={3}>
-          <Paper sx={cardSx}>
+          <Paper sx={defaultCardSx}>
             <Stack spacing={2}>
               <Box>
                 <Typography variant="h6" sx={{ fontWeight: 700 }}>
@@ -695,7 +718,7 @@ export function ProductCreatePage(): ReactElement {
 
               {imagePreview && (
                 <Stack direction="row" sx={{ justifyContent: 'flex-end' }}>
-                  <Button variant="outlined" size="small" startIcon={<DeleteOutlineOutlinedIcon />} onClick={() => setImagePreview('')}>
+                  <Button variant="outlined" size="small" startIcon={<DeleteOutlineOutlinedIcon />} onClick={() => { setDirty(true); setImagePreview('') }}>
                     Xóa ảnh
                   </Button>
                 </Stack>

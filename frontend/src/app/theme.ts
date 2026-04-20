@@ -25,7 +25,7 @@ export const theme = createTheme({
     divider: alpha('#132238', 0.08),
   },
   shape: {
-    borderRadius: 1,
+    borderRadius: 4,
   },
   typography: {
     fontFamily: "'Be Vietnam Pro', 'Segoe UI', sans-serif",
@@ -49,9 +49,22 @@ export const theme = createTheme({
     },
   },
   components: {
+    MuiTextField: {
+      defaultProps: {
+        size: 'small',
+      },
+    },
+    MuiOutlinedInput: {
+      styleOverrides: {
+        root: {
+          borderRadius: 4,
+        },
+      },
+    },
     MuiPaper: {
       styleOverrides: {
         root: {
+          borderRadius: 4,
           backgroundImage: 'none',
           boxShadow: defaultPaperShadow,
         },

@@ -1,25 +1,25 @@
 export type ProductAttributeValue = {
   id: number
   value: string
-  attributeId: number
+  attribute_id: number
 }
 
 export type ProductAttribute = {
   id: number
   name: string
-  productId: number
+  product_id: number
   values: ProductAttributeValue[]
 }
 
 export type ProductVariantAttributeValue = {
   variant_sku: string
-  attributeValueId: number
+  attribute_value_id: number
   attribute_value: ProductAttributeValue
 }
 
 export type ProductVariant = {
   sku: string
-  productId: number
+  product_id: number
   selling_price: string
   cogs: string
   image_url: string | null
@@ -36,9 +36,9 @@ export type ProductListItem = {
   image_url: string | null
   status: 'active' | 'inactive' | 'draft' | 'deleted'
   description: string | null
-  createdAt: string
-  updatedAt?: string
-  categoryId: number | null
+  created_at: string
+  updated_at?: string
+  category_id: number | null
   attributes: ProductAttribute[]
   variants: ProductVariant[]
 }
@@ -51,9 +51,9 @@ export const productSkeleton: ProductListItem = {
   image_url: null,
   status: 'draft',
   description: null,
-  createdAt: new Date().toISOString(),
-  updatedAt: new Date().toISOString(),
-  categoryId: null,
+  created_at: new Date().toISOString(),
+  updated_at: new Date().toISOString(),
+  category_id: null,
   attributes: [],
   variants: [],
 }

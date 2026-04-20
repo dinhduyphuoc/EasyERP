@@ -7,8 +7,10 @@ export type ProductUpsertPayload = {
   product_name: string
   sku?: string
   unit?: string
-  image_url?: string
+  image_url?: string | null
   description?: string
+  created_at?: string
+  category_id?: number | null
   category?: string | null
   status?: 'active' | 'inactive' | 'draft' | 'deleted'
   base_price?: number | null
@@ -29,6 +31,11 @@ export type ProductUpsertPayload = {
 export type ProductCategory = {
   id: number
   category_name: string
+}
+
+export type ProductImageUploadResult = {
+  key: string
+  image_url: string
 }
 
 type BulkDeletePayload = {
@@ -54,6 +61,17 @@ export const productApi = {
 
   getProductById: async (id: string | number): Promise<ProductListItem> => {
     return apiClient.get(`${ENDPOINT}/${id}`)
+  },
+
+  uploadProductImage: async (file: File): Promise<ProductImageUploadResult> => {
+    const formData = new FormData()
+    formData.append('image', file)
+
+    return apiClient.post(`${ENDPOINT}/upload-image`, formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    })
   },
 
   getProductCategories: async (forceRefresh = false): Promise<ProductCategory[]> => {

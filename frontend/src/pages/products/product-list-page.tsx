@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Box, Button, Chip, Link, Paper, Stack, Typography, alpha } from '@mui/material'
+import { Box, Button, Chip, Stack, Typography, alpha } from '@mui/material'
 import { Link as RouterLink, useNavigate } from 'react-router'
 import { CommonListLayout } from '@/shared/ui/list/common-list-layout'
 import { ListEmptyState } from '@/shared/ui/list/list-empty-state'
@@ -205,7 +205,7 @@ export function ProductListPage() {
         row.variants.some((variant) => variant.sku.toLowerCase().includes(keyword))
 
       const matchesCategory =
-        !filterValues.category || getCategoryLabel(row.categoryId, categoryLabelMap) === filterValues.category
+        !filterValues.category || getCategoryLabel(row.category_id, categoryLabelMap) === filterValues.category
       const matchesStatus = !filterValues.status || row.status === filterValues.status
 
       return matchesKeyword && matchesCategory && matchesStatus && matchesTab(row, activeTab)
@@ -295,7 +295,7 @@ export function ProductListPage() {
       {
         key: 'category',
         title: 'Danh mục',
-        render: (row) => getCategoryLabel(row.categoryId, categoryLabelMap),
+        render: (row) => getCategoryLabel(row.category_id, categoryLabelMap),
       },
       {
         key: 'variants',
@@ -425,25 +425,6 @@ export function ProductListPage() {
         },
         pageSizeOptions: [5, 10, 20],
       }}
-      helper={
-        <Paper
-          sx={{
-            p: 2.5,
-            borderRadius: 5,
-            border: (theme) => `1px solid ${alpha(theme.palette.info.main, 0.12)}`,
-            bgcolor: (theme) => alpha(theme.palette.info.light, 0.08),
-          }}
-        >
-          <Typography sx={{ fontWeight: 700 }}>Gợi ý triển khai tiếp</Typography>
-          <Typography color="text.secondary" sx={{ mt: 1 }}>
-            Danh sách này chỉ hiển thị product chưa bị xóa mềm. Các variants có trạng thái đã xóa cũng được ẩn khỏi response
-            để UI luôn khớp với logic restore mới.
-          </Typography>
-          <Link href="#" underline="hover" sx={{ display: 'inline-block', mt: 1.5 }}>
-            Xem hướng dẫn tích hợp common list
-          </Link>
-        </Paper>
-      }
     />
   )
 }

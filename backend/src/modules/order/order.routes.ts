@@ -7,5 +7,8 @@ orderRouter.get("/options", OrderController.getOrderOptions);
 orderRouter.get("/", OrderController.getOrders);
 orderRouter.get("/:id", OrderController.getOrderById);
 orderRouter.post("/", OrderController.createOrder);
+orderRouter.post("/:id/duplicate", OrderController.duplicateOrder);
+orderRouter.patch("/:id", OrderController.updateOrder);
+orderRouter.post("/:id/actions/:action", OrderController.runAction);
 
 export { orderRouter };

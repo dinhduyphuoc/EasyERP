@@ -1,5 +1,7 @@
 import type { Request, Response } from "express";
+import type { UploadedFile } from "express-fileupload";
 import { BadRequestError } from "@/common";
+import { uploadProductImageToS3 } from "@lib/s3";
 import { ProductService } from "./product.service";
 import type {
   BulkDeleteRequestInput,
@@ -43,7 +45,45 @@ const parseIds = (body: unknown) => {
   return [...new Set(ids)];
 };
 
+const ALLOWED_IMAGE_MIME_TYPES = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/gif",
+]);
+
+const parseUploadedImage = (req: Request) => {
+  const upload = req.files?.image ?? req.files?.file;
+
+  if (!upload) {
+    throw new BadRequestError("image file is required");
+  }
+
+  if (Array.isArray(upload)) {
+    throw new BadRequestError("Only one image file is allowed");
+  }
+
+  const file = upload as UploadedFile;
+
+  if (!ALLOWED_IMAGE_MIME_TYPES.has(file.mimetype)) {
+    throw new BadRequestError("Only JPG, PNG, WEBP or GIF images are allowed");
+  }
+
+  return file;
+};
+
 export const ProductController = {
+  uploadImage: async (req: Request, res: Response) => {
+    const file = parseUploadedImage(req);
+    const uploaded = await uploadProductImageToS3({
+      buffer: file.data,
+      fileName: file.name,
+      mimeType: file.mimetype,
+    });
+
+    return res.status(201).json(uploaded);
+  },
+
   getCategories: async (_req: Request, res: Response) => {
     const categories = await ProductService.getCategories();
     return res.status(200).json(categories);

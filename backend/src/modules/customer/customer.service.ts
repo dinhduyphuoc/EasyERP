@@ -69,7 +69,7 @@ const generateNextCustomerCode = async (tx: Prisma.TransactionClient) => {
   const matchingPattern = `^${CUSTOMER_CODE_PREFIX}[0-9]+$`;
   const rows = await tx.$queryRaw<Array<{ max_sequence: number | null }>>(Prisma.sql`
     SELECT MAX(SUBSTRING(client_code FROM ${codeRegex})::integer) AS max_sequence
-    FROM customers
+    FROM "Customer"
     WHERE client_code ~ ${matchingPattern}
   `);
   const nextSequence = (rows[0]?.max_sequence ?? 0) + 1;

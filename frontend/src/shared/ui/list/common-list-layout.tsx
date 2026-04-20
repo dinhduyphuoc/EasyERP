@@ -108,7 +108,7 @@ export function CommonListLayout<T>({
         </Box>
 
         {shouldShowBulkDelete ? (
-          <Paper sx={{ borderRadius: 5, p: 2 }}>
+          <Paper sx={{ p: 2 }}>
             <Stack
               direction={{ xs: 'column', md: 'row' }}
               spacing={2}
@@ -130,7 +130,7 @@ export function CommonListLayout<T>({
             </Stack>
           </Paper>
         ) : null}
-        {bulkActions ? <Paper sx={{ borderRadius: 5, p: 2 }}>{bulkActions}</Paper> : null}
+        {bulkActions ? <Paper sx={{ p: 2 }}>{bulkActions}</Paper> : null}
         {metaBar ? (
           <>
             <Divider />

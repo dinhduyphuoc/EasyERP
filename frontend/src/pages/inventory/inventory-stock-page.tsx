@@ -255,7 +255,6 @@ export function InventoryStockPage() {
         <Paper
           sx={{
             p: 2.5,
-            borderRadius: 5,
             border: (theme) => `1px solid ${alpha(theme.palette.secondary.main, 0.12)}`,
             background: 'linear-gradient(180deg, #ffffff 0%, #f8fbff 100%)',
           }}

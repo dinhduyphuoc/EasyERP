@@ -1,4 +1,5 @@
 import { prisma } from "@lib/prisma";
+import { deleteManagedProductImageFromS3 } from "@lib/s3";
 import { BadRequestError, ConflictError, NotFoundError } from "@/common";
 import type {
   ProductCategoryItem,
@@ -90,6 +91,18 @@ const toNullableTrimmedString = (value: unknown) => {
   return toOptionalTrimmedString(value);
 };
 
+const toOptionalTrimmedStringOrNull = (value: unknown) => {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (value === null) {
+    return null;
+  }
+
+  return toOptionalTrimmedString(value);
+};
+
 const toOptionalNumber = (value: unknown) => {
   if (value === null || value === undefined || value === "") {
     return undefined;
@@ -169,8 +182,8 @@ const toProductData = (data: ProductInput) => ({
   image_url: data.image_url,
   status: data.status,
   description: data.description,
-  createdAt: data.createdAt ? new Date(data.createdAt) : undefined,
-  categoryId: data.categoryId,
+  created_at: data.created_at ? new Date(data.created_at) : undefined,
+  category_id: data.category_id,
 });
 
 const toAttributeCreateData = (attributes: ProductInput["attributes"]) =>
@@ -228,7 +241,7 @@ const createVariantAttributeValues = (attributeValueIds: number[]) =>
   attributeValueIds.length
     ? {
         create: attributeValueIds.map((attributeValueId) => ({
-          attributeValueId,
+          attribute_value_id: attributeValueId,
         })),
       }
     : undefined;
@@ -245,7 +258,7 @@ const ensureNoCrossProductSkuConflict = async (
   const conflictingVariant = await tx.productVariant.findFirst({
     where: {
       sku: { in: variantSkus },
-      productId: { not: productId },
+      product_id: { not: productId },
     },
   });
 
@@ -300,7 +313,7 @@ const resetInventoryStocks = async (
 
 const getProductVariantSkus = async (tx: PrismaTransaction, productId: number) => {
   const variants = await tx.productVariant.findMany({
-    where: { productId },
+    where: { product_id: productId },
     select: { sku: true },
   });
 
@@ -329,7 +342,7 @@ const syncVariants = async (
   attributeValueMap: Map<string, number>,
 ) => {
   const existingVariants = await tx.productVariant.findMany({
-    where: { productId },
+    where: { product_id: productId },
     select: { sku: true },
   });
   const existingSkuSet = new Set(existingVariants.map((variant) => variant.sku));
@@ -356,7 +369,7 @@ const syncVariants = async (
       await tx.productVariant.update({
         where: { sku: variant.sku },
         data: {
-          productId,
+          product_id: productId,
           selling_price: variant.selling_price,
           cogs: variant.cogs,
           image_url: variant.image_url,
@@ -374,7 +387,7 @@ const syncVariants = async (
     await tx.productVariant.create({
       data: {
         sku: variant.sku,
-        productId,
+        product_id: productId,
         selling_price: variant.selling_price,
         cogs: variant.cogs,
         image_url: variant.image_url,
@@ -390,18 +403,18 @@ const resolveCategoryId = async (
   tx: PrismaTransaction,
   payload: ProductRequestInput,
 ) => {
-  if (payload.categoryId !== undefined) {
-    if (payload.categoryId === null) {
+  if (payload.category_id !== undefined) {
+    if (payload.category_id === null) {
       return null;
     }
 
     const category = await tx.category.findUnique({
-      where: { id: payload.categoryId },
+      where: { id: payload.category_id },
       select: { id: true },
     });
 
     if (!category) {
-      throw new BadRequestError("categoryId is invalid");
+      throw new BadRequestError("category_id is invalid");
     }
 
     return category.id;
@@ -454,7 +467,7 @@ const normalizeProductInput = async (
 
           const singleVariantImage =
             toNullableTrimmedString(payload.variants?.[0]?.image_url) ??
-            toNullableTrimmedString(payload.image_url);
+            toOptionalTrimmedStringOrNull(payload.image_url);
 
           return [
             {
@@ -493,7 +506,7 @@ const normalizeProductInput = async (
               toOptionalNumber(variant.cogs) ??
               toOptionalNumber(payload.cogs) ??
               sellingPrice,
-            image_url: toNullableTrimmedString(variant.image_url),
+            image_url: toOptionalTrimmedStringOrNull(variant.image_url),
             combinations,
           };
         });
@@ -516,11 +529,11 @@ const normalizeProductInput = async (
       attributes.length === 0
         ? variants[0]?.cogs ?? toOptionalNumber(payload.cogs) ?? null
         : toOptionalNumber(payload.cogs) ?? null,
-    image_url: toNullableTrimmedString(payload.image_url),
+    image_url: toOptionalTrimmedStringOrNull(payload.image_url),
     status: normalizeProductStatus(payload.status),
     description: toNullableTrimmedString(payload.description),
-    createdAt: payload.createdAt,
-    categoryId,
+    created_at: payload.created_at,
+    category_id: categoryId,
     attributes,
     variants,
   } satisfies ProductInput;
@@ -601,7 +614,7 @@ export const ProductService = {
   },
 
   createProduct: async (payload: ProductRequestInput) => {
-    return prisma.$transaction(async (tx) => {
+    const { product, oldImageUrlToDelete } = await prisma.$transaction(async (tx) => {
       const data = await normalizeProductInput(tx, payload);
 
       // Restore soft-deleted product when the root SKU matches.
@@ -617,6 +630,12 @@ export const ProductService = {
       }
 
       if (existingProduct) {
+        const oldImageUrlToDelete =
+          existingProduct.image_url &&
+          data.image_url !== undefined &&
+          existingProduct.image_url !== data.image_url
+            ? existingProduct.image_url
+            : null;
         const existingVariantSkus = await getProductVariantSkus(tx, existingProduct.id);
 
         await tx.product.update({
@@ -629,10 +648,10 @@ export const ProductService = {
 
         await deleteVariantAttributeLinks(tx, existingVariantSkus);
         await tx.attributeValue.deleteMany({
-          where: { attribute: { productId: existingProduct.id } },
+          where: { attribute: { product_id: existingProduct.id } },
         });
         await tx.attribute.deleteMany({
-          where: { productId: existingProduct.id },
+          where: { product_id: existingProduct.id },
         });
 
         // Add new attributes
@@ -640,7 +659,7 @@ export const ProductService = {
           await tx.attribute.create({
             data: {
               name: attr.name,
-              productId: existingProduct.id,
+              product_id: existingProduct.id,
               values: {
                 create: attr.values.map((value) => ({ value })),
               },
@@ -651,7 +670,7 @@ export const ProductService = {
 
         // Re-fetch attributes to get IDs
         const updatedAttributes = await tx.attribute.findMany({
-          where: { productId: existingProduct.id },
+          where: { product_id: existingProduct.id },
           include: { values: true },
         });
 
@@ -659,10 +678,15 @@ export const ProductService = {
 
         await syncVariants(tx, existingProduct.id, data.variants, updatedAttributeValueMap);
 
-        return tx.product.findUniqueOrThrow({
+        const product = await tx.product.findUniqueOrThrow({
           where: { id: existingProduct.id },
           include: productInclude,
         });
+
+        return {
+          product,
+          oldImageUrlToDelete,
+        };
       }
 
       await ensureNoCrossProductSkuConflict(
@@ -671,7 +695,7 @@ export const ProductService = {
         data.variants.map((variant) => variant.sku),
       );
 
-      const product = await tx.product.create({
+      const createdProduct = await tx.product.create({
         data: {
           ...toProductData(data),
           attributes: toAttributeCreateData(data.attributes),
@@ -679,15 +703,22 @@ export const ProductService = {
         include: { attributes: { include: { values: true } } },
       });
 
-      const attributeValueMap = buildAttributeValueMap(product.attributes);
+      const attributeValueMap = buildAttributeValueMap(createdProduct.attributes);
 
-      await syncVariants(tx, product.id, data.variants, attributeValueMap);
+      await syncVariants(tx, createdProduct.id, data.variants, attributeValueMap);
 
-      return tx.product.findUniqueOrThrow({
-        where: { id: product.id },
+      const product = await tx.product.findUniqueOrThrow({
+        where: { id: createdProduct.id },
         include: productInclude,
       });
+      return {
+        product,
+        oldImageUrlToDelete: null,
+      };
     });
+
+    await deleteManagedProductImageFromS3(oldImageUrlToDelete);
+    return product;
   },
 
   getProducts: async () => {
@@ -748,8 +779,8 @@ export const ProductService = {
       }
 
       const linkedProducts = await tx.product.findMany({
-        where: { categoryId: { in: uniqueIds } },
-        select: { product_name: true, categoryId: true },
+        where: { category_id: { in: uniqueIds } },
+        select: { product_name: true, category_id: true },
         take: 5,
       });
 
@@ -760,7 +791,7 @@ export const ProductService = {
         const affectedCategoryNames = [
           ...new Set(
             linkedProducts
-              .map((product) => categoryNameById.get(product.categoryId ?? -1))
+              .map((product) => categoryNameById.get(product.category_id ?? -1))
               .filter(Boolean),
           ),
         ];
@@ -779,7 +810,7 @@ export const ProductService = {
   },
 
   editProduct: async (id: number, payload: ProductRequestInput) => {
-    return prisma.$transaction(async (tx) => {
+    const { product, oldImageUrlToDelete } = await prisma.$transaction(async (tx) => {
       const existingProduct = await tx.product.findUnique({
         where: { id },
         include: {
@@ -794,6 +825,12 @@ export const ProductService = {
       }
 
       const data = await normalizeProductInput(tx, payload);
+      const oldImageUrlToDelete =
+        existingProduct.image_url &&
+        data.image_url !== undefined &&
+        existingProduct.image_url !== data.image_url
+          ? existingProduct.image_url
+          : null;
       const existingSkus = existingProduct.variants.map((variant) => variant.sku);
 
       await ensureNoCrossProductSkuConflict(
@@ -806,12 +843,12 @@ export const ProductService = {
 
       await tx.attributeValue.deleteMany({
         where: {
-          attribute: { productId: id },
+          attribute: { product_id: id },
         },
       });
 
       await tx.attribute.deleteMany({
-        where: { productId: id },
+        where: { product_id: id },
       });
 
       const updatedProduct = await tx.product.update({
@@ -827,11 +864,18 @@ export const ProductService = {
 
       await syncVariants(tx, id, data.variants, attributeValueMap);
 
-      return tx.product.findUniqueOrThrow({
+      const product = await tx.product.findUniqueOrThrow({
         where: { id },
         include: productInclude,
       });
+      return {
+        product,
+        oldImageUrlToDelete,
+      };
     });
+
+    await deleteManagedProductImageFromS3(oldImageUrlToDelete);
+    return product;
   },
 
   deleteProducts: async (ids: number[]) => {
@@ -852,14 +896,14 @@ export const ProductService = {
 
       const productIdsToDelete = existingProducts.map((product) => product.id);
       const variantSkusToDelete = await tx.productVariant.findMany({
-        where: { productId: { in: productIdsToDelete } },
+        where: { product_id: { in: productIdsToDelete } },
         select: { sku: true },
       });
       const variantSkuList = variantSkusToDelete.map((variant) => variant.sku);
 
       await resetInventoryStocks(tx, variantSkuList);
       await tx.productVariant.updateMany({
-        where: { productId: { in: productIdsToDelete } },
+        where: { product_id: { in: productIdsToDelete } },
         data: { status: "deleted" },
       });
 

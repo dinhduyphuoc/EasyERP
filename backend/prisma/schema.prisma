@@ -12,6 +12,12 @@ datasource db {
   provider = "postgresql"
 }
 
+// Naming convention for this schema:
+// - Model names use singular PascalCase, for example `Order`, `Customer`, `City`.
+// - Scalar fields and relation fields use snake_case, for example `created_at`, `category_id`, `attribute_value_id`.
+// - New Prisma models/fields must follow this convention directly to keep AI/codegen output consistent.
+// - Only use `@@map` / `@map` for legacy database objects that cannot be renamed yet.
+
 model Category {
   id            Int    @id @default(autoincrement())
   category_name String
@@ -69,6 +75,7 @@ enum OrderProcessingStatus {
   picked_up
   delivering
   completed
+  cancelled
   returned
 }
 
@@ -91,10 +98,10 @@ model Product {
   image_url    String?
   status       ProductStatus @default(draft)
   description  String?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @default(now()) @updatedAt
-  categoryId   Int?
-  category     Category? @relation(fields: [categoryId], references: [id])
+  created_at   DateTime @default(now())
+  updated_at   DateTime @default(now()) @updatedAt
+  category_id  Int?
+  category     Category? @relation(fields: [category_id], references: [id])
 
   attributes Attribute[]
   variants   ProductVariant[]
@@ -105,8 +112,8 @@ model Product {
 model Attribute {
   id         Int     @id @default(autoincrement())
   name       String // "MÃ u sáº¯c", "Size", "Cháº¥t liá»‡u"
-  productId    Int
-  product   Product @relation(fields: [productId], references: [id])
+  product_id   Int
+  product      Product @relation(fields: [product_id], references: [id])
 
   values AttributeValue[]
 
@@ -115,8 +122,8 @@ model Attribute {
 model AttributeValue {
   id           Int       @id @default(autoincrement())
   value        String // "Äá»", "Xanh", "Size 32"...
-  attributeId   Int
-  attribute   Attribute @relation(fields: [attributeId], references: [id])
+  attribute_id  Int
+  attribute     Attribute @relation(fields: [attribute_id], references: [id])
 
   variant_links VariantAttributeValue[]
 
@@ -124,8 +131,8 @@ model AttributeValue {
 
 model ProductVariant {
   sku              String                  @id
-  productId        Int
-  product          Product                 @relation(fields: [productId], references: [id])
+  product_id       Int
+  product          Product                 @relation(fields: [product_id], references: [id])
   selling_price    Decimal                 @db.Decimal(12, 2)
   cogs             Decimal                 @default(0) @db.Decimal(12, 2)
   image_url        String?
@@ -186,13 +193,13 @@ enum InventoryAuditStatus {
 }
 
 model VariantAttributeValue {
-  variant_sku        String
-  attributeValueId Int
+  variant_sku       String
+  attribute_value_id Int
 
-  variant         ProductVariant @relation(fields: [variant_sku], references: [sku])
-  attribute_value AttributeValue @relation(fields: [attributeValueId], references: [id])
+  variant          ProductVariant @relation(fields: [variant_sku], references: [sku])
+  attribute_value  AttributeValue @relation(fields: [attribute_value_id], references: [id])
 
-  @@id([variant_sku, attributeValueId])
+  @@id([variant_sku, attribute_value_id])
 }
 
 // ---------------------------------------------------------
@@ -211,7 +218,6 @@ model CustomerCategory {
   customers       Customer[]
 
   @@unique([normalized_name])
-  @@map("customer_categories")
 }
 
 model Customer {
@@ -230,7 +236,6 @@ model Customer {
   @@index([full_name])
   @@index([client_code])
   @@index([status])
-  @@map("customers")
 }
 
 model Location {
@@ -255,8 +260,6 @@ model State {
   updated_at      DateTime   @default(now()) @updatedAt
 
   cities          City[]
-
-  @@map("states")
 }
 
 model City {
@@ -275,7 +278,6 @@ model City {
   @@unique([state_id, code])
   @@unique([state_id, normalized_name])
   @@index([state_id])
-  @@map("cities")
 }
 
 model District {
@@ -293,7 +295,6 @@ model District {
   @@unique([city_id, code])
   @@unique([city_id, normalized_name])
   @@index([city_id])
-  @@map("districts")
 }
 
 model Order {
@@ -340,7 +341,6 @@ model Order {
   @@index([processing_status])
   @@index([order_type])
   @@index([customer_id])
-  @@map("orders")
 }
 
 model OrderItem {
@@ -364,7 +364,6 @@ model OrderItem {
   @@index([order_id])
   @@index([product_id])
   @@index([variant_sku])
-  @@map("order_items")
 }
 
 model OrderHistory {
@@ -378,7 +377,6 @@ model OrderHistory {
   created_at          DateTime @default(now())
 
   @@index([order_id, created_at(sort: Desc)])
-  @@map("order_history")
 }
 
 // ---------------------------------------------------------

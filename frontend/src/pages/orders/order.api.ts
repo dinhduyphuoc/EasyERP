@@ -10,6 +10,7 @@ export type OrderProcessingStatus =
   | 'picked_up'
   | 'delivering'
   | 'completed'
+  | 'cancelled'
   | 'returned'
 export type OrderType = 'sale' | 'return'
 
@@ -147,6 +148,33 @@ export type OrderCreatePayload = {
   }>
 }
 
+export type OrderUpdatePayload = Partial<OrderCreatePayload>
+
+export type OrderActionName =
+  | 'confirm'
+  | 'confirm_shipping'
+  | 'push_to_delivery'
+  | 'mark_paid'
+  | 'request_invoice'
+  | 'complete'
+  | 'cancel'
+  | 'return_order'
+
+export type OrderActionPayload = {
+  actor_name?: string
+  note?: string
+  shipping_service?: string | null
+  tracking_code?: string | null
+  shipping_status?: string | null
+  warehouse_status?: string | null
+  invoice_code?: string | null
+}
+
+export type DuplicateOrderPayload = {
+  actor_name?: string
+  order_date?: string
+}
+
 export const orderApi = {
   getOrders: async (params?: Record<string, unknown>): Promise<OrderListItem[]> => {
     return apiClient.get(ENDPOINT, { params })
@@ -162,5 +190,24 @@ export const orderApi = {
 
   createOrder: async (payload: OrderCreatePayload): Promise<OrderListItem> => {
     return apiClient.post(ENDPOINT, payload)
+  },
+
+  updateOrder: async (id: string | number, payload: OrderUpdatePayload): Promise<OrderListItem> => {
+    return apiClient.patch(`${ENDPOINT}/${id}`, payload)
+  },
+
+  duplicateOrder: async (
+    id: string | number,
+    payload: DuplicateOrderPayload = {},
+  ): Promise<OrderListItem> => {
+    return apiClient.post(`${ENDPOINT}/${id}/duplicate`, payload)
+  },
+
+  runAction: async (
+    id: string | number,
+    action: OrderActionName,
+    payload: OrderActionPayload = {},
+  ): Promise<OrderListItem> => {
+    return apiClient.post(`${ENDPOINT}/${id}/actions/${action}`, payload)
   },
 }

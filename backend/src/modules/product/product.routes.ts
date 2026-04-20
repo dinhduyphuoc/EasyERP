@@ -8,6 +8,7 @@ productRouter.post("/categories", ProductController.createCategory);
 productRouter.delete("/categories", ProductController.deleteCategories);
 productRouter.get("/categories/:id", ProductController.getCategoryById);
 productRouter.put("/categories/:id", ProductController.editCategory);
+productRouter.post("/upload-image", ProductController.uploadImage);
 productRouter.get("/", ProductController.getProducts);
 productRouter.post("/", ProductController.createProduct);
 productRouter.delete("/", ProductController.deleteProducts);

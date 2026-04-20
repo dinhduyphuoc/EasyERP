@@ -6,6 +6,7 @@ export type OrderProcessingStatusInput =
   | "picked_up"
   | "delivering"
   | "completed"
+  | "cancelled"
   | "returned";
 export type OrderTypeInput = "sale" | "return";
 
@@ -15,11 +16,16 @@ export interface OrderListQuery {
   processing_status?: OrderProcessingStatusInput;
   order_type?: OrderTypeInput;
   customer_id?: string;
-  view?: "all" | "drafts" | "returns" | "incomplete";
+  view?: "all" | "drafts" | "returns" | "cancelled" | "incomplete";
 }
 
 export interface OrderParams {
   id?: string;
+}
+
+export interface DuplicateOrderRequestInput {
+  actor_name?: string;
+  order_date?: string;
 }
 
 export interface OrderHistoryInput {
@@ -76,3 +82,25 @@ export interface OrderRequestInput {
   order_items?: OrderItemRequestInput[];
   order_history?: OrderHistoryInput[];
 }
+
+export interface UpdateOrderRequestInput extends Partial<OrderRequestInput> {}
+
+export interface OrderActionRequestInput {
+  actor_name?: string;
+  note?: string;
+  shipping_service?: string | null;
+  tracking_code?: string | null;
+  shipping_status?: string | null;
+  warehouse_status?: string | null;
+  invoice_code?: string | null;
+}
+
+export type OrderActionName =
+  | "confirm"
+  | "confirm_shipping"
+  | "push_to_delivery"
+  | "mark_paid"
+  | "request_invoice"
+  | "complete"
+  | "cancel"
+  | "return_order";

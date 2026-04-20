@@ -1,5 +1,6 @@
 import express, { type Request, type Response } from "express";
 import cors from "cors";
+import fileUpload from "express-fileupload";
 import { errorHandler, notFoundHandler } from "@/common";
 import { productRouter } from "@/modules/product/product.routes";
 import { customerRouter, locationRouter } from "@/modules/customer/customer.routes";
@@ -10,6 +11,14 @@ const app = express();
 
 app.use(cors({
   origin: "http://localhost:5173",
+}));
+
+app.use(fileUpload({
+  limits: {
+    fileSize: 5 * 1024 * 1024,
+  },
+  abortOnLimit: true,
+  parseNested: true,
 }));
 
 app.use(express.json());

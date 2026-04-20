@@ -540,6 +540,144 @@ const applyInventoryMutation = async (params: {
   return buildMutationResponse(params.tx, transaction.id, params.productVariantId);
 };
 
+const applyOrderInventoryMutation = async (params: {
+  tx: PrismaTransaction;
+  items: Array<{
+    variant_sku: string | null;
+    quantity: number;
+    sku: string;
+    product_name: string;
+  }>;
+  actorName: string | null;
+  referenceId: string;
+  referenceCode: string;
+  note: string | null;
+  mutation: "reserve" | "move_to_packing" | "fulfill";
+}) => {
+  for (const item of params.items) {
+    if (!item.variant_sku || item.quantity <= 0) {
+      continue;
+    }
+
+    const metaBase = {
+      reference_type: "order",
+      reference_id: params.referenceId,
+      reference_code: params.referenceCode,
+      actor: {
+        name: params.actorName,
+      },
+      note: params.note,
+      metadata: {
+        sku: item.sku,
+        product_name: item.product_name,
+      },
+    };
+
+    if (params.mutation === "reserve") {
+      await applyInventoryMutation({
+        tx: params.tx,
+        productVariantId: item.variant_sku,
+        transactionType: "reserve",
+        reasonCode: "order_reserved",
+        meta: {
+          ...metaBase,
+          idempotency_key: `order:${params.referenceId}:reserve:${item.variant_sku}`,
+        },
+        computeNext: (current) => {
+          ensureCanDecreaseAvailable(current, item.quantity);
+
+          return {
+            deltas: {
+              on_hand: 0,
+              available: -item.quantity,
+              committed: item.quantity,
+              packing: 0,
+              incoming: 0,
+            },
+            next: {
+              on_hand: current.on_hand,
+              available: current.available - item.quantity,
+              committed: current.committed + item.quantity,
+              packing: current.packing,
+              incoming: current.incoming,
+            },
+          };
+        },
+      });
+    }
+
+    if (params.mutation === "move_to_packing") {
+      await applyInventoryMutation({
+        tx: params.tx,
+        productVariantId: item.variant_sku,
+        transactionType: "move_to_packing",
+        reasonCode: "packing_started",
+        meta: {
+          ...metaBase,
+          idempotency_key: `order:${params.referenceId}:packing:${item.variant_sku}`,
+        },
+        computeNext: (current) => {
+          if (current.committed < item.quantity) {
+            throw new ConflictError("Insufficient committed stock");
+          }
+
+          return {
+            deltas: {
+              on_hand: 0,
+              available: 0,
+              committed: -item.quantity,
+              packing: item.quantity,
+              incoming: 0,
+            },
+            next: {
+              on_hand: current.on_hand,
+              available: current.available,
+              committed: current.committed - item.quantity,
+              packing: current.packing + item.quantity,
+              incoming: current.incoming,
+            },
+          };
+        },
+      });
+    }
+
+    if (params.mutation === "fulfill") {
+      await applyInventoryMutation({
+        tx: params.tx,
+        productVariantId: item.variant_sku,
+        transactionType: "fulfill",
+        reasonCode: "order_fulfilled",
+        meta: {
+          ...metaBase,
+          idempotency_key: `order:${params.referenceId}:fulfill:${item.variant_sku}`,
+        },
+        computeNext: (current) => {
+          if (current.packing < item.quantity) {
+            throw new ConflictError("Insufficient packing stock");
+          }
+
+          return {
+            deltas: {
+              on_hand: -item.quantity,
+              available: 0,
+              committed: 0,
+              packing: -item.quantity,
+              incoming: 0,
+            },
+            next: {
+              on_hand: current.on_hand - item.quantity,
+              available: current.available,
+              committed: current.committed,
+              packing: current.packing - item.quantity,
+              incoming: current.incoming,
+            },
+          };
+        },
+      });
+    }
+  }
+};
+
 const ensureCanDecreaseAvailable = (stock: StockSnapshot, qty: number) => {
   if (stock.available < qty) {
     throw new ConflictError("Insufficient available stock");
@@ -1626,5 +1764,158 @@ export const InventoryService = {
         },
       }),
     );
+  },
+};
+
+export const InventoryOrderOrchestration = {
+  reserveForOrder: async (params: Parameters<typeof applyOrderInventoryMutation>[0]) =>
+    applyOrderInventoryMutation({ ...params, mutation: "reserve" }),
+  moveOrderToPacking: async (params: Parameters<typeof applyOrderInventoryMutation>[0]) =>
+    applyOrderInventoryMutation({ ...params, mutation: "move_to_packing" }),
+  fulfillOrder: async (params: Parameters<typeof applyOrderInventoryMutation>[0]) =>
+    applyOrderInventoryMutation({ ...params, mutation: "fulfill" }),
+  releaseForOrder: async (params: Parameters<typeof applyOrderInventoryMutation>[0]) => {
+    for (const item of params.items) {
+      if (!item.variant_sku || item.quantity <= 0) {
+        continue;
+      }
+
+      await applyInventoryMutation({
+        tx: params.tx,
+        productVariantId: item.variant_sku,
+        transactionType: "release",
+        reasonCode: "order_released",
+        meta: {
+          reference_type: "order",
+          reference_id: params.referenceId,
+          reference_code: params.referenceCode,
+          actor: {
+            name: params.actorName,
+          },
+          note: params.note,
+          idempotency_key: `order:${params.referenceId}:release:${item.variant_sku}`,
+          metadata: {
+            sku: item.sku,
+            product_name: item.product_name,
+          },
+        },
+        computeNext: (current) => {
+          if (current.committed < item.quantity) {
+            throw new ConflictError("Insufficient committed stock");
+          }
+
+          return {
+            deltas: {
+              on_hand: 0,
+              available: item.quantity,
+              committed: -item.quantity,
+              packing: 0,
+              incoming: 0,
+            },
+            next: {
+              on_hand: current.on_hand,
+              available: current.available + item.quantity,
+              committed: current.committed - item.quantity,
+              packing: current.packing,
+              incoming: current.incoming,
+            },
+          };
+        },
+      });
+    }
+  },
+  cancelPackingForOrder: async (params: Parameters<typeof applyOrderInventoryMutation>[0]) => {
+    for (const item of params.items) {
+      if (!item.variant_sku || item.quantity <= 0) {
+        continue;
+      }
+
+      await applyInventoryMutation({
+        tx: params.tx,
+        productVariantId: item.variant_sku,
+        transactionType: "pack_cancel",
+        reasonCode: "packing_cancelled",
+        meta: {
+          reference_type: "order",
+          reference_id: params.referenceId,
+          reference_code: params.referenceCode,
+          actor: {
+            name: params.actorName,
+          },
+          note: params.note,
+          idempotency_key: `order:${params.referenceId}:pack-cancel:${item.variant_sku}`,
+          metadata: {
+            sku: item.sku,
+            product_name: item.product_name,
+          },
+        },
+        computeNext: (current) => {
+          if (current.packing < item.quantity) {
+            throw new ConflictError("Insufficient packing stock");
+          }
+
+          return {
+            deltas: {
+              on_hand: 0,
+              available: 0,
+              committed: item.quantity,
+              packing: -item.quantity,
+              incoming: 0,
+            },
+            next: {
+              on_hand: current.on_hand,
+              available: current.available,
+              committed: current.committed + item.quantity,
+              packing: current.packing - item.quantity,
+              incoming: current.incoming,
+            },
+          };
+        },
+      });
+    }
+  },
+  restockReturnedOrder: async (params: Parameters<typeof applyOrderInventoryMutation>[0]) => {
+    for (const item of params.items) {
+      if (!item.variant_sku || item.quantity <= 0) {
+        continue;
+      }
+
+      await applyInventoryMutation({
+        tx: params.tx,
+        productVariantId: item.variant_sku,
+        transactionType: "return_restock",
+        reasonCode: "customer_return",
+        meta: {
+          reference_type: "order",
+          reference_id: params.referenceId,
+          reference_code: params.referenceCode,
+          actor: {
+            name: params.actorName,
+          },
+          note: params.note,
+          idempotency_key: `order:${params.referenceId}:return-restock:${item.variant_sku}`,
+          metadata: {
+            sku: item.sku,
+            product_name: item.product_name,
+          },
+        },
+        computeNext: (current) => ({
+          deltas: {
+            on_hand: item.quantity,
+            available: item.quantity,
+            committed: 0,
+            packing: 0,
+            incoming: 0,
+          },
+          next: {
+            on_hand: current.on_hand + item.quantity,
+            available: current.available + item.quantity,
+            committed: current.committed,
+            packing: current.packing,
+            incoming: current.incoming,
+          },
+        }),
+      });
+    }
   },
 };

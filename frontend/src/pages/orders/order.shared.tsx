@@ -62,6 +62,8 @@ export function getProcessingStatusMeta(status: OrderProcessingStatus): {
       return { label: 'Đang giao', color: 'warning' }
     case 'completed':
       return { label: 'Hoàn thành', color: 'success' }
+    case 'cancelled':
+      return { label: 'Đã hủy', color: 'default' }
     case 'returned':
       return { label: 'Trả hàng', color: 'default' }
     default:
@@ -72,7 +74,7 @@ export function getProcessingStatusMeta(status: OrderProcessingStatus): {
 type OrdersCollectionPageProps = {
   title: string
   description: string
-  view?: 'all' | 'drafts' | 'returns' | 'incomplete'
+  view?: 'all' | 'drafts' | 'returns' | 'cancelled' | 'incomplete'
   helperTitle: string
   helperDescription: string
 }
@@ -187,6 +189,7 @@ export function OrdersCollectionPage({
           { label: 'DVVC lấy hàng', value: 'picked_up' },
           { label: 'Đang giao', value: 'delivering' },
           { label: 'Hoàn thành', value: 'completed' },
+          { label: 'Đã hủy', value: 'cancelled' },
           { label: 'Trả hàng', value: 'returned' },
         ],
       },
@@ -395,7 +398,6 @@ export function OrdersCollectionPage({
         <Paper
           sx={{
             p: 2.5,
-            borderRadius: 5,
             border: (theme) => `1px solid ${alpha(theme.palette.info.main, 0.12)}`,
             bgcolor: (theme) => alpha(theme.palette.info.light, 0.08),
           }}
@@ -409,3 +411,5 @@ export function OrdersCollectionPage({
     />
   )
 }
+
+

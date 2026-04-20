@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState, type ReactElement, type ReactNode } from 'react'
-import { Link as RouterLink, useParams } from 'react-router'
+import { useCallback, useEffect, useMemo, useState, type ReactElement, type ReactNode } from 'react'
+import { Link as RouterLink, useNavigate, useParams } from 'react-router'
 import MoreHorizIcon from '@mui/icons-material/MoreHoriz'
 import LocalShippingOutlinedIcon from '@mui/icons-material/LocalShippingOutlined'
 import PaymentsOutlinedIcon from '@mui/icons-material/PaymentsOutlined'
@@ -17,6 +17,10 @@ import {
   Button,
   Chip,
   Divider,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
   Menu,
   MenuItem,
   OutlinedInput,
@@ -27,10 +31,12 @@ import {
   TableCell,
   TableHead,
   TableRow,
+  TextField,
   Typography,
 } from '@mui/material'
 import { appToast } from '@/shared/ui/toast/toast'
-import { orderApi, type OrderListItem, type OrderProcessingStatus } from './order.api'
+import { borderedCardSx } from '@/shared/ui/paper'
+import { orderApi, type OrderActionName, type OrderListItem, type OrderProcessingStatus } from './order.api'
 import {
   formatCurrency,
   formatDateTime,
@@ -38,53 +44,200 @@ import {
   getProcessingStatusMeta,
 } from './order.shared'
 
-const cardSx = {
-  p: { xs: 2, md: 2.5 },
-  borderRadius: 4,
-  border: (theme: { palette: { divider: string } }) => `1px solid ${theme.palette.divider}`,
-  boxShadow: '0 18px 45px rgba(15, 23, 42, 0.06)',
-  backgroundImage: 'none',
+const getErrorMessage = (error: unknown, fallback: string) => {
+  return typeof error === 'object' &&
+    error !== null &&
+    'response' in error &&
+    typeof error.response === 'object' &&
+    error.response !== null &&
+    'data' in error.response &&
+    typeof error.response.data === 'object' &&
+    error.response.data !== null &&
+    'message' in error.response.data &&
+    typeof error.response.data.message === 'string'
+    ? error.response.data.message
+    : fallback
 }
 
 const stepperStages: Array<{
   key: string
+  timelineKey: string
   label: string
   matches: OrderProcessingStatus[]
 }> = [
-  { key: 'placed', label: 'Order placed', matches: ['placed'] },
-  { key: 'confirmed', label: 'Confirmed', matches: ['confirmed'] },
-  { key: 'picking', label: 'Picking', matches: ['picked_up'] },
-  { key: 'shipping', label: 'Shipping', matches: ['delivering'] },
-  { key: 'completed', label: 'Completed', matches: ['completed'] },
+  { key: 'placed', timelineKey: 'placed', label: 'Đặt hàng', matches: ['placed'] },
+  { key: 'confirmed', timelineKey: 'confirmed', label: 'Xác nhận', matches: ['confirmed'] },
+  { key: 'picking', timelineKey: 'picked_up', label: 'Đóng gói', matches: ['picked_up'] },
+  { key: 'shipping', timelineKey: 'delivering', label: 'Giao hàng', matches: ['delivering'] },
+  { key: 'completed', timelineKey: 'completed', label: 'Hoàn thành', matches: ['completed'] },
 ]
 
+type ShippingActionDialogState = {
+  action: 'confirm_shipping' | 'push_to_delivery'
+  shippingService: string
+  trackingCode: string
+  shippingStatus: string
+}
+
+const escapeHtml = (value: string) =>
+  value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;')
+
+const buildOrderQrValue = (order: OrderListItem) =>
+  [
+    `order_code=${order.order_code}`,
+    `customer=${order.customer_info.name}`,
+    `phone=${order.customer_info.phone}`,
+    `total=${order.total_amount}`,
+    `outstanding=${order.outstanding_amount}`,
+  ].join('\n')
+
+const openPrintWindow = (content: string) => {
+  const printWindow = window.open('', '_blank', 'noopener,noreferrer,width=1024,height=768')
+
+  if (!printWindow) {
+    return false
+  }
+
+  printWindow.document.write(content)
+  printWindow.document.close()
+  printWindow.focus()
+  printWindow.print()
+  return true
+}
+
+const buildPackingSlipMarkup = (order: OrderListItem) => {
+  const rows = order.order_items
+    .map(
+      (item) => `
+        <tr>
+          <td>${escapeHtml(item.product_name)}</td>
+          <td>${escapeHtml(item.variant_sku ?? item.sku)}</td>
+          <td style="text-align:right">${item.quantity}</td>
+          <td>${escapeHtml(item.notes ?? '')}</td>
+        </tr>
+      `,
+    )
+    .join('')
+
+  return `
+    <!doctype html>
+    <html>
+      <head>
+        <meta charset="utf-8" />
+        <title>${escapeHtml(`Packing Slip ${order.order_code}`)}</title>
+        <style>
+          body { font-family: Arial, sans-serif; margin: 24px; color: #0f172a; }
+          h1, h2, p { margin: 0; }
+          .header { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom: 24px; }
+          .card { border: 1px solid #cbd5e1; border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+          .grid { display:grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+          .label { font-size: 12px; color: #64748b; text-transform: uppercase; margin-bottom: 4px; }
+          .value { font-size: 14px; font-weight: 600; }
+          table { width:100%; border-collapse: collapse; margin-top: 8px; }
+          th, td { border-bottom: 1px solid #e2e8f0; padding: 10px 8px; text-align: left; font-size: 14px; }
+          th { background: #f8fafc; }
+          .footer { margin-top: 24px; display:grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; }
+          .sign { border-top: 1px solid #94a3b8; padding-top: 8px; margin-top: 48px; }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <div>
+            <h1>Packing Slip</h1>
+            <p>Đơn hàng ${escapeHtml(order.order_code)}</p>
+          </div>
+          <div>
+            <div class="label">Ngay in</div>
+            <div class="value">${escapeHtml(formatDateTime(new Date().toISOString()))}</div>
+          </div>
+        </div>
+        <div class="card grid">
+          <div>
+            <div class="label">Khách hàng</div>
+            <div class="value">${escapeHtml(order.customer_info.name)}</div>
+          </div>
+          <div>
+            <div class="label">Số điện thoại</div>
+            <div class="value">${escapeHtml(order.customer_info.phone)}</div>
+          </div>
+          <div>
+            <div class="label">Địa chỉ giao hàng</div>
+            <div class="value">${escapeHtml(order.customer_info.address ?? '-')}</div>
+          </div>
+          <div>
+            <div class="label">Kênh bán</div>
+            <div class="value">${escapeHtml(order.sales_channel ?? 'Admin')}</div>
+          </div>
+          <div>
+            <div class="label">Đơn vị vận chuyển</div>
+            <div class="value">${escapeHtml(order.shipping_service ?? '-')}</div>
+          </div>
+          <div>
+            <div class="label">Tracking</div>
+            <div class="value">${escapeHtml(order.tracking_code ?? '-')}</div>
+          </div>
+        </div>
+        <div class="card">
+          <h2>Sản phẩm</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>Sản phẩm</th>
+                <th>SKU</th>
+                <th>SL</th>
+                <th>Ghi chú</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+        <div class="footer">
+          <div class="sign">Người giao kho</div>
+          <div class="sign">Người nhận / Đơn vị vận chuyển</div>
+        </div>
+      </body>
+    </html>
+  `
+}
+
 export function OrdersDetailPage(): ReactElement {
+  const navigate = useNavigate()
   const params = useParams()
   const [order, setOrder] = useState<OrderListItem | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [isActing, setIsActing] = useState(false)
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null)
+  const [shippingDialog, setShippingDialog] = useState<ShippingActionDialogState | null>(null)
+  const [invoiceCodeDraft, setInvoiceCodeDraft] = useState('')
+  const [isInvoiceDialogOpen, setIsInvoiceDialogOpen] = useState(false)
+  const [isQrDialogOpen, setIsQrDialogOpen] = useState(false)
 
-  useEffect(() => {
-    const fetchOrder = async () => {
-      if (!params.id) {
-        return
-      }
-
-      setIsLoading(true)
-
-      try {
-        const data = await orderApi.getOrderById(params.id)
-        setOrder(data)
-      } catch (error) {
-        console.error('Loi khi tai chi tiet don hang:', error)
-        appToast.error('Khong the tai chi tiet don hang.')
-      } finally {
-        setIsLoading(false)
-      }
+  const fetchOrder = useCallback(async () => {
+    if (!params.id) {
+      return
     }
 
-    void fetchOrder()
+    setIsLoading(true)
+
+    try {
+      const data = await orderApi.getOrderById(params.id)
+      setOrder(data)
+    } catch (error) {
+      console.error('Lỗi khi tải chi tiết đơn hàng:', error)
+      appToast.error('Không thể tải chi tiết đơn hàng.')
+    } finally {
+      setIsLoading(false)
+    }
   }, [params.id])
+
+  useEffect(() => {
+    void fetchOrder()
+  }, [fetchOrder])
 
   const nextAction = useMemo(() => {
     if (!order) {
@@ -93,47 +246,170 @@ export function OrdersDetailPage(): ReactElement {
 
     if (order.processing_status === 'placed') {
       return {
-        label: 'Confirm order',
-        helper: 'Kiem tra thong tin va chuyen don sang xac nhan de kho bat dau xu ly.',
+        action: 'confirm' as OrderActionName,
+        label: 'Xác nhận đơn hàng',
+        helper: 'Kiểm tra thông tin và chuyển đơn sang xác nhận để kho bắt đầu xử lý.',
         icon: <CheckCircleOutlinedIcon fontSize="small" />,
       }
     }
 
     if (order.processing_status === 'confirmed') {
       return {
-        label: 'Confirm shipping',
-        helper: 'Don da san sang cho kho dong goi va tao lenh giao.',
+        action: 'confirm_shipping' as OrderActionName,
+        label: 'Xác nhận giao kho',
+        helper: 'Đơn đã sẵn sàng cho kho đóng gói và tạo lệnh giao.',
         icon: <Inventory2OutlinedIcon fontSize="small" />,
       }
     }
 
     if (order.processing_status === 'picked_up') {
       return {
-        label: 'Push to delivery',
-        helper: 'Day don sang don vi van chuyen va cap nhat tracking ngay.',
+        action: 'push_to_delivery' as OrderActionName,
+        label: 'Đẩy sang vận chuyển',
+        helper: 'Đẩy đơn sang đơn vị vận chuyển và cập nhật tracking ngay.',
         icon: <LocalShippingOutlinedIcon fontSize="small" />,
       }
     }
 
     if (order.processing_status === 'delivering') {
       return {
-        label: 'Mark as completed',
-        helper: 'Don dang giao. Theo doi giao hang va xac nhan hoan tat khi thanh cong.',
+        action: 'complete' as OrderActionName,
+        label: 'Đánh dấu hoàn thành',
+        helper: 'Đơn đang giao. Theo dõi giao hàng và xác nhận hoàn tất khi thành công.',
         icon: <CheckCircleOutlinedIcon fontSize="small" />,
       }
     }
 
     return {
-      label: 'View audit trail',
-      helper: 'Don da hoan tat. Kiem tra lai lich su xu ly, thanh toan va hoa don khi can.',
+      action: null,
+      label: 'Đã cập nhật',
+      helper: 'Đơn đã hoàn tất. Kiểm tra lại lịch sử xử lý, thanh toán và hóa đơn khi cần.',
       icon: <ReceiptLongOutlinedIcon fontSize="small" />,
     }
   }, [order])
 
+  const runAction = useCallback(
+    async (action: OrderActionName, payload: Record<string, string> = {}) => {
+      if (!params.id || !order) {
+        return
+      }
+
+      try {
+        setIsActing(true)
+
+        const updated = await orderApi.runAction(params.id, action, payload)
+        setOrder(updated)
+        appToast.success(`Đã cập nhật đơn hàng ${updated.order_code}.`)
+      } catch (error) {
+        console.error('Lỗi khi cập nhật action đơn hàng:', error)
+        appToast.error(getErrorMessage(error, 'Không thể cập nhật đơn hàng.'))
+      } finally {
+        setIsActing(false)
+      }
+    },
+    [order, params.id],
+  )
+
+  const qrValue = useMemo(() => (order ? buildOrderQrValue(order) : ''), [order])
+  const qrImageUrl = useMemo(
+    () => (qrValue ? `https://quickchart.io/qr?size=240&text=${encodeURIComponent(qrValue)}` : ''),
+    [qrValue],
+  )
+
+  const openShippingActionDialog = useCallback(
+    (action: 'confirm_shipping' | 'push_to_delivery') => {
+      if (!order) {
+        return
+      }
+
+      setShippingDialog({
+        action,
+        shippingService: order.shipping_service ?? 'GHN',
+        trackingCode: order.tracking_code ?? '',
+        shippingStatus:
+          action === 'push_to_delivery' ? order.shipping_status ?? 'delivering' : order.shipping_status ?? '',
+      })
+    },
+    [order],
+  )
+
+  const submitShippingAction = useCallback(async () => {
+    if (!shippingDialog) {
+      return
+    }
+
+    await runAction(shippingDialog.action, {
+      shipping_service: shippingDialog.shippingService.trim(),
+      tracking_code: shippingDialog.trackingCode.trim(),
+      shipping_status: shippingDialog.shippingStatus.trim(),
+    })
+    setShippingDialog(null)
+  }, [runAction, shippingDialog])
+
+  const submitInvoiceRequest = useCallback(async () => {
+    await runAction('request_invoice', {
+      invoice_code: invoiceCodeDraft.trim(),
+    })
+    setIsInvoiceDialogOpen(false)
+  }, [invoiceCodeDraft, runAction])
+
+  const handleDuplicateOrder = useCallback(() => {
+    if (!order) {
+      return
+    }
+
+    setAnchorEl(null)
+
+    void (async () => {
+      try {
+        setIsActing(true)
+        const duplicatedOrder = await orderApi.duplicateOrder(order.id, {
+          actor_name: 'Sales Admin',
+        })
+        appToast.success(`Đã tạo bản sao ${duplicatedOrder.order_code} từ đơn ${order.order_code}.`)
+        navigate(`/orders/${duplicatedOrder.id}/edit`)
+      } catch (error) {
+        console.error('Lỗi khi nhân bản đơn hàng:', error)
+        appToast.error(getErrorMessage(error, 'Không thể nhân bản đơn hàng.'))
+      } finally {
+        setIsActing(false)
+      }
+    })()
+  }, [navigate, order])
+
+  const handleExportPackingSlip = useCallback(() => {
+    if (!order) {
+      return
+    }
+
+    setAnchorEl(null)
+    const didOpen = openPrintWindow(buildPackingSlipMarkup(order))
+
+    if (!didOpen) {
+      appToast.error('Trình duyệt đã chặn cửa sổ in. Hãy cho phép pop-up để xuất packing slip.')
+      return
+    }
+
+    appToast.success(`Đã mở packing slip cho đơn ${order.order_code}.`)
+  }, [order])
+
+  const handleCopyQrValue = useCallback(async () => {
+    if (!qrValue) {
+      return
+    }
+
+    try {
+      await navigator.clipboard.writeText(qrValue)
+      appToast.success('Đã copy nội dung QR.')
+    } catch {
+      appToast.error('Không thể copy nội dung QR trên trình duyệt này.')
+    }
+  }, [qrValue])
+
   if (isLoading) {
     return (
       <Box sx={{ px: { xs: 2, md: 3, xl: 4 }, py: 8 }}>
-        <Typography>Dang tai chi tiet don hang...</Typography>
+        <Typography>Đang tải chi tiết đơn hàng...</Typography>
       </Box>
     )
   }
@@ -141,7 +417,7 @@ export function OrdersDetailPage(): ReactElement {
   if (!order || !nextAction) {
     return (
       <Box sx={{ px: { xs: 2, md: 3, xl: 4 }, py: 8 }}>
-        <Typography>Khong tim thay don hang.</Typography>
+        <Typography>Không tìm thấy đơn hàng.</Typography>
       </Box>
     )
   }
@@ -149,17 +425,21 @@ export function OrdersDetailPage(): ReactElement {
   const paymentMeta = getPaymentStatusMeta(order.payment_status)
   const processingMeta = getProcessingStatusMeta(order.processing_status)
   const progressIndex = stepperStages.findIndex((stage) => stage.matches.includes(order.processing_status))
-  const orderTypeLabel = order.order_type === 'return' ? 'Don tra hang' : 'Don ban hang'
-  const invoiceStatusLabel = order.invoice_code ? 'Da tao e-invoice' : 'Chua xuat hoa don'
+  const orderTypeLabel = order.order_type === 'return' ? 'Đơn trả hàng' : 'Đơn bán hàng'
+  const invoiceStatusLabel = order.invoice_code ? 'Đã tạo e-invoice' : 'Chưa xuất hóa đơn'
   const invoiceStatusColor = order.invoice_code ? 'success' : 'default'
   const sourceLabel = order.sales_channel ?? 'Admin'
-  const customerGroup = order.customer_id ? 'Khach thanh vien' : 'Khach le'
+  const customerGroup = order.customer_id ? 'Khách thành viên' : 'Khách lẻ'
+  const canEditOrder = ['draft', 'placed'].includes(order.processing_status)
+  const canCancelOrder =
+    ['draft', 'placed', 'confirmed', 'picked_up'].includes(order.processing_status) && order.payment_status !== 'paid'
+  const canReturnOrder = order.processing_status === 'completed'
 
   return (
     <Box sx={{ px: { xs: 2, md: 3, xl: 4 }, pb: 8 }}>
       <Paper
         sx={{
-          ...cardSx,
+          ...borderedCardSx,
           position: 'sticky',
           top: { xs: 78, lg: 88 },
           zIndex: 20,
@@ -183,23 +463,29 @@ export function OrdersDetailPage(): ReactElement {
                 <Chip label={orderTypeLabel} variant="outlined" />
               </Stack>
               <Typography color="text.secondary">
-                Tao luc {formatDateTime(order.order_date)} • Last update {formatDateTime(order.updated_at)}
+                Tạo lúc {formatDateTime(order.order_date)} • Cập nhật cuối {formatDateTime(order.updated_at)}
               </Typography>
             </Stack>
 
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.25}>
-              <Button variant="outlined" startIcon={<EditOutlinedIcon />} component={RouterLink} to="/orders/create">
-                Edit order
+              <Button
+                variant="outlined"
+                startIcon={<EditOutlinedIcon />}
+                component={RouterLink}
+                to={`/orders/${order.id}/edit`}
+                disabled={!canEditOrder}
+              >
+                Chỉnh sửa đơn hàng
               </Button>
-              <Button variant="outlined" startIcon={<PrintOutlinedIcon />} onClick={() => window.print()}>
-                Print
+              <Button variant="outlined" startIcon={<PrintOutlinedIcon />} onClick={handleExportPackingSlip}>
+                Packing slip
               </Button>
               <Button
                 variant="text"
                 endIcon={<MoreHorizIcon />}
                 onClick={(event) => setAnchorEl(event.currentTarget)}
               >
-                More actions
+                Thao tác khác
               </Button>
             </Stack>
           </Stack>
@@ -208,7 +494,6 @@ export function OrdersDetailPage(): ReactElement {
             variant="outlined"
             sx={{
               p: 1.5,
-              borderRadius: 3,
               bgcolor: (theme) => alpha(theme.palette.primary.light, 0.08),
               borderColor: (theme) => alpha(theme.palette.primary.main, 0.18),
             }}
@@ -217,10 +502,24 @@ export function OrdersDetailPage(): ReactElement {
               <Chip
                 color="secondary"
                 icon={nextAction.icon}
-                label={`Next Action: ${nextAction.label}`}
+                label={`Hành động tiếp theo: ${nextAction.label}`}
                 sx={{ fontWeight: 700, alignSelf: 'flex-start' }}
               />
               <Typography color="text.secondary">{nextAction.helper}</Typography>
+              {nextAction.action ? (
+                <Button
+                  variant="contained"
+                  size="small"
+                  onClick={() =>
+                    nextAction.action === 'confirm_shipping' || nextAction.action === 'push_to_delivery'
+                      ? openShippingActionDialog(nextAction.action)
+                      : void runAction(nextAction.action)
+                  }
+                  disabled={isActing}
+                >
+                  {isActing ? 'Đang xử lý...' : nextAction.label}
+                </Button>
+              ) : null}
             </Stack>
           </Paper>
         </Stack>
@@ -238,21 +537,21 @@ export function OrdersDetailPage(): ReactElement {
         }}
       >
         <Stack spacing={2.5}>
-          <Paper sx={cardSx}>
+          <Paper sx={borderedCardSx}>
             <CardHeader
-              eyebrow="Order Items"
-              title="Item list ready for fulfillment"
-              description="Tap trung vao san pham, ghi chu theo dong va hanh dong giao van ngay tren cung mot card."
+              eyebrow="Sản phẩm đơn hàng"
+              title="Danh sách sản phẩm sẵn sàng để thực hiện"
+              description="Tập trung vào sản phẩm, ghi chú theo dòng và hành động giao vận ngay trên cùng một card."
             />
 
             <Box sx={{ overflowX: 'auto', mt: 2 }}>
               <Table sx={{ minWidth: 640 }}>
                 <TableHead>
                   <TableRow>
-                    <TableCell>Product</TableCell>
-                    <TableCell align="right">Qty</TableCell>
-                    <TableCell align="right">Price</TableCell>
-                    <TableCell align="right">Total</TableCell>
+                    <TableCell>Sản phẩm</TableCell>
+                    <TableCell align="right">SL</TableCell>
+                    <TableCell align="right">Giá</TableCell>
+                    <TableCell align="right">Tổng</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -262,10 +561,10 @@ export function OrdersDetailPage(): ReactElement {
                         <Stack spacing={0.6}>
                           <Typography sx={{ fontWeight: 700, color: '#0f172a' }}>{item.product_name}</Typography>
                           <Typography variant="body2" color="text.secondary">
-                            Variant: {item.variant_sku ?? item.sku}
+                            Biến thể: {item.variant_sku ?? item.sku}
                           </Typography>
                           <Typography variant="body2" color="text.secondary">
-                            Inline note: {item.notes ?? 'Khong co ghi chu cho item nay'}
+                            Ghi chú nội tuyến: {item.notes ?? 'Không có ghi chú cho item này'}
                           </Typography>
                         </Stack>
                       </TableCell>
@@ -286,31 +585,41 @@ export function OrdersDetailPage(): ReactElement {
               sx={{ mt: 2, justifyContent: 'space-between', alignItems: { md: 'center' } }}
             >
               <Typography color="text.secondary">
-                {order.order_items.length} item • Kho status: {order.warehouse_status ?? 'Dang cho xu ly'}
+                {order.order_items.length} item • Kho status: {order.warehouse_status ?? 'Đang chờ xử lý'}
               </Typography>
               <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.25}>
-                <Button variant="contained" startIcon={<Inventory2OutlinedIcon />}>
-                  Confirm shipping
+                <Button
+                  variant="contained"
+                  startIcon={<Inventory2OutlinedIcon />}
+                  onClick={() => openShippingActionDialog('confirm_shipping')}
+                  disabled={isActing || order.processing_status !== 'confirmed'}
+                >
+                  Xác nhận giao kho
                 </Button>
-                <Button variant="outlined" startIcon={<LocalShippingOutlinedIcon />}>
-                  Push to delivery
+                <Button
+                  variant="outlined"
+                  startIcon={<LocalShippingOutlinedIcon />}
+                  onClick={() => openShippingActionDialog('push_to_delivery')}
+                  disabled={isActing || !['confirmed', 'picked_up'].includes(order.processing_status)}
+                >
+                  Đẩy sang vận chuyển
                 </Button>
               </Stack>
             </Stack>
           </Paper>
 
-          <Paper sx={cardSx}>
+          <Paper sx={borderedCardSx}>
             <CardHeader
-              eyebrow="Payment"
-              title="Payment control"
-              description="Nhan vien co the scan nhanh trang thai thanh toan, tong tien va thao tac tiep theo."
+              eyebrow="Thanh toán"
+              title="Kiểm soát thanh toán"
+              description="Nhân viên có thể scan nhanh trạng thái thanh toán, tổng tiền và thao tác tiếp theo."
             />
 
             <Stack spacing={2} sx={{ mt: 2 }}>
               <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', alignItems: 'center' }}>
                 <Chip label={paymentMeta.label} color={paymentMeta.color} />
-                <Chip label={`Paid ${formatCurrency(order.paid_amount)}`} variant="outlined" />
-                <Chip label={`Outstanding ${formatCurrency(order.outstanding_amount)}`} variant="outlined" />
+                <Chip label={`Đã thanh toán ${formatCurrency(order.paid_amount)}`} variant="outlined" />
+                <Chip label={`Nợ còn ${formatCurrency(order.outstanding_amount)}`} variant="outlined" />
               </Stack>
 
               <Box
@@ -320,28 +629,34 @@ export function OrdersDetailPage(): ReactElement {
                   gap: 1.5,
                 }}
               >
-                <MetricTile label="Subtotal" value={formatCurrency(order.sub_total)} />
-                <MetricTile label="Shipping fee" value={formatCurrency(order.shipping_fee)} />
-                <MetricTile label="Tax" value={formatCurrency(order.tax_amount)} />
-                <MetricTile label="Total" value={formatCurrency(order.total_amount)} emphasis />
+                <MetricTile label="Tổng phụ" value={formatCurrency(order.sub_total)} />
+                <MetricTile label="Phí vận chuyển" value={formatCurrency(order.shipping_fee)} />
+                <MetricTile label="Thuế" value={formatCurrency(order.tax_amount)} />
+                <MetricTile label="Tổng" value={formatCurrency(order.total_amount)} emphasis />
               </Box>
 
               <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.25}>
-                <Button variant="outlined" startIcon={<QrCode2OutlinedIcon />}>
-                  Generate QR
+                <Button variant="outlined" startIcon={<QrCode2OutlinedIcon />} onClick={() => setIsQrDialogOpen(true)}>
+                  Tạo QR
                 </Button>
-                <Button variant="contained" color="secondary" startIcon={<PaymentsOutlinedIcon />}>
-                  Mark as paid
+                <Button
+                  variant="contained"
+                  color="secondary"
+                  startIcon={<PaymentsOutlinedIcon />}
+                  onClick={() => void runAction('mark_paid')}
+                  disabled={isActing || order.payment_status === 'paid'}
+                >
+                  Đánh dấu đã thanh toán
                 </Button>
               </Stack>
             </Stack>
           </Paper>
 
-          <Paper sx={cardSx}>
+          <Paper sx={borderedCardSx}>
             <CardHeader
-              eyebrow="Invoice"
-              title="Invoice status"
-              description="Tach rieng hoa don de doi van hanh biet khi nao can request e-invoice cho khach."
+              eyebrow="Hóa đơn"
+              title="Trạng thái hóa đơn"
+              description="Tách riêng hóa đơn để đội vận hành biết khi nào cần request e-invoice cho khách."
             />
 
             <Stack
@@ -352,21 +667,29 @@ export function OrdersDetailPage(): ReactElement {
               <Stack spacing={1}>
                 <Chip label={invoiceStatusLabel} color={invoiceStatusColor} />
                 <Typography color="text.secondary">
-                  Invoice code: {order.invoice_code ?? 'Chua co ma hoa don dien tu'}
+                  Mã hóa đơn: {order.invoice_code ?? 'Chưa có mã hóa đơn điện tử'}
                 </Typography>
               </Stack>
 
-              <Button variant="outlined" startIcon={<ReceiptLongOutlinedIcon />}>
-                Request e-invoice
+              <Button
+                variant="outlined"
+                startIcon={<ReceiptLongOutlinedIcon />}
+                onClick={() => {
+                  setInvoiceCodeDraft(order.invoice_code ?? '')
+                  setIsInvoiceDialogOpen(true)
+                }}
+                disabled={isActing}
+              >
+                Yêu cầu e-invoice
               </Button>
             </Stack>
           </Paper>
 
-          <Paper sx={cardSx}>
+          <Paper sx={borderedCardSx}>
             <CardHeader
-              eyebrow="Order Activity"
-              title="History log"
-              description="Timeline hien thi action, user va moc thoi gian de doi operations doi chieu nhanh."
+              eyebrow="Hoạt động đơn hàng"
+              title="Nhật ký lịch sử"
+              description="Timeline hiển thị action, user và mốc thời gian để đội operations đối chiếu nhanh."
             />
 
             <Stack spacing={0} sx={{ mt: 2 }}>
@@ -391,72 +714,186 @@ export function OrdersDetailPage(): ReactElement {
         </Stack>
 
         <Stack spacing={2.5}>
-          <SidebarCard icon={<StorefrontOutlinedIcon fontSize="small" />} title="Order Source">
-            <SidebarLine label="Channel" value={sourceLabel} />
-            <SidebarLine label="Service" value={order.shipping_service ?? 'No delivery partner yet'} />
+          <SidebarCard icon={<StorefrontOutlinedIcon fontSize="small" />} title="Nguồn đơn hàng">
+            <SidebarLine label="Kênh" value={sourceLabel} />
+            <SidebarLine label="Dịch vụ" value={order.shipping_service ?? 'Chưa có đối tác giao hàng'} />
           </SidebarCard>
 
-          <SidebarCard icon={<PersonOutlineOutlinedIcon fontSize="small" />} title="Customer">
+          <SidebarCard icon={<PersonOutlineOutlinedIcon fontSize="small" />} title="Khách hàng">
             <Stack spacing={1.25}>
               <OutlinedInput
                 size="small"
                 value={order.customer_info.name}
                 fullWidth
                 readOnly
-                placeholder="Search + select customer"
+                placeholder="Tìm kiếm + chọn khách hàng"
               />
               <Paper
                 variant="outlined"
                 sx={{
                   p: 1.5,
-                  borderRadius: 3,
                   bgcolor: (theme) => alpha(theme.palette.background.default, 0.7),
                 }}
               >
                 <Typography sx={{ fontWeight: 700 }}>{order.customer_info.name}</Typography>
                 <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-                  {order.customer_info.customer_code ?? 'Khach le'}
+                  {order.customer_info.customer_code ?? 'Khách lẻ'}
                 </Typography>
                 <Chip size="small" label={customerGroup} sx={{ mt: 1.25 }} />
               </Paper>
             </Stack>
           </SidebarCard>
 
-          <SidebarCard title="Contact Info">
+          <SidebarCard title="Thông tin liên hệ">
             <SidebarLine label="Email" value={order.customer_info.email ?? '-'} />
-            <SidebarLine label="Phone" value={order.customer_info.phone} />
+            <SidebarLine label="Điện thoại" value={order.customer_info.phone} />
           </SidebarCard>
 
-          <SidebarCard title="Shipping Address">
+          <SidebarCard title="Địa chỉ giao hàng">
             <Typography sx={{ color: '#0f172a', lineHeight: 1.6 }}>
-              {order.customer_info.address ?? 'Chua co dia chi giao hang'}
+              {order.customer_info.address ?? 'Chưa có địa chỉ giao hàng'}
             </Typography>
             <Divider sx={{ my: 1.5 }} />
             <SidebarLine label="Tracking" value={order.tracking_code ?? '-'} />
-            <SidebarLine label="Shipping status" value={order.shipping_status ?? 'Pending'} />
+            <SidebarLine label="Trạng thái giao hàng" value={order.shipping_status ?? 'Đang chờ'} />
           </SidebarCard>
 
-          <SidebarCard title="Notes">
+          <SidebarCard title="Ghi chú">
             <Stack spacing={1.25}>
-              <NoteBlock label="Order note" value={order.order_notes ?? 'Chua co ghi chu don hang'} />
-              <NoteBlock label="Payment note" value={order.payment_notes ?? 'Chua co ghi chu thanh toan'} />
+              <NoteBlock label="Ghi chú đơn hàng" value={order.order_notes ?? 'Chưa có ghi chú đơn hàng'} />
+              <NoteBlock label="Ghi chú thanh toán" value={order.payment_notes ?? 'Chưa có ghi chú thanh toán'} />
             </Stack>
           </SidebarCard>
 
           <SidebarCard title="Metadata">
-            <SidebarLine label="Store / Branch" value="Main branch" />
-            <SidebarLine label="Staff assigned" value={order.confirmed_by ?? 'Chua phan cong'} />
-            <SidebarLine label="Created by" value={order.created_by ?? 'System'} />
-            <SidebarLine label="Created date" value={formatDateTime(order.created_at)} />
+            <SidebarLine label="Cửa hàng / Chi nhánh" value="Main branch" />
+            <SidebarLine label="Nhân viên được giao" value={order.confirmed_by ?? 'Chưa phân công'} />
+            <SidebarLine label="Tạo bởi" value={order.created_by ?? 'System'} />
+            <SidebarLine label="Ngày tạo" value={formatDateTime(order.created_at)} />
           </SidebarCard>
         </Stack>
       </Box>
 
       <Menu anchorEl={anchorEl} open={Boolean(anchorEl)} onClose={() => setAnchorEl(null)}>
-        <MenuItem onClick={() => setAnchorEl(null)}>Duplicate order</MenuItem>
-        <MenuItem onClick={() => setAnchorEl(null)}>Export packing slip</MenuItem>
-        <MenuItem onClick={() => setAnchorEl(null)}>Cancel order</MenuItem>
+        <MenuItem onClick={handleDuplicateOrder}>Nhân bản đơn hàng</MenuItem>
+        <MenuItem onClick={handleExportPackingSlip}>Xuất packing slip</MenuItem>
+        <MenuItem
+          onClick={() => {
+            setAnchorEl(null)
+            void runAction('cancel')
+          }}
+          disabled={isActing || !canCancelOrder}
+        >
+          Hủy đơn hàng
+        </MenuItem>
+        <MenuItem
+          onClick={() => {
+            setAnchorEl(null)
+            void runAction('return_order')
+          }}
+          disabled={isActing || !canReturnOrder}
+        >
+          Trả đơn hàng
+        </MenuItem>
+        <MenuItem
+          onClick={() => {
+            setAnchorEl(null)
+            void runAction('complete')
+          }}
+          disabled={isActing || order.processing_status === 'completed' || order.payment_status !== 'paid'}
+        >
+          Đánh dấu hoàn thành
+        </MenuItem>
       </Menu>
+
+      <Dialog open={Boolean(shippingDialog)} onClose={() => setShippingDialog(null)} fullWidth maxWidth="sm">
+        <DialogTitle>{shippingDialog?.action === 'confirm_shipping' ? 'Xác nhận giao kho' : 'Đẩy sang vận chuyển'}</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ pt: 1 }}>
+            <TextField
+              label="Đơn vị vận chuyển"
+              value={shippingDialog?.shippingService ?? ''}
+              onChange={(event) =>
+                setShippingDialog((current) => (current ? { ...current, shippingService: event.target.value } : current))
+              }
+              fullWidth
+            />
+            <TextField
+              label="Mã tracking"
+              value={shippingDialog?.trackingCode ?? ''}
+              onChange={(event) =>
+                setShippingDialog((current) => (current ? { ...current, trackingCode: event.target.value } : current))
+              }
+              fullWidth
+            />
+            <TextField
+              label="Trạng thái giao hàng"
+              value={shippingDialog?.shippingStatus ?? ''}
+              onChange={(event) =>
+                setShippingDialog((current) => (current ? { ...current, shippingStatus: event.target.value } : current))
+              }
+              fullWidth
+              placeholder={shippingDialog?.action === 'push_to_delivery' ? 'delivering' : 'ready_to_ship'}
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setShippingDialog(null)}>Đóng</Button>
+          <Button variant="contained" onClick={() => void submitShippingAction()} disabled={isActing}>
+            {shippingDialog?.action === 'confirm_shipping' ? 'Xác nhận giao kho' : 'Đẩy sang vận chuyển'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={isInvoiceDialogOpen} onClose={() => setIsInvoiceDialogOpen(false)} fullWidth maxWidth="sm">
+        <DialogTitle>Yêu cầu e-invoice</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ pt: 1 }}>
+            <TextField
+              label="Mã hóa đơn"
+              value={invoiceCodeDraft}
+              onChange={(event) => setInvoiceCodeDraft(event.target.value)}
+              fullWidth
+              placeholder="Nếu để trống, backend sẽ tạo mã mặc định"
+            />
+            <Typography variant="body2" color="text.secondary">
+              Mã hóa đơn sẽ được lưu vào lịch sử đơn hàng để đội vận hành đối soát sau này.
+            </Typography>
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setIsInvoiceDialogOpen(false)}>Đóng</Button>
+          <Button variant="contained" onClick={() => void submitInvoiceRequest()} disabled={isActing}>
+            Lưu mã hóa đơn
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={isQrDialogOpen} onClose={() => setIsQrDialogOpen(false)} fullWidth maxWidth="xs">
+        <DialogTitle>QR đơn hàng</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ pt: 1, alignItems: 'center' }}>
+            {qrImageUrl ? (
+              <Box
+                component="img"
+                src={qrImageUrl}
+                alt={`QR ${order.order_code}`}
+                sx={{ width: 240, height: 240, borderRadius: 2, border: '1px solid #e2e8f0', bgcolor: '#fff' }}
+              />
+            ) : null}
+            <TextField value={qrValue} multiline minRows={5} fullWidth slotProps={{ input: { readOnly: true } }} />
+            <Typography variant="body2" color="text.secondary">
+              QR này mã hóa thông tin đơn cơ bản để đội vận hành hoặc thu ngân scan nhanh.
+            </Typography>
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setIsQrDialogOpen(false)}>Đóng</Button>
+          <Button variant="contained" onClick={() => void handleCopyQrValue()}>
+            Copy nội dung
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   )
 }
@@ -496,11 +933,11 @@ function OrderProgressCard({
   }
 
   return (
-    <Paper sx={cardSx}>
+    <Paper sx={borderedCardSx}>
       <CardHeader
-        eyebrow="Order Progress"
-        title="Fulfillment stepper"
-        description="Nhan vien scan ngang de biet don dang o dau va timestamp cua moi moc."
+        eyebrow="Tiến độ đơn hàng"
+        title="Stepper thực hiện"
+        description="Nhân viên scan ngang để biết đơn đang ở đâu và timestamp của mỗi mốc."
       />
 
       <Box
@@ -522,7 +959,6 @@ function OrderProgressCard({
                 sx={{
                   p: 1.75,
                   minHeight: 122,
-                  borderRadius: 3,
                   borderColor: (theme) =>
                     isCurrent ? theme.palette.primary.main : alpha(theme.palette.divider, 0.9),
                   bgcolor: (theme) =>
@@ -552,11 +988,11 @@ function OrderProgressCard({
                     <Typography sx={{ fontWeight: 700, color: '#0f172a' }}>{stage.label}</Typography>
                   </Stack>
                   <Typography variant="body2" color="text.secondary">
-                    {getTimestampForStage(stage.key)}
+                    {getTimestampForStage(stage.timelineKey)}
                   </Typography>
                   <Chip
                     size="small"
-                    label={isCurrent ? 'Current step' : isComplete ? 'Done' : 'Waiting'}
+                    label={isCurrent ? 'Bước hiện tại' : isComplete ? 'Hoàn thành' : 'Đang chờ'}
                     color={isCurrent ? 'primary' : isComplete ? 'success' : 'default'}
                     sx={{ alignSelf: 'flex-start' }}
                   />
@@ -606,7 +1042,6 @@ function MetricTile({
       variant="outlined"
       sx={{
         p: 1.75,
-        borderRadius: 3,
         bgcolor: emphasis ? 'rgba(15, 118, 110, 0.08)' : '#fff',
         borderColor: emphasis ? 'rgba(15, 118, 110, 0.24)' : undefined,
       }}
@@ -672,7 +1107,7 @@ function SidebarCard({
   children: ReactNode
 }): ReactElement {
   return (
-    <Paper sx={cardSx}>
+    <Paper sx={borderedCardSx}>
       <Stack spacing={1.5}>
         <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
           {icon ? (
@@ -717,7 +1152,6 @@ function NoteBlock({ label, value }: { label: string; value: string }): ReactEle
       variant="outlined"
       sx={{
         p: 1.5,
-        borderRadius: 3,
         bgcolor: (theme) => alpha(theme.palette.background.default, 0.7),
       }}
     >

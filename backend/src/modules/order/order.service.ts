@@ -1,7 +1,11 @@
 import { prisma } from "@lib/prisma";
 import { Prisma } from "../../../generated/prisma/client";
 import { BadRequestError, NotFoundError } from "@/common";
+import { InventoryOrderOrchestration } from "@/modules/inventory/inventory.service";
 import type {
+  DuplicateOrderRequestInput,
+  OrderActionName,
+  OrderActionRequestInput,
   OrderHistoryInput,
   OrderItemRequestInput,
   OrderListQuery,
@@ -9,6 +13,7 @@ import type {
   OrderProcessingStatusInput,
   OrderRequestInput,
   OrderTypeInput,
+  UpdateOrderRequestInput,
 } from "./order.types";
 
 const ORDER_CODE_PREFIX = "DH";
@@ -22,32 +27,45 @@ const ORDER_PROCESSING_STATUSES: OrderProcessingStatusInput[] = [
   "picked_up",
   "delivering",
   "completed",
+  "cancelled",
   "returned",
 ];
 const ORDER_TYPES: OrderTypeInput[] = ["sale", "return"];
 
+const orderProcessingStatusLabels = {
+  draft: "Nháp",
+  placed: "Đặt hàng",
+  confirmed: "Xác nhận",
+  picked_up: "Đóng gói",
+  delivering: "Giao hàng",
+  completed: "Hoàn thành",
+  cancelled: "Đã hủy",
+  returned: "Trả hàng",
+} satisfies Record<OrderProcessingStatusInput, string>;
+
 const defaultPaymentStatusDescriptions = {
   unpaid:
-    "Chua co giao dich thanh toan. Co the luu nhap hoac cho xac nhan, nhung khong duoc hoan thanh don.",
+    "Chưa có giao dịch thanh toán. Có thể lưu nhập hoặc chờ xác nhận, nhưng không được hoàn thành đơn.",
   paid:
-    "Da thu du tien cho don hang. Co the tiep tuc reserve kho, giao van va ket thuc don.",
+    "Đã thu đủ tiền cho đơn hàng. Có thể tiếp tục reserve kho, giao vận và kết thúc đơn.",
   deposit:
-    "Da thu tien coc mot phan. Don van duoc xu ly tiep nhung can thu not truoc khi completed.",
+    "Đã thu tiền cọc một phần. Đơn vẫn được xử lý tiếp nhưng cần thu nốt trước khi completed.",
 } satisfies Record<OrderPaymentStatusInput, string>;
 
 const defaultProcessingStatusDescriptions = {
-  draft: "Don nhap cho duyet noi bo hoac bo sung thong tin.",
-  placed: "Don da duoc tao va ghi nhan thong tin dat hang ban dau.",
-  confirmed: "Don da duoc xac nhan va san sang xu ly kho.",
-  picked_up: "Don vi van chuyen da lay hang hoac da xac nhan nhan hang.",
-  delivering: "Don hang dang trong qua trinh giao cho khach.",
-  completed: "Don hang hoan tat, da doi soat thanh toan va chung tu.",
-  returned: "Don hang tra ve hoac hoan tra tu khach.",
+  draft: "Đơn nhập chờ duyệt nội bộ hoặc bổ sung thông tin.",
+  placed: "Đơn đã được tạo và ghi nhận thông tin đặt hàng ban đầu.",
+  confirmed: "Đơn đã được xác nhận và sẵn sàng xử lý kho.",
+  picked_up: "Đơn vị vận chuyển đã lấy hàng hoặc đã xác nhận nhận hàng.",
+  delivering: "Đơn hàng đang trong quá trình giao cho khách.",
+  completed: "Đơn hàng hoàn tất, đã đối soát thanh toán và chứng từ.",
+  cancelled: "Đơn hàng đã bị hủy trước khi hoàn tất.",
+  returned: "Đơn hàng trả về hoặc hoàn trả từ khách.",
 } satisfies Record<OrderProcessingStatusInput, string>;
 
 const defaultTimelineTemplate = {
   placed: {
-    stage: "Dat hang",
+    stage: "Đặt hàng",
     date: null,
     actor: null,
     sales_channel: null,
@@ -56,7 +74,7 @@ const defaultTimelineTemplate = {
     deposit_amount: null,
   },
   confirmed: {
-    stage: "Xac nhan",
+    stage: "Xác nhận",
     date: null,
     actor: null,
     warehouse_status: null,
@@ -64,7 +82,7 @@ const defaultTimelineTemplate = {
     conditions: null,
   },
   picked_up: {
-    stage: "DVVC lay hang",
+    stage: "DVVC lấy hàng",
     shipping_service: null,
     tracking_code: null,
     pickup_date: null,
@@ -72,14 +90,14 @@ const defaultTimelineTemplate = {
     receiver_name: null,
   },
   delivering: {
-    stage: "Giao hang",
+    stage: "Giao hàng",
     delivery_date: null,
     shipping_fee: null,
     shipping_status: null,
     tracking_code: null,
   },
   completed: {
-    stage: "Hoan thanh",
+    stage: "Hoàn thành",
     completed_date: null,
     invoice_code: null,
     total_amount: null,
@@ -231,12 +249,112 @@ const mergeTimeline = (
   return merged;
 };
 
+type OrderWithRelations = Prisma.OrderGetPayload<{
+  include: {
+    items: true;
+    history: true;
+  };
+}>;
+
+const getOrderForMutation = async (id: number) => {
+  const order = await prisma.order.findUnique({
+    where: { id },
+    include: {
+      items: {
+        orderBy: [{ id: "asc" }],
+      },
+      history: {
+        orderBy: [{ created_at: "asc" }, { id: "asc" }],
+      },
+    },
+  });
+
+  if (!order) {
+    throw new NotFoundError("Order not found");
+  }
+
+  return order;
+};
+
+const updateOrderStageTimeline = (
+  currentTimeline: Prisma.JsonValue,
+  stage: string,
+  patch: Record<string, unknown>,
+) => {
+  const stagePatch = {
+    [stage]: {
+      ...patch,
+      timestamp: new Date().toISOString(),
+    },
+  };
+
+  return mergeTimeline(
+    currentTimeline && typeof currentTimeline === "object"
+      ? (currentTimeline as Record<string, unknown>)
+      : undefined,
+    stagePatch,
+  );
+};
+
+const generateInvoiceCode = (orderCode: string) => {
+  const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+  return `EINV-${stamp}-${orderCode}`;
+};
+
+const persistOrderMutation = async ({
+  orderId,
+  data,
+  historyEntry,
+  beforeUpdate,
+}: {
+  orderId: number;
+  data: Prisma.OrderUpdateInput;
+  historyEntry?: {
+    event_type: string;
+    description: string;
+    actor_name: string | null;
+    metadata: Prisma.InputJsonValue;
+  };
+  beforeUpdate?: (tx: Prisma.TransactionClient) => Promise<void>;
+}) => {
+  return prisma.$transaction(async (tx) => {
+    if (beforeUpdate) {
+      await beforeUpdate(tx);
+    }
+
+    if (historyEntry) {
+      await tx.orderHistory.create({
+        data: {
+          order_id: orderId,
+          event_type: historyEntry.event_type,
+          description: historyEntry.description,
+          actor_name: historyEntry.actor_name,
+          metadata: historyEntry.metadata,
+        },
+      });
+    }
+
+    return tx.order.update({
+      where: { id: orderId },
+      data,
+      include: {
+        items: {
+          orderBy: [{ id: "asc" }],
+        },
+        history: {
+          orderBy: [{ created_at: "asc" }, { id: "asc" }],
+        },
+      },
+    });
+  });
+};
+
 const generateNextOrderCode = async (tx: Prisma.TransactionClient) => {
   const codeRegex = `${ORDER_CODE_PREFIX}([0-9]+)$`;
   const matchingPattern = `^${ORDER_CODE_PREFIX}[0-9]+$`;
   const rows = await tx.$queryRaw<Array<{ max_sequence: number | null }>>(Prisma.sql`
     SELECT MAX(SUBSTRING(order_code FROM ${codeRegex})::integer) AS max_sequence
-    FROM orders
+    FROM "Order"
     WHERE order_code ~ ${matchingPattern}
   `);
   const nextSequence = (rows[0]?.max_sequence ?? 0) + 1;
@@ -428,6 +546,10 @@ const buildWhereClause = (query: OrderListQuery): Prisma.OrderWhereInput => {
     ];
   }
 
+  if (view === "cancelled") {
+    where.processing_status = "cancelled";
+  }
+
   if (view === "incomplete") {
     const existingAnd = Array.isArray(where.AND)
       ? where.AND
@@ -496,7 +618,7 @@ const buildHistoryEntries = (input: {
   }> = [
     {
       event_type: "order_created",
-      description: "Tao don hang moi",
+      description: "Tạo đơn hàng mới",
       actor_name: input.createdBy,
       metadata: {
         sales_channel: input.salesChannel,
@@ -509,7 +631,7 @@ const buildHistoryEntries = (input: {
   if (input.paymentStatus === "deposit") {
     baseEntries.push({
       event_type: "payment_updated",
-      description: "Ghi nhan thanh toan dat coc",
+      description: "Ghi nhận thanh toán đặt cọc",
       actor_name: input.createdBy,
       metadata: {
         payment_status: input.paymentStatus,
@@ -522,7 +644,7 @@ const buildHistoryEntries = (input: {
   if (input.paymentStatus === "paid") {
     baseEntries.push({
       event_type: "payment_updated",
-      description: "Don hang da duoc thanh toan",
+      description: "Đơn hàng đã được thanh toán",
       actor_name: input.createdBy,
       metadata: {
         payment_status: input.paymentStatus,
@@ -534,7 +656,7 @@ const buildHistoryEntries = (input: {
   if (input.processingStatus !== "draft") {
     baseEntries.push({
       event_type: "status_changed",
-      description: `Cap nhat trang thai xu ly sang ${input.processingStatus}`,
+      description: `Cập nhật trạng thái xử lý sang ${input.processingStatus}`,
       actor_name: input.createdBy,
       metadata: {
         processing_status: input.processingStatus,
@@ -545,7 +667,7 @@ const buildHistoryEntries = (input: {
   if (input.shippingService || input.trackingCode) {
     baseEntries.push({
       event_type: "shipping_updated",
-      description: "Cap nhat thong tin van chuyen",
+      description: "Cập nhật thông tin vận chuyển",
       actor_name: input.createdBy,
       metadata: {
         shipping_service: input.shippingService,
@@ -557,7 +679,7 @@ const buildHistoryEntries = (input: {
   if (input.orderNotes) {
     baseEntries.push({
       event_type: "note_added",
-      description: "Them ghi chu don hang",
+      description: "Thêm ghi chú đơn hàng",
       actor_name: input.createdBy,
       metadata: {
         order_notes: input.orderNotes,
@@ -676,7 +798,7 @@ export const OrderService = {
         select: {
           sku: true,
           selling_price: true,
-          productId: true,
+          product_id: true,
           product: {
             select: {
               product_name: true,
@@ -707,7 +829,7 @@ export const OrderService = {
       })),
       processing_statuses: ORDER_PROCESSING_STATUSES.map((value) => ({
         value,
-        label: value,
+        label: orderProcessingStatusLabels[value],
         description: defaultProcessingStatusDescriptions[value],
       })),
       order_types: ORDER_TYPES.map((value) => ({
@@ -723,7 +845,7 @@ export const OrderService = {
       products: variants.map((variant) => ({
         sku: variant.sku,
         label: `${variant.product.product_name} - ${variant.sku}`,
-        product_id: variant.productId,
+        product_id: variant.product_id,
         product_name: variant.product.product_name,
         selling_price: decimalToString(variant.selling_price),
       })),
@@ -749,23 +871,65 @@ export const OrderService = {
   },
 
   getOrderById: async (id: number) => {
-    const order = await prisma.order.findUnique({
-      where: { id },
-      include: {
-        items: {
-          orderBy: [{ id: "asc" }],
-        },
-        history: {
-          orderBy: [{ created_at: "asc" }, { id: "asc" }],
-        },
-      },
-    });
-
-    if (!order) {
-      throw new NotFoundError("Order not found");
-    }
-
+    const order = await getOrderForMutation(id);
     return mapOrder(order);
+  },
+
+  duplicateOrder: async (id: number, input: DuplicateOrderRequestInput = {}) => {
+    const existingOrder = await getOrderForMutation(id);
+    const actorName = toOptionalTrimmedString(input.actor_name) ?? "System";
+    const duplicatedOrderDate = parseOptionalDate(input.order_date, "order_date")?.toISOString();
+
+    return OrderService.createOrder({
+      order_date: duplicatedOrderDate,
+      order_type: existingOrder.order_type,
+      customer_id: existingOrder.customer_id,
+      customer_info: {
+        customer_code: existingOrder.customer_code,
+        name: existingOrder.customer_name,
+        phone: existingOrder.customer_phone,
+        email: existingOrder.customer_email,
+        address: existingOrder.customer_address,
+      },
+      tax_amount: existingOrder.tax_amount.toString(),
+      shipping_fee: existingOrder.shipping_fee.toString(),
+      deposit_amount: 0,
+      paid_amount: 0,
+      payment_status: "unpaid",
+      processing_status: "draft",
+      shipping_service: existingOrder.shipping_service,
+      sales_channel: existingOrder.sales_channel,
+      order_notes: existingOrder.order_notes,
+      payment_notes: null,
+      warehouse_status: null,
+      tracking_code: null,
+      shipping_status: null,
+      invoice_code: null,
+      created_by: actorName,
+      confirmed_by: null,
+      status_timeline: {},
+      order_history: [
+        {
+          event_type: "order_duplicated",
+          description: `Nhan ban tu don ${existingOrder.order_code}`,
+          actor_name: actorName,
+          metadata: {
+            source_order_id: existingOrder.id,
+            source_order_code: existingOrder.order_code,
+          },
+        },
+      ],
+      order_items: existingOrder.items.map((item) => ({
+        product_id: item.product_id,
+        variant_sku: item.variant_sku,
+        product_name: item.product_name,
+        sku: item.sku,
+        quantity: item.quantity,
+        unit_price: item.unit_price.toString(),
+        discount_amount: item.discount_amount.toString(),
+        notes: item.notes ?? undefined,
+      })),
+    });
   },
 
   createOrder: async (input: OrderRequestInput) => {
@@ -985,6 +1149,72 @@ export const OrderService = {
             },
           });
 
+          if (order.processing_status === "confirmed") {
+            await InventoryOrderOrchestration.reserveForOrder({
+              tx,
+              items: order.items,
+              actorName: createdBy,
+              referenceId: String(order.id),
+              referenceCode: order.order_code,
+              note: "Order confirmed and inventory reserved",
+              mutation: "reserve",
+            });
+          }
+
+          if (order.processing_status === "picked_up") {
+            await InventoryOrderOrchestration.reserveForOrder({
+              tx,
+              items: order.items,
+              actorName: createdBy,
+              referenceId: String(order.id),
+              referenceCode: order.order_code,
+              note: "Order created directly in picked up stage",
+              mutation: "reserve",
+            });
+            await InventoryOrderOrchestration.moveOrderToPacking({
+              tx,
+              items: order.items,
+              actorName: createdBy,
+              referenceId: String(order.id),
+              referenceCode: order.order_code,
+              note: "Order moved to packing on create",
+              mutation: "move_to_packing",
+            });
+          }
+
+          if (order.processing_status === "delivering" || order.processing_status === "completed") {
+            await InventoryOrderOrchestration.reserveForOrder({
+              tx,
+              items: order.items,
+              actorName: createdBy,
+              referenceId: String(order.id),
+              referenceCode: order.order_code,
+              note: "Order inventory reserved on create",
+              mutation: "reserve",
+            });
+            await InventoryOrderOrchestration.moveOrderToPacking({
+              tx,
+              items: order.items,
+              actorName: createdBy,
+              referenceId: String(order.id),
+              referenceCode: order.order_code,
+              note: "Order moved to packing on create",
+              mutation: "move_to_packing",
+            });
+          }
+
+          if (order.processing_status === "completed") {
+            await InventoryOrderOrchestration.fulfillOrder({
+              tx,
+              items: order.items,
+              actorName: createdBy,
+              referenceId: String(order.id),
+              referenceCode: order.order_code,
+              note: "Order fulfilled on create",
+              mutation: "fulfill",
+            });
+          }
+
           return order;
         });
 
@@ -997,5 +1227,638 @@ export const OrderService = {
     }
 
     throw new BadRequestError("Unable to generate a unique order code");
+  },
+
+  updateOrder: async (id: number, input: UpdateOrderRequestInput) => {
+    const existingOrder = await getOrderForMutation(id);
+    if (!["draft", "placed"].includes(existingOrder.processing_status)) {
+      throw new BadRequestError("Only draft or placed orders can be edited");
+    }
+
+    const orderCode = toOptionalTrimmedString(input.order_code) ?? existingOrder.order_code;
+    const orderDate = parseOptionalDate(input.order_date, "order_date") ?? existingOrder.order_date;
+    const orderType = parseOrderType(input.order_type ?? existingOrder.order_type);
+    const paymentStatus = parseOrderPaymentStatus(input.payment_status ?? existingOrder.payment_status);
+    const processingStatus = parseOrderProcessingStatus(
+      input.processing_status ?? existingOrder.processing_status,
+    );
+    const customerId =
+      input.customer_id === undefined
+        ? existingOrder.customer_id
+        : input.customer_id === null
+          ? null
+          : parseOptionalPositiveInt(input.customer_id, "customer_id") ?? null;
+    const shippingService =
+      input.shipping_service === undefined
+        ? existingOrder.shipping_service
+        : toOptionalTrimmedString(input.shipping_service) ?? null;
+    const salesChannel =
+      input.sales_channel === undefined
+        ? existingOrder.sales_channel
+        : toOptionalTrimmedString(input.sales_channel) ?? null;
+    const orderNotes =
+      input.order_notes === undefined
+        ? existingOrder.order_notes
+        : toOptionalTrimmedString(input.order_notes) ?? null;
+    const paymentNotes =
+      input.payment_notes === undefined
+        ? existingOrder.payment_notes
+        : toOptionalTrimmedString(input.payment_notes) ?? null;
+    const warehouseStatus =
+      input.warehouse_status === undefined
+        ? existingOrder.warehouse_status
+        : toOptionalTrimmedString(input.warehouse_status) ?? null;
+    const trackingCode =
+      input.tracking_code === undefined
+        ? existingOrder.tracking_code
+        : toOptionalTrimmedString(input.tracking_code) ?? null;
+    const shippingStatus =
+      input.shipping_status === undefined
+        ? existingOrder.shipping_status
+        : toOptionalTrimmedString(input.shipping_status) ?? null;
+    const invoiceCode =
+      input.invoice_code === undefined
+        ? existingOrder.invoice_code
+        : toOptionalTrimmedString(input.invoice_code) ?? null;
+    const createdBy = toOptionalTrimmedString(input.created_by) ?? existingOrder.created_by ?? "System";
+    const confirmedBy =
+      input.confirmed_by === undefined
+        ? existingOrder.confirmed_by
+        : toOptionalTrimmedString(input.confirmed_by) ?? null;
+    const requestedItems = Array.isArray(input.order_items)
+      ? input.order_items
+      : existingOrder.items.map((item) => ({
+          product_id: item.product_id,
+          variant_sku: item.variant_sku,
+          product_name: item.product_name,
+          sku: item.sku,
+          quantity: item.quantity,
+          unit_price: item.unit_price.toString(),
+          discount_amount: item.discount_amount.toString(),
+          notes: item.notes ?? undefined,
+        }));
+    const normalizedItems = await buildNormalizedItems(requestedItems);
+
+    if (normalizedItems.length === 0 && processingStatus !== "draft") {
+      throw new BadRequestError("order_items must contain at least one item unless the order is a draft");
+    }
+
+    const customer = customerId
+      ? await prisma.customer.findUnique({
+          where: { id: customerId },
+          select: {
+            id: true,
+            client_code: true,
+            full_name: true,
+            phone: true,
+          },
+        })
+      : null;
+
+    if (customerId && !customer) {
+      throw new BadRequestError("customer_id is invalid");
+    }
+
+    const customerName =
+      toOptionalTrimmedString(input.customer_info?.name) ??
+      existingOrder.customer_name ??
+      customer?.full_name;
+    const customerPhone =
+      toOptionalTrimmedString(input.customer_info?.phone) ??
+      existingOrder.customer_phone ??
+      customer?.phone;
+    const customerCode =
+      toOptionalTrimmedString(input.customer_info?.customer_code) ??
+      existingOrder.customer_code ??
+      customer?.client_code ??
+      null;
+    const customerEmail =
+      input.customer_info?.email === undefined
+        ? existingOrder.customer_email
+        : toOptionalTrimmedString(input.customer_info?.email) ?? null;
+    const customerAddress =
+      input.customer_info?.address === undefined
+        ? existingOrder.customer_address
+        : toOptionalTrimmedString(input.customer_info?.address) ?? null;
+
+    if (!customerName) {
+      throw new BadRequestError("customer_info.name is required");
+    }
+
+    if (!customerPhone) {
+      throw new BadRequestError("customer_info.phone is required");
+    }
+
+    const subTotal = normalizedItems.reduce((sum, item) => sum.plus(item.sub_total), new Prisma.Decimal(0));
+    const taxAmount =
+      input.tax_amount === undefined
+        ? existingOrder.tax_amount
+        : parseDecimal(input.tax_amount, "tax_amount", 0);
+    const shippingFee =
+      input.shipping_fee === undefined
+        ? existingOrder.shipping_fee
+        : parseDecimal(input.shipping_fee, "shipping_fee", 0);
+    const totalAmount = subTotal.plus(taxAmount).plus(shippingFee);
+    const depositAmount =
+      input.deposit_amount === undefined
+        ? existingOrder.deposit_amount
+        : parseDecimal(input.deposit_amount, "deposit_amount", 0);
+    let paidAmount =
+      input.paid_amount === undefined
+        ? existingOrder.paid_amount
+        : parseDecimal(input.paid_amount, "paid_amount", 0);
+
+    if (paymentStatus === "unpaid") {
+      if (depositAmount.gt(0) || paidAmount.gt(0)) {
+        throw new BadRequestError("unpaid orders cannot include deposit_amount or paid_amount");
+      }
+    }
+
+    if (paymentStatus === "deposit") {
+      if (depositAmount.lte(0)) {
+        throw new BadRequestError("deposit orders must include deposit_amount greater than 0");
+      }
+
+      if (depositAmount.gt(totalAmount)) {
+        throw new BadRequestError("deposit_amount cannot exceed total_amount");
+      }
+
+      if (paidAmount.lt(depositAmount)) {
+        paidAmount = depositAmount;
+      }
+    }
+
+    if (paymentStatus === "paid") {
+      paidAmount = totalAmount;
+    }
+
+    const outstandingAmount = totalAmount.minus(paidAmount);
+
+    if (outstandingAmount.lt(0)) {
+      throw new BadRequestError("paid_amount cannot exceed total_amount");
+    }
+
+    if (processingStatus === "completed" && paymentStatus !== "paid") {
+      throw new BadRequestError("Only fully paid orders can be moved to completed");
+    }
+
+    const runtimeTimeline = {
+      placed: {
+        date: orderDate.toISOString(),
+        actor: createdBy,
+        sales_channel: salesChannel,
+        payment_type: paymentStatus,
+        sub_total: subTotal.toString(),
+        deposit_amount: depositAmount.toString(),
+      },
+      confirmed: {
+        actor: confirmedBy,
+        warehouse_status: warehouseStatus,
+      },
+      picked_up: {
+        shipping_service: shippingService,
+        tracking_code: trackingCode,
+        pickup_address: customerAddress,
+        receiver_name: customerName,
+      },
+      delivering: {
+        shipping_fee: shippingFee.toString(),
+        shipping_status: shippingStatus,
+        tracking_code: trackingCode,
+      },
+      completed: {
+        invoice_code: invoiceCode,
+        total_amount: totalAmount.toString(),
+        paid_amount: paidAmount.toString(),
+        outstanding_amount: outstandingAmount.toString(),
+      },
+    };
+
+    const statusTimeline = mergeTimeline(
+      input.status_timeline ?? (existingOrder.status_timeline as Record<string, unknown>),
+      runtimeTimeline,
+    );
+
+    const updatedOrder = await prisma.$transaction(async (tx) => {
+      await tx.orderItem.deleteMany({
+        where: { order_id: id },
+      });
+
+      await tx.orderHistory.create({
+        data: {
+          order_id: id,
+          event_type: "order_updated",
+          description: "Cap nhat noi dung don hang",
+          actor_name: createdBy,
+          metadata: {
+            payment_status: paymentStatus,
+            processing_status: processingStatus,
+            total_amount: totalAmount.toString(),
+            item_count: normalizedItems.length,
+          },
+        },
+      });
+
+      return tx.order.update({
+        where: { id },
+        data: {
+          order_code: orderCode,
+          order_type: orderType,
+          order_date: orderDate,
+          customer_id: customerId,
+          customer_code: customerCode,
+          customer_name: customerName,
+          customer_phone: customerPhone,
+          customer_email: customerEmail,
+          customer_address: customerAddress,
+          sub_total: subTotal,
+          tax_amount: taxAmount,
+          shipping_fee: shippingFee,
+          total_amount: totalAmount,
+          deposit_amount: depositAmount,
+          paid_amount: paidAmount,
+          outstanding_amount: outstandingAmount,
+          payment_status: paymentStatus,
+          processing_status: processingStatus,
+          shipping_service: shippingService,
+          sales_channel: salesChannel,
+          order_notes: orderNotes,
+          payment_notes: paymentNotes,
+          warehouse_status: warehouseStatus,
+          tracking_code: trackingCode,
+          shipping_status: shippingStatus,
+          invoice_code: invoiceCode,
+          created_by: createdBy,
+          confirmed_by: confirmedBy,
+          status_timeline: statusTimeline as Prisma.InputJsonValue,
+          items: {
+            create: normalizedItems,
+          },
+        },
+        include: {
+          items: {
+            orderBy: [{ id: "asc" }],
+          },
+          history: {
+            orderBy: [{ created_at: "asc" }, { id: "asc" }],
+          },
+        },
+      });
+    });
+
+    return mapOrder(updatedOrder);
+  },
+
+  runAction: async (id: number, action: OrderActionName, input: OrderActionRequestInput) => {
+    const existingOrder = await getOrderForMutation(id);
+    const actorName = toOptionalTrimmedString(input.actor_name) ?? "System";
+    const note = toOptionalTrimmedString(input.note) ?? null;
+    const shippingService =
+      toOptionalTrimmedString(input.shipping_service) ?? existingOrder.shipping_service;
+    const trackingCode =
+      toOptionalTrimmedString(input.tracking_code) ?? existingOrder.tracking_code;
+    const shippingStatus =
+      toOptionalTrimmedString(input.shipping_status) ?? existingOrder.shipping_status;
+    const warehouseStatus =
+      toOptionalTrimmedString(input.warehouse_status) ?? existingOrder.warehouse_status;
+    const invoiceCode =
+      toOptionalTrimmedString(input.invoice_code) ??
+      existingOrder.invoice_code ??
+      generateInvoiceCode(existingOrder.order_code);
+
+    let nextData: Prisma.OrderUpdateInput = {};
+    let historyEntry: {
+      event_type: string;
+      description: string;
+      actor_name: string | null;
+      metadata: Prisma.InputJsonValue;
+    } | undefined;
+
+    if (action === "confirm") {
+      if (!["draft", "placed"].includes(existingOrder.processing_status)) {
+        throw new BadRequestError("Only draft or placed orders can be confirmed");
+      }
+
+      nextData = {
+        processing_status: "confirmed",
+        confirmed_by: actorName,
+        warehouse_status: warehouseStatus ?? "confirmed",
+        status_timeline: updateOrderStageTimeline(existingOrder.status_timeline, "confirmed", {
+          actor: actorName,
+          note,
+          warehouse_status: warehouseStatus ?? "confirmed",
+        }) as Prisma.InputJsonValue,
+      };
+      historyEntry = {
+        event_type: "status_changed",
+        description: "Xac nhan don hang",
+        actor_name: actorName,
+        metadata: {
+          processing_status: "confirmed",
+          warehouse_status: warehouseStatus ?? "confirmed",
+          note,
+        },
+      };
+    }
+
+    if (action === "confirm_shipping") {
+      if (existingOrder.processing_status !== "confirmed") {
+        throw new BadRequestError("Only confirmed orders can move to confirm shipping");
+      }
+
+      nextData = {
+        processing_status: "picked_up",
+        warehouse_status: warehouseStatus ?? "ready_to_ship",
+        shipping_service: shippingService,
+        tracking_code: trackingCode,
+        status_timeline: updateOrderStageTimeline(existingOrder.status_timeline, "picked_up", {
+          actor: actorName,
+          shipping_service: shippingService,
+          tracking_code: trackingCode,
+          warehouse_status: warehouseStatus ?? "ready_to_ship",
+          note,
+        }) as Prisma.InputJsonValue,
+      };
+      historyEntry = {
+        event_type: "status_changed",
+        description: "Xac nhan giao hang",
+        actor_name: actorName,
+        metadata: {
+          processing_status: "picked_up",
+          shipping_service: shippingService,
+          tracking_code: trackingCode,
+          note,
+        },
+      };
+    }
+
+    if (action === "push_to_delivery") {
+      if (!["confirmed", "picked_up"].includes(existingOrder.processing_status)) {
+        throw new BadRequestError("Only confirmed or picked up orders can be pushed to delivery");
+      }
+
+      nextData = {
+        processing_status: "delivering",
+        shipping_service: shippingService,
+        tracking_code: trackingCode,
+        shipping_status: shippingStatus ?? "delivering",
+        status_timeline: updateOrderStageTimeline(existingOrder.status_timeline, "delivering", {
+          actor: actorName,
+          shipping_service: shippingService,
+          tracking_code: trackingCode,
+          shipping_status: shippingStatus ?? "delivering",
+          note,
+        }) as Prisma.InputJsonValue,
+      };
+      historyEntry = {
+        event_type: "shipping_updated",
+        description: "Day don sang don vi van chuyen",
+        actor_name: actorName,
+        metadata: {
+          processing_status: "delivering",
+          shipping_service: shippingService,
+          tracking_code: trackingCode,
+          shipping_status: shippingStatus ?? "delivering",
+          note,
+        },
+      };
+    }
+
+    if (action === "mark_paid") {
+      if (existingOrder.payment_status === "paid" && existingOrder.outstanding_amount.lte(0)) {
+        return mapOrder(existingOrder);
+      }
+
+      nextData = {
+        payment_status: "paid",
+        deposit_amount: existingOrder.deposit_amount,
+        paid_amount: existingOrder.total_amount,
+        outstanding_amount: new Prisma.Decimal(0),
+        payment_notes: note ?? existingOrder.payment_notes,
+        status_timeline: updateOrderStageTimeline(existingOrder.status_timeline, "completed", {
+          actor: actorName,
+          paid_amount: existingOrder.total_amount.toString(),
+          outstanding_amount: "0",
+          payment_status: "paid",
+        }) as Prisma.InputJsonValue,
+      };
+      historyEntry = {
+        event_type: "payment_updated",
+        description: "Danh dau don hang da thanh toan",
+        actor_name: actorName,
+        metadata: {
+          payment_status: "paid",
+          paid_amount: existingOrder.total_amount.toString(),
+          note,
+        },
+      };
+    }
+
+    if (action === "request_invoice") {
+      nextData = {
+        invoice_code: invoiceCode,
+        status_timeline: updateOrderStageTimeline(existingOrder.status_timeline, "completed", {
+          actor: actorName,
+          invoice_code: invoiceCode,
+        }) as Prisma.InputJsonValue,
+      };
+      historyEntry = {
+        event_type: "invoice_requested",
+        description: "Yeu cau xuat hoa don dien tu",
+        actor_name: actorName,
+        metadata: {
+          invoice_code: invoiceCode,
+          note,
+        },
+      };
+    }
+
+    if (action === "complete") {
+      if (existingOrder.payment_status !== "paid") {
+        throw new BadRequestError("Only fully paid orders can be completed");
+      }
+
+      if (!["delivering", "picked_up"].includes(existingOrder.processing_status)) {
+        throw new BadRequestError("Only delivering or picked up orders can be completed");
+      }
+
+      nextData = {
+        processing_status: "completed",
+        shipping_status: shippingStatus ?? "delivered",
+        invoice_code: existingOrder.invoice_code ?? invoiceCode,
+        status_timeline: updateOrderStageTimeline(existingOrder.status_timeline, "completed", {
+          actor: actorName,
+          shipping_status: shippingStatus ?? "delivered",
+          invoice_code: existingOrder.invoice_code ?? invoiceCode,
+          paid_amount: existingOrder.total_amount.toString(),
+          outstanding_amount: existingOrder.outstanding_amount.toString(),
+          note,
+        }) as Prisma.InputJsonValue,
+      };
+      historyEntry = {
+        event_type: "status_changed",
+        description: "Hoan thanh don hang",
+        actor_name: actorName,
+        metadata: {
+          processing_status: "completed",
+          shipping_status: shippingStatus ?? "delivered",
+          invoice_code: existingOrder.invoice_code ?? invoiceCode,
+          note,
+        },
+      };
+    }
+
+    if (action === "cancel") {
+      if (!["draft", "placed", "confirmed", "picked_up"].includes(existingOrder.processing_status)) {
+        throw new BadRequestError("Only draft, placed, confirmed or picked up orders can be cancelled");
+      }
+
+      if (existingOrder.payment_status === "paid") {
+        throw new BadRequestError("Paid orders cannot be cancelled directly");
+      }
+
+      nextData = {
+        processing_status: "cancelled",
+        shipping_status: existingOrder.shipping_status ?? "cancelled",
+        status_timeline: updateOrderStageTimeline(existingOrder.status_timeline, "completed", {
+          actor: actorName,
+          shipping_status: "cancelled",
+          note: note ?? "Order cancelled",
+        }) as Prisma.InputJsonValue,
+      };
+      historyEntry = {
+        event_type: "order_cancelled",
+        description: "Huy don hang",
+        actor_name: actorName,
+        metadata: {
+          processing_status: "cancelled",
+          payment_status: existingOrder.payment_status,
+          note,
+        },
+      };
+    }
+
+    if (action === "return_order") {
+      if (existingOrder.processing_status !== "completed") {
+        throw new BadRequestError("Only completed orders can be returned");
+      }
+
+      nextData = {
+        processing_status: "returned",
+        shipping_status: "returned",
+        status_timeline: updateOrderStageTimeline(existingOrder.status_timeline, "completed", {
+          actor: actorName,
+          shipping_status: "returned",
+          note: note ?? "Order returned",
+        }) as Prisma.InputJsonValue,
+      };
+      historyEntry = {
+        event_type: "order_returned",
+        description: "Ghi nhan tra hang",
+        actor_name: actorName,
+        metadata: {
+          processing_status: "returned",
+          payment_status: existingOrder.payment_status,
+          note,
+        },
+      };
+    }
+
+    if (!historyEntry) {
+      throw new BadRequestError(`Unsupported action: ${action}`);
+    }
+
+    const updatedOrder = await persistOrderMutation({
+      orderId: id,
+      data: nextData,
+      historyEntry,
+      beforeUpdate:
+        action === "confirm"
+          ? async (tx) => {
+              await InventoryOrderOrchestration.reserveForOrder({
+                tx,
+                items: existingOrder.items,
+                actorName,
+                referenceId: String(existingOrder.id),
+                referenceCode: existingOrder.order_code,
+                note: note ?? "Order confirmed and inventory reserved",
+                mutation: "reserve",
+              });
+            }
+          : action === "confirm_shipping"
+            ? async (tx) => {
+                await InventoryOrderOrchestration.moveOrderToPacking({
+                  tx,
+                  items: existingOrder.items,
+                  actorName,
+                  referenceId: String(existingOrder.id),
+                  referenceCode: existingOrder.order_code,
+                  note: note ?? "Inventory moved to packing",
+                  mutation: "move_to_packing",
+                });
+              }
+            : action === "complete"
+              ? async (tx) => {
+                  await InventoryOrderOrchestration.fulfillOrder({
+                    tx,
+                    items: existingOrder.items,
+                    actorName,
+                    referenceId: String(existingOrder.id),
+                    referenceCode: existingOrder.order_code,
+                    note: note ?? "Order fulfilled",
+                    mutation: "fulfill",
+                  });
+                }
+              : action === "cancel"
+                ? async (tx) => {
+                    if (existingOrder.processing_status === "confirmed") {
+                      await InventoryOrderOrchestration.releaseForOrder({
+                        tx,
+                        items: existingOrder.items,
+                        actorName,
+                        referenceId: String(existingOrder.id),
+                        referenceCode: existingOrder.order_code,
+                        note: note ?? "Order cancelled and inventory released",
+                        mutation: "reserve",
+                      });
+                    }
+
+                    if (existingOrder.processing_status === "picked_up") {
+                      await InventoryOrderOrchestration.cancelPackingForOrder({
+                        tx,
+                        items: existingOrder.items,
+                        actorName,
+                        referenceId: String(existingOrder.id),
+                        referenceCode: existingOrder.order_code,
+                        note: note ?? "Cancel packing before releasing inventory",
+                        mutation: "reserve",
+                      });
+                      await InventoryOrderOrchestration.releaseForOrder({
+                        tx,
+                        items: existingOrder.items,
+                        actorName,
+                        referenceId: String(existingOrder.id),
+                        referenceCode: existingOrder.order_code,
+                        note: note ?? "Order cancelled and inventory released",
+                        mutation: "reserve",
+                      });
+                    }
+                  }
+              : action === "return_order"
+                ? async (tx) => {
+                    await InventoryOrderOrchestration.restockReturnedOrder({
+                      tx,
+                      items: existingOrder.items,
+                      actorName,
+                      referenceId: String(existingOrder.id),
+                      referenceCode: existingOrder.order_code,
+                      note: note ?? "Returned order restocked to inventory",
+                      mutation: "reserve",
+                    });
+                  }
+              : undefined,
+    });
+
+    return mapOrder(updatedOrder);
   },
 };

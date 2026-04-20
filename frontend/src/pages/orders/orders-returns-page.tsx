@@ -4,11 +4,11 @@ import { OrdersCollectionPage } from './order.shared'
 export function OrdersReturnsPage(): ReactElement {
   return (
     <OrdersCollectionPage
-      title="Trả hàng"
-      description="Quản lý các đơn hoàn trả hoặc đơn được đánh dấu returned để theo dõi đối soát và hậu mãi."
+      title="Tra hang"
+      description="Quan ly cac don tra hang sau giao thanh cong de theo doi reverse logistics, hau mai va nhap lai kho."
       view="returns"
-      helperTitle="Returns tách module"
-      helperDescription="Hiện tại returns dùng chung cấu trúc order để tái sử dụng timeline, payment và history. Cách này giúp dễ tách riêng module hậu mãi hoặc reverse logistics ở bước sau."
+      helperTitle="Returns tach module"
+      helperDescription="Cancelled da duoc tach sang danh sach rieng. Trang nay tap trung cho returned va cac don return type de theo doi tra hang thuc su."
     />
   )
 }

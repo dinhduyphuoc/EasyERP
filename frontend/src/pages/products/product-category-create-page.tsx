@@ -15,13 +15,8 @@ import {
   Typography,
 } from '@mui/material'
 import { productApi } from '@/pages/products/product.api'
+import { defaultCardSx } from '@/shared/ui/paper'
 import { appToast } from '@/shared/ui/toast/toast'
-
-const cardSx = {
-  p: { xs: 2, md: 2.5 },
-  borderRadius: '8px',
-  boxShadow: '0 0.5rem 1.5rem rgba(15,23,42,0.08)',
-}
 
 export function ProductCategoryCreatePage(): ReactElement {
   const { id } = useParams()
@@ -134,7 +129,7 @@ export function ProductCategoryCreatePage(): ReactElement {
 
   return (
     <Box sx={{ px: { xs: 2, md: 3, xl: 4 }, pb: 8 }}>
-      <Paper sx={{ ...cardSx, mb: 2 }}>
+      <Paper sx={{ ...defaultCardSx, mb: 2 }}>
         <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} sx={{ justifyContent: 'space-between', alignItems: { md: 'center' } }}>
           <Box>
             <Typography variant="h5" sx={{ fontWeight: 700, color: '#101828' }}>
@@ -154,7 +149,7 @@ export function ProductCategoryCreatePage(): ReactElement {
         </Stack>
       </Paper>
 
-      <Paper sx={cardSx}>
+      <Paper sx={defaultCardSx}>
         <Stack spacing={3}>
           <Box>
             <Typography variant="h6" sx={{ fontWeight: 700 }}>

@@ -23,6 +23,7 @@ import {
   Typography,
 } from '@mui/material'
 import { inventoryApi, type InventoryAuditItem, type InventoryAuditPayload, type InventoryStockListItem } from './inventory.api'
+import { defaultCardSx } from '@/shared/ui/paper'
 import { appToast } from '@/shared/ui/toast/toast'
 
 type AuditLineDraft = {
@@ -43,12 +44,6 @@ type InventorySearchOption =
       type: 'variant'
       item: InventoryStockListItem
     }
-
-const cardSx = {
-  p: { xs: 2, md: 2.5 },
-  borderRadius: '4px',
-  boxShadow: '0 0.5rem 1.5rem rgba(15,23,42,0.08)',
-}
 
 function parseQty(value: string) {
   if (!value.trim()) {
@@ -434,7 +429,7 @@ export function InventoryAuditCreatePage(): ReactElement {
         </Typography>
       </Stack>
 
-      <Paper sx={cardSx}>
+      <Paper sx={defaultCardSx}>
         <Stack direction={{ xs: 'column', lg: 'row' }} spacing={3} sx={{ justifyContent: 'space-between' }}>
           <Box>
             <Typography variant="body2" sx={{ color: '#667085', mb: 0.75 }}>
@@ -476,7 +471,7 @@ export function InventoryAuditCreatePage(): ReactElement {
         </Stack>
       </Paper>
 
-      <Paper sx={cardSx}>
+      <Paper sx={defaultCardSx}>
         <Stack spacing={2}>
           <Typography variant="h6" sx={{ fontWeight: 700, color: '#101828' }}>
             Bảng kiểm kho

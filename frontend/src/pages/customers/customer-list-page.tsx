@@ -338,7 +338,6 @@ export function CustomerListPage() {
         <Paper
           sx={{
             p: 2.5,
-            borderRadius: 5,
             border: (theme) => `1px solid ${alpha(theme.palette.info.main, 0.12)}`,
             bgcolor: (theme) => alpha(theme.palette.info.light, 0.08),
           }}
