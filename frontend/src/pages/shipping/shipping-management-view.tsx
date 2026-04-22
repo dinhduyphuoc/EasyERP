@@ -624,14 +624,14 @@ export function ShippingManagementView({
                     label="Link tra cứu"
                     value={lookupLink}
                     fullWidth
+                    endAdornment={
+                      <Link href={lookupLink} target="_blank" rel="noreferrer" underline="hover" sx={{ whiteSpace: 'nowrap' }}>
+                        Mở link
+                      </Link>
+                    }
                     slotProps={{
                       input: {
                         readOnly: true,
-                        endAdornment: (
-                          <Link href={lookupLink} target="_blank" rel="noreferrer" underline="hover" sx={{ whiteSpace: 'nowrap' }}>
-                            Mở link
-                          </Link>
-                        ),
                       },
                     }}
                   />

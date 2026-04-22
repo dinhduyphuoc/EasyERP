@@ -6,7 +6,6 @@ import SaveOutlinedIcon from '@mui/icons-material/SaveOutlined'
 import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 import {
   Alert,
-  Autocomplete,
   Box,
   Button,
   CircularProgress,
@@ -16,6 +15,7 @@ import {
   DialogTitle,
   IconButton,
   InputAdornment,
+  MenuItem,
   Paper,
   Stack,
   Table,
@@ -30,6 +30,8 @@ import { productApi, type ProductCategory, type ProductUpsertPayload } from '@/p
 import type { ProductListItem } from '@/pages/products/product-list.data'
 import { defaultCardSx } from '@/shared/ui/paper'
 import { appToast } from '@/shared/ui/toast/toast.helpers'
+import { StackedTextField } from '@/shared/ui/form/stacked-text-field'
+import { StackedDropdown } from '@/shared/ui/form/stacked-dropdown'
 
 type AttributeRow = {
   id: string
@@ -279,11 +281,6 @@ export function ProductCreatePage(): ReactElement {
 
   const variantMode = variants.length > 0
   const isEditMode = Boolean(id)
-  const categoryOptions = useMemo(
-    () => categories.map((item) => item.category_name),
-    [categories],
-  )
-
   const validationErrors = useMemo(() => {
     const nextErrors: Record<string, string> = {}
 
@@ -503,34 +500,45 @@ export function ProductCreatePage(): ReactElement {
 
               <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' } }}>
                 <Box sx={{ gridColumn: '1 / -1' }}>
-                  <TextField fullWidth label="Tên sản phẩm *" placeholder="Ví dụ: Túi deo chéo canvas" value={name} onChange={(event) => { setDirty(true); setName(event.target.value) }} error={Boolean(errors.name)} helperText={errors.name} />
+                  <StackedTextField fullWidth label="Tên sản phẩm *" placeholder="Ví dụ: Túi deo chéo canvas" value={name} onChange={(event) => { setDirty(true); setName(event.target.value) }} error={Boolean(errors.name)} helperText={errors.name} />
                 </Box>
 
-                <TextField fullWidth label="Mã SKU gốc *" placeholder="Ví dụ: TUI-CANVAS-01" value={sku} onChange={(event) => { setDirty(true); setSku(sanitizeSku(event.target.value)) }} error={Boolean(errors.sku)} helperText={errors.sku} />
+                <StackedTextField fullWidth label="Mã SKU gốc *" placeholder="Ví dụ: TUI-CANVAS-01" value={sku} onChange={(event) => { setDirty(true); setSku(sanitizeSku(event.target.value)) }} error={Boolean(errors.sku)} helperText={errors.sku} />
 
-                <TextField fullWidth label="Đơn vị tính" placeholder="Ví dụ: cái, hộp, kg" value={unit} onChange={(event) => { setDirty(true); setUnit(event.target.value) }} />
+                <StackedTextField fullWidth label="Đơn vị tính" placeholder="Ví dụ: cái, hộp, kg" value={unit} onChange={(event) => { setDirty(true); setUnit(event.target.value) }} />
 
-                <TextField
+                <StackedDropdown
                   fullWidth
-                  select
                   label="Trạng thái"
                   value={status}
                   onChange={(event) => { setDirty(true); setStatus(event.target.value as 'active' | 'inactive' | 'draft') }}
-                  slotProps={{
-                    select: {
-                      native: true,
-                    },
+                >
+                  <MenuItem value="active">Đang bán</MenuItem>
+                  <MenuItem value="inactive">Ngưng bán</MenuItem>
+                  <MenuItem value="draft">Nháp</MenuItem>
+                </StackedDropdown>
+
+                <StackedDropdown
+                  fullWidth
+                  label="Danh mục"
+                  value={category ?? ''}
+                  displayEmpty
+                  onChange={(event) => {
+                    setDirty(true)
+                    const nextValue = event.target.value as string
+                    setCategory(nextValue || null)
                   }}
                 >
-                  <option value="active">Đang bán</option>
-                  <option value="inactive">Ngưng bán</option>
-                  <option value="draft">Nháp</option>
-                </TextField>
-
-                <Autocomplete options={categoryOptions} value={category} onChange={(_, value) => { setDirty(true); setCategory(value) }} renderInput={(params) => <TextField {...params} label="Danh mục" placeholder="Chọn danh mục sản phẩm" />} />
+                  <MenuItem value="">Chọn danh mục sản phẩm</MenuItem>
+                  {categories.map((item) => (
+                    <MenuItem key={item.id} value={item.category_name}>
+                      {item.category_name}
+                    </MenuItem>
+                  ))}
+                </StackedDropdown>
 
                 <Box sx={{ gridColumn: '1 / -1' }}>
-                  <TextField fullWidth multiline minRows={6} label="Mô tả sản phẩm" placeholder="Mô tả ngắn về chất liệu, công năng, điểm nổi bật của sản phẩm..." value={description} onChange={(event) => { setDirty(true); setDescription(event.target.value) }} />
+                  <StackedTextField fullWidth multiline minRows={6} label="Mô tả sản phẩm" placeholder="Mô tả ngắn về chất liệu, công năng, điểm nổi bật của sản phẩm..." value={description} onChange={(event) => { setDirty(true); setDescription(event.target.value) }} />
                 </Box>
               </Box>
             </Stack>
@@ -541,29 +549,21 @@ export function ProductCreatePage(): ReactElement {
                       Thông tin giá
                   </Typography>
                   <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, mt: 2 }}>
-                    <TextField
+                    <StackedTextField
                       fullWidth
                       label="Giá bán"
                       value={basePrice}
                       onChange={(event) => { setDirty(true); setBasePrice(formatCurrency(event.target.value, { zeroAsEmpty: false })) }}
                       error={Boolean(errors.basePrice)}
                       helperText={errors.basePrice}
-                      slotProps={{
-                        input: {
-                          endAdornment: <InputAdornment sx={{ fontSize: 14 }} position="end">₫</InputAdornment>,
-                        },
-                      }}
+                      endAdornment={<InputAdornment sx={{ fontSize: 14 }} position="end">₫</InputAdornment>}
                     />
-                    <TextField
+                    <StackedTextField
                       fullWidth
                       label="Giá vốn"
                       value={baseCogs}
                       onChange={(event) => { setDirty(true); setBaseCogs(formatCurrency(event.target.value, { zeroAsEmpty: false })) }}
-                      slotProps={{
-                        input: {
-                          endAdornment: <InputAdornment sx={{ fontSize: 14 }} position="end">₫</InputAdornment>,
-                        },
-                      }}
+                      endAdornment={<InputAdornment sx={{ fontSize: 14 }} position="end">₫</InputAdornment>}
                     />
                   </Box>
                 </Paper>
@@ -662,10 +662,10 @@ export function ProductCreatePage(): ReactElement {
                 <Stack spacing={1.5}>
                   {attributes.map((attribute) => (
                       <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', md: '1fr 1.4fr auto' } }}>
-                        <TextField label="Tên thuộc tính" placeholder="Ví dụ: Màu sắc" value={attribute.name} onChange={(event) => { setDirty(true); setAttributes((current) => current.map((item) => item.id === attribute.id ? { ...item, name: event.target.value } : item)) }} />
+                        <StackedTextField label="Tên thuộc tính" placeholder="Ví dụ: Màu sắc" value={attribute.name} onChange={(event) => { setDirty(true); setAttributes((current) => current.map((item) => item.id === attribute.id ? { ...item, name: event.target.value } : item)) }} />
 
                         <Box>
-                          <TextField fullWidth label="Giá trị" placeholder="Nhập giá trị rồi nhấn Enter" value={attribute.draft} onChange={(event) => { setDirty(true); setAttributes((current) => current.map((item) => item.id === attribute.id ? { ...item, draft: event.target.value } : item)) }} onKeyDown={(event: KeyboardEvent<HTMLInputElement>) => handleAttributeKeyDown(event, attribute.id)} onBlur={() => commitAttributeValues(attribute.id)} error={Boolean(errors[`attr-${attribute.id}`])} helperText={errors[`attr-${attribute.id}`] || 'Ví dụ: Đỏ, Xanh, Đen'} />
+                          <StackedTextField fullWidth label="Giá trị" placeholder="Nhập giá trị rồi nhấn Enter" value={attribute.draft} onChange={(event) => { setDirty(true); setAttributes((current) => current.map((item) => item.id === attribute.id ? { ...item, draft: event.target.value } : item)) }} onKeyDown={(event: KeyboardEvent<HTMLInputElement>) => handleAttributeKeyDown(event, attribute.id)} onBlur={() => commitAttributeValues(attribute.id)} error={Boolean(errors[`attr-${attribute.id}`])} helperText={errors[`attr-${attribute.id}`] || 'Ví dụ: Đỏ, Xanh, Đen'} />
                           <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', mt: 1 }} useFlexGap>
                             {attribute.values.map((value) => (
                               <Box key={value} sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, px: 1.25, py: 0.75, borderRadius: '999px', bgcolor: '#eef4ff', color: '#284b9b', fontSize: 14, fontWeight: 600 }}>

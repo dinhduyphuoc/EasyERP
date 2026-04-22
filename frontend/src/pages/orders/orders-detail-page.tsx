@@ -36,6 +36,7 @@ import {
 } from '@mui/material'
 import { appToast } from '@/shared/ui/toast/toast.helpers'
 import { borderedCardSx } from '@/shared/ui/paper'
+import { StackedTextField } from '@/shared/ui/form/stacked-text-field'
 import { orderApi, type OrderActionName, type OrderListItem, type OrderProcessingStatus } from './order.api'
 import {
   formatCurrency,
@@ -810,7 +811,7 @@ export function OrdersDetailPage(): ReactElement {
         <DialogTitle>{shippingDialog?.action === 'confirm_shipping' ? 'Xác nhận giao kho' : 'Đẩy sang vận chuyển'}</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ pt: 1 }}>
-            <TextField
+            <StackedTextField
               label="Đơn vị vận chuyển"
               value={shippingDialog?.shippingService ?? ''}
               onChange={(event) =>
@@ -818,7 +819,7 @@ export function OrdersDetailPage(): ReactElement {
               }
               fullWidth
             />
-            <TextField
+            <StackedTextField
               label="Mã tracking"
               value={shippingDialog?.trackingCode ?? ''}
               onChange={(event) =>
@@ -826,7 +827,7 @@ export function OrdersDetailPage(): ReactElement {
               }
               fullWidth
             />
-            <TextField
+            <StackedTextField
               label="Trạng thái giao hàng"
               value={shippingDialog?.shippingStatus ?? ''}
               onChange={(event) =>
@@ -849,7 +850,7 @@ export function OrdersDetailPage(): ReactElement {
         <DialogTitle>Yêu cầu e-invoice</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ pt: 1 }}>
-            <TextField
+            <StackedTextField
               label="Mã hóa đơn"
               value={invoiceCodeDraft}
               onChange={(event) => setInvoiceCodeDraft(event.target.value)}

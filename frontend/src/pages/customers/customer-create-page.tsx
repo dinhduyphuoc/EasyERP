@@ -9,12 +9,13 @@ import {
   MenuItem,
   Paper,
   Stack,
-  TextField,
   Typography,
 } from '@mui/material'
 import { customerApi, type CustomerCategory, type CustomerCreatePayload } from './customer.api'
 import { defaultCardSx } from '@/shared/ui/paper'
 import { appToast } from '@/shared/ui/toast/toast.helpers'
+import { StackedTextField } from '@/shared/ui/form/stacked-text-field'
+import { StackedDropdown } from '@/shared/ui/form/stacked-dropdown'
 
 export function CustomerCreatePage(): ReactElement {
   const navigate = useNavigate()
@@ -156,7 +157,7 @@ export function CustomerCreatePage(): ReactElement {
           </Box>
 
           <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
-            <TextField
+            <StackedTextField
               fullWidth
               label="Mã khách hàng"
               placeholder="Để trống để hệ thống tự tạo, ví dụ: KH0001"
@@ -165,7 +166,7 @@ export function CustomerCreatePage(): ReactElement {
               helperText="Nếu để trống, hệ thống sẽ tự sinh mã bắt đầu bằng KH."
               disabled={isLoading}
             />
-            <TextField
+            <StackedTextField
               fullWidth
               label="Số điện thoại *"
               placeholder="Ví dụ: 0901234567"
@@ -177,7 +178,7 @@ export function CustomerCreatePage(): ReactElement {
             />
           </Stack>
 
-          <TextField
+          <StackedTextField
             fullWidth
             label="Tên khách hàng *"
             placeholder="Ví dụ: Nguyễn Văn A"
@@ -189,8 +190,7 @@ export function CustomerCreatePage(): ReactElement {
           />
 
           <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
-            <TextField
-              select
+            <StackedDropdown
               fullWidth
               label="Trạng thái"
               value={status}
@@ -199,14 +199,13 @@ export function CustomerCreatePage(): ReactElement {
             >
               <MenuItem value="active">Đang hoạt động</MenuItem>
               <MenuItem value="inactive">Ngừng hoạt động</MenuItem>
-            </TextField>
+            </StackedDropdown>
 
-            <TextField
-              select
+            <StackedDropdown
               fullWidth
               label="Nhóm khách hàng"
               value={customerCategoryId}
-              onChange={(event) => setCustomerCategoryId(event.target.value)}
+              onChange={(event) => setCustomerCategoryId(event.target.value as string)}
               disabled={isLoading}
             >
               <MenuItem value="">Chưa phân nhóm</MenuItem>
@@ -215,7 +214,7 @@ export function CustomerCreatePage(): ReactElement {
                   {category.category_name}
                 </MenuItem>
               ))}
-            </TextField>
+            </StackedDropdown>
           </Stack>
         </Stack>
       </Paper>

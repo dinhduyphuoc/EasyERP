@@ -32,6 +32,8 @@ import {
 } from '@mui/material'
 import { appToast } from '@/shared/ui/toast/toast.helpers'
 import { borderedCardSx } from '@/shared/ui/paper'
+import { StackedTextField } from '@/shared/ui/form/stacked-text-field'
+import { StackedDropdown } from '@/shared/ui/form/stacked-dropdown'
 import { orderApi, type OrderCreatePayload, type OrderListItem, type OrderOptionLookup } from './order.api'
 import { formatCurrency } from './order.utils'
 
@@ -818,8 +820,8 @@ export function OrdersCreatePage(): ReactElement {
               onChange={(_, value) => handleCustomerSelect(value)}
               renderInput={(params) => <TextField {...params} label="Khach hang" placeholder="Tim theo ten, SDT, ma khach hang" />}
             />
-            <TextField fullWidth label="So dien thoai" value={customerPhone} onChange={(event) => setCustomerPhone(event.target.value)} />
-            <TextField fullWidth multiline minRows={2} label="Dia chi giao hang" value={customerAddress} onChange={(event) => setCustomerAddress(event.target.value)} />
+            <StackedTextField fullWidth label="So dien thoai" value={customerPhone} onChange={(event) => setCustomerPhone(event.target.value)} />
+            <StackedTextField fullWidth multiline minRows={2} label="Dia chi giao hang" value={customerAddress} onChange={(event) => setCustomerAddress(event.target.value)} />
           </Stack>
         </DialogContent>
         <DialogActions>
@@ -832,17 +834,17 @@ export function OrdersCreatePage(): ReactElement {
         <DialogTitle>Chinh sua thanh toan</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ pt: 1 }}>
-            <TextField select fullWidth label="Trang thai thanh toan" value={paymentStatus} onChange={(event) => setPaymentStatus(event.target.value as 'unpaid' | 'paid' | 'deposit')}>
+            <StackedDropdown fullWidth label="Trang thai thanh toan" value={paymentStatus} onChange={(event) => setPaymentStatus(event.target.value as 'unpaid' | 'paid' | 'deposit')}>
               <MenuItem value="unpaid">Chua thanh toan</MenuItem>
               <MenuItem value="paid">Thanh toan du</MenuItem>
               <MenuItem value="deposit">Dat coc</MenuItem>
-            </TextField>
-            <TextField fullWidth label="Thue" type="number" value={taxAmount} onChange={(event) => setTaxAmount(event.target.value)} />
-            <TextField fullWidth label="Phi van chuyen" type="number" value={shippingFee} onChange={(event) => setShippingFee(event.target.value)} />
+            </StackedDropdown>
+            <StackedTextField fullWidth label="Thue" type="number" value={taxAmount} onChange={(event) => setTaxAmount(event.target.value)} />
+            <StackedTextField fullWidth label="Phi van chuyen" type="number" value={shippingFee} onChange={(event) => setShippingFee(event.target.value)} />
             {paymentStatus === 'deposit' ? (
-              <TextField fullWidth label="Tien coc" type="number" value={depositAmount} onChange={(event) => setDepositAmount(event.target.value)} />
+              <StackedTextField fullWidth label="Tien coc" type="number" value={depositAmount} onChange={(event) => setDepositAmount(event.target.value)} />
             ) : null}
-            <TextField fullWidth multiline minRows={2} label="Ghi chu thanh toan" value={paymentNotes} onChange={(event) => setPaymentNotes(event.target.value)} />
+            <StackedTextField fullWidth multiline minRows={2} label="Ghi chu thanh toan" value={paymentNotes} onChange={(event) => setPaymentNotes(event.target.value)} />
           </Stack>
         </DialogContent>
         <DialogActions>
@@ -855,14 +857,13 @@ export function OrdersCreatePage(): ReactElement {
         <DialogTitle>Chinh sua thong tin don</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ pt: 1 }}>
-            <TextField fullWidth label="Ma don hang" value={orderCode} onChange={(event) => setOrderCode(event.target.value)} />
-            <TextField fullWidth label="Ngay tao don" type="date" value={orderDate} onChange={(event) => setOrderDate(event.target.value)} slotProps={{ inputLabel: { shrink: true } }} />
-            <TextField select fullWidth label="Loai don" value={orderType} onChange={(event) => setOrderType(event.target.value as 'sale' | 'return')}>
+            <StackedTextField fullWidth label="Ma don hang" value={orderCode} onChange={(event) => setOrderCode(event.target.value)} />
+            <StackedTextField fullWidth label="Ngay tao don" type="date" value={orderDate} onChange={(event) => setOrderDate(event.target.value)} />
+            <StackedDropdown fullWidth label="Loai don" value={orderType} onChange={(event) => setOrderType(event.target.value as 'sale' | 'return')}>
               <MenuItem value="sale">Ban hang</MenuItem>
               <MenuItem value="return">Tra hang</MenuItem>
-            </TextField>
-            <TextField
-              select
+            </StackedDropdown>
+            <StackedDropdown
               fullWidth
               label="Trang thai xu ly"
               value={processingStatus}
@@ -877,8 +878,8 @@ export function OrdersCreatePage(): ReactElement {
                   {status.label}
                 </MenuItem>
               ))}
-            </TextField>
-            <TextField fullWidth label="Kenh ban hang" value={salesChannel} onChange={(event) => setSalesChannel(event.target.value)} />
+            </StackedDropdown>
+            <StackedTextField fullWidth label="Kenh ban hang" value={salesChannel} onChange={(event) => setSalesChannel(event.target.value)} />
           </Stack>
         </DialogContent>
         <DialogActions>
@@ -891,10 +892,10 @@ export function OrdersCreatePage(): ReactElement {
         <DialogTitle>Chinh sua van chuyen</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ pt: 1 }}>
-            <TextField fullWidth label="Don vi van chuyen" value={shippingService} onChange={(event) => setShippingService(event.target.value)} />
-            <TextField fullWidth label="Trang thai giao hang" value={shippingStatus} onChange={(event) => setShippingStatus(event.target.value)} />
-            <TextField fullWidth label="Ma tracking" value={trackingCode} onChange={(event) => setTrackingCode(event.target.value)} />
-            <TextField fullWidth label="Trang thai kho" value={warehouseStatus} onChange={(event) => setWarehouseStatus(event.target.value)} />
+            <StackedTextField fullWidth label="Don vi van chuyen" value={shippingService} onChange={(event) => setShippingService(event.target.value)} />
+            <StackedTextField fullWidth label="Trang thai giao hang" value={shippingStatus} onChange={(event) => setShippingStatus(event.target.value)} />
+            <StackedTextField fullWidth label="Ma tracking" value={trackingCode} onChange={(event) => setTrackingCode(event.target.value)} />
+            <StackedTextField fullWidth label="Trang thai kho" value={warehouseStatus} onChange={(event) => setWarehouseStatus(event.target.value)} />
           </Stack>
         </DialogContent>
         <DialogActions>
@@ -907,10 +908,10 @@ export function OrdersCreatePage(): ReactElement {
         <DialogTitle>Chinh sua ghi chu va metadata</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ pt: 1 }}>
-            <TextField fullWidth multiline minRows={3} label="Ghi chu don hang" value={orderNotes} onChange={(event) => setOrderNotes(event.target.value)} />
-            <TextField fullWidth label="Nguoi tao" value={createdBy} onChange={(event) => setCreatedBy(event.target.value)} />
-            <TextField fullWidth label="Nguoi xu ly" value={confirmedBy} onChange={(event) => setConfirmedBy(event.target.value)} />
-            <TextField fullWidth label="Ma hoa don" value={invoiceCode} onChange={(event) => setInvoiceCode(event.target.value)} />
+            <StackedTextField fullWidth multiline minRows={3} label="Ghi chu don hang" value={orderNotes} onChange={(event) => setOrderNotes(event.target.value)} />
+            <StackedTextField fullWidth label="Nguoi tao" value={createdBy} onChange={(event) => setCreatedBy(event.target.value)} />
+            <StackedTextField fullWidth label="Nguoi xu ly" value={confirmedBy} onChange={(event) => setConfirmedBy(event.target.value)} />
+            <StackedTextField fullWidth label="Ma hoa don" value={invoiceCode} onChange={(event) => setInvoiceCode(event.target.value)} />
           </Stack>
         </DialogContent>
         <DialogActions>

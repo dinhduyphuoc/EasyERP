@@ -11,12 +11,12 @@ import {
   DialogTitle,
   Paper,
   Stack,
-  TextField,
   Typography,
 } from '@mui/material'
 import { productApi } from '@/pages/products/product.api'
 import { defaultCardSx } from '@/shared/ui/paper'
 import { appToast } from '@/shared/ui/toast/toast.helpers'
+import { StackedTextField } from '@/shared/ui/form/stacked-text-field'
 
 export function ProductCategoryCreatePage(): ReactElement {
   const { id } = useParams()
@@ -160,7 +160,7 @@ export function ProductCategoryCreatePage(): ReactElement {
             </Typography>
           </Box>
 
-          <TextField
+          <StackedTextField
             fullWidth
             label="Tên danh mục *"
             placeholder="Ví dụ: Phụ kiện thời trang"
