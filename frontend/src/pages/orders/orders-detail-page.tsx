@@ -34,7 +34,7 @@ import {
   TextField,
   Typography,
 } from '@mui/material'
-import { appToast } from '@/shared/ui/toast/toast'
+import { appToast } from '@/shared/ui/toast/toast.helpers'
 import { borderedCardSx } from '@/shared/ui/paper'
 import { orderApi, type OrderActionName, type OrderListItem, type OrderProcessingStatus } from './order.api'
 import {
@@ -42,7 +42,7 @@ import {
   formatDateTime,
   getPaymentStatusMeta,
   getProcessingStatusMeta,
-} from './order.shared'
+} from './order.utils'
 
 const getErrorMessage = (error: unknown, fallback: string) => {
   return typeof error === 'object' &&

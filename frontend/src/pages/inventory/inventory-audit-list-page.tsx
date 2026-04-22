@@ -52,7 +52,7 @@ export function InventoryAuditListPage() {
 
   useEffect(() => {
     const fetchAuditList = async () => {
-      setIsLoading(rows.length === 0)
+      setIsLoading(inventoryAuditListPageCache === null)
 
       try {
         const data = await inventoryApi.getAuditList()
@@ -64,7 +64,7 @@ export function InventoryAuditListPage() {
       }
     }
 
-    fetchAuditList()
+    void fetchAuditList()
   }, [])
 
   useEffect(() => {

@@ -24,7 +24,7 @@ import {
 } from '@mui/material'
 import { inventoryApi, type InventoryAuditItem, type InventoryAuditPayload, type InventoryStockListItem } from './inventory.api'
 import { defaultCardSx } from '@/shared/ui/paper'
-import { appToast } from '@/shared/ui/toast/toast'
+import { appToast } from '@/shared/ui/toast/toast.helpers'
 
 type AuditLineDraft = {
   product_variant_id: string

@@ -25,7 +25,7 @@ import { alpha } from '@mui/material/styles'
 import { ListPageHeader } from '@/shared/ui/list/list-page-header'
 import { StackedTextField } from '@/shared/ui/form/stacked-text-field'
 import { borderedCardSx, defaultCardSx } from '@/shared/ui/paper'
-import { appToast } from '@/shared/ui/toast/toast'
+import { appToast } from '@/shared/ui/toast/toast.helpers'
 import {
   shippingApi,
   type ShippingConnectionDetail,

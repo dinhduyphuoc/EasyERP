@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Box, Button, Paper, Stack, Typography, alpha } from '@mui/material'
 import SyncOutlinedIcon from '@mui/icons-material/SyncOutlined'
 import { useNavigate } from 'react-router'
@@ -34,8 +34,8 @@ export function InventoryStockPage() {
   const [rows, setRows] = useState<InventoryStockListItem[]>(inventoryStockPageCache?.rows ?? [])
   const [isLoading, setIsLoading] = useState(inventoryStockPageCache === null)
 
-  const fetchStockList = async () => {
-    setIsLoading(rows.length === 0)
+  const fetchStockList = useCallback(async () => {
+    setIsLoading(inventoryStockPageCache === null)
 
     try {
       const data = await inventoryApi.getStockList()
@@ -45,11 +45,11 @@ export function InventoryStockPage() {
     } finally {
       setIsLoading(false)
     }
-  }
+  }, [])
 
   useEffect(() => {
-    fetchStockList()
-  }, [])
+    void fetchStockList()
+  }, [fetchStockList])
 
   useEffect(() => {
     inventoryStockPageCache = {

@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router'
 import CloudUploadOutlinedIcon from '@mui/icons-material/CloudUploadOutlined'
 import DeleteOutlineOutlinedIcon from '@mui/icons-material/DeleteOutlineOutlined'
 import SaveOutlinedIcon from '@mui/icons-material/SaveOutlined'
-import ArrowBackIcon from '@mui/icons-material/ArrowBack';
+import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 import {
   Alert,
   Autocomplete,
@@ -29,7 +29,7 @@ import {
 import { productApi, type ProductCategory, type ProductUpsertPayload } from '@/pages/products/product.api'
 import type { ProductListItem } from '@/pages/products/product-list.data'
 import { defaultCardSx } from '@/shared/ui/paper'
-import { appToast } from '@/shared/ui/toast/toast'
+import { appToast } from '@/shared/ui/toast/toast.helpers'
 
 type AttributeRow = {
   id: string
@@ -64,7 +64,7 @@ function formatVariantSkuToken(value: string) {
     .replace(/đ/g, 'd')
     .trim()
     .toUpperCase()
-    .replace(/[\/\\]+/g, '-')
+    .replace(/[/\\]+/g, '-')
     .replace(/\s+/g, '-')
     .replace(/-+/g, '-')
     .replace(/^-+|-+$/g, '')
@@ -301,7 +301,7 @@ export function ProductCreatePage(): ReactElement {
     })
 
     return nextErrors
-  }, [attributes, basePrice, name, sku, variantMode, variants])
+  }, [attributes, name, sku])
 
   useEffect(() => {
     setErrors(hasAttemptedSave ? validationErrors : {})

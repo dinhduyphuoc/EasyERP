@@ -5,7 +5,7 @@ import { CommonListLayout } from '@/shared/ui/list/common-list-layout'
 import { ListEmptyState } from '@/shared/ui/list/list-empty-state'
 import type { ListColumn } from '@/shared/ui/list/common-list.types'
 import { productApi, type ProductCategory } from '@/pages/products/product.api'
-import { appToast } from '@/shared/ui/toast/toast'
+import { appToast } from '@/shared/ui/toast/toast.helpers'
 
 type ProductCategoryListPageCache = {
   searchValue: string
@@ -28,7 +28,7 @@ export function ProductCategoryListPage() {
 
   useEffect(() => {
     const fetchCategories = async () => {
-      setIsLoading(categories.length === 0)
+      setIsLoading(productCategoryListPageCache === null)
       try {
         const data = await productApi.getProductCategories()
         setCategories(data)
@@ -39,7 +39,7 @@ export function ProductCategoryListPage() {
       }
     }
 
-    fetchCategories()
+    void fetchCategories()
   }, [])
 
   useEffect(() => {

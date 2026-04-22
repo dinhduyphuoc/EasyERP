@@ -1,4 +1,4 @@
-import { apiClient } from "@/api/api-client"
+import { apiClient } from '@/api/api-client'
 import type { ProductListItem } from './product-list.data'
 
 const ENDPOINT = '/products'
@@ -42,6 +42,8 @@ type BulkDeletePayload = {
   ids: number[]
 }
 
+type ProductListParams = Record<string, string | number | boolean | null | undefined>
+
 export type ProductBulkDeleteResult = {
   deleted_ids: number[]
 }
@@ -55,7 +57,7 @@ function invalidateProductCategoriesCache() {
 }
 
 export const productApi = {
-  getProducts: async (params?: Record<string, any>): Promise<ProductListItem[]> => {
+  getProducts: async (params?: ProductListParams): Promise<ProductListItem[]> => {
     return apiClient.get(ENDPOINT, { params })
   },
 

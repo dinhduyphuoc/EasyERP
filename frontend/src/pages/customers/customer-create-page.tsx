@@ -14,7 +14,7 @@ import {
 } from '@mui/material'
 import { customerApi, type CustomerCategory, type CustomerCreatePayload } from './customer.api'
 import { defaultCardSx } from '@/shared/ui/paper'
-import { appToast } from '@/shared/ui/toast/toast'
+import { appToast } from '@/shared/ui/toast/toast.helpers'
 
 export function CustomerCreatePage(): ReactElement {
   const navigate = useNavigate()

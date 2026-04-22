@@ -94,17 +94,19 @@ export function InventoryHistoryPage() {
         return
       }
 
-      setIsLoading(rows.length === 0)
+      setIsLoading(inventoryHistoryPageCache === null)
 
       try {
         const [historyResponse, stockList] = await Promise.all([
           inventoryApi.getHistory(productVariantId),
-          stockItem ? Promise.resolve<InventoryStockListItem[] | null>(null) : inventoryApi.getStockList(),
+          locationState?.stockItem ? Promise.resolve<InventoryStockListItem[] | null>(null) : inventoryApi.getStockList(),
         ])
 
         setRows(historyResponse.items)
 
-        if (!stockItem && stockList) {
+        if (locationState?.stockItem) {
+          setStockItem(locationState.stockItem)
+        } else if (stockList) {
           setStockItem(stockList.find((item) => item.product_variant_id === productVariantId) ?? null)
         }
       } catch (error) {
@@ -114,8 +116,8 @@ export function InventoryHistoryPage() {
       }
     }
 
-    fetchPageData()
-  }, [productVariantId])
+    void fetchPageData()
+  }, [locationState, productVariantId])
 
   useEffect(() => {
     inventoryHistoryPageCache = {

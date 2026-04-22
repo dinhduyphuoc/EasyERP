@@ -6,7 +6,7 @@ import { ListEmptyState } from '@/shared/ui/list/list-empty-state'
 import type { ListColumn, ListFilterConfig, ListTabConfig } from '@/shared/ui/list/common-list.types'
 import type { ProductListItem } from '@/pages/products/product-list.data'
 import { productApi, type ProductCategory } from '@/pages/products/product.api'
-import { appToast } from '@/shared/ui/toast/toast'
+import { appToast } from '@/shared/ui/toast/toast.helpers'
 
 type ProductStatus = 'active' | 'inactive' | 'draft' | 'deleted'
 
@@ -124,7 +124,7 @@ export function ProductListPage() {
 
   useEffect(() => {
     const fetchProducts = async () => {
-      setIsLoading(products.length === 0)
+      setIsLoading(productListPageCache === null)
       try {
         const [productData, categoryData] = await Promise.all([
           productApi.getProducts(),

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactElement } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react'
 import {
   Alert,
   Button,
@@ -14,62 +14,9 @@ import { Link as RouterLink, useNavigate } from 'react-router'
 import { CommonListLayout } from '@/shared/ui/list/common-list-layout'
 import { ListEmptyState } from '@/shared/ui/list/list-empty-state'
 import type { ListColumn, ListFilterConfig, ListTabConfig } from '@/shared/ui/list/common-list.types'
-import { appToast } from '@/shared/ui/toast/toast'
-import { orderApi, type OrderListItem, type OrderPaymentStatus, type OrderProcessingStatus } from './order.api'
-
-export function formatCurrency(value: string | number | null | undefined): string {
-  const numericValue = Number(value ?? 0)
-  return `${numericValue.toLocaleString('vi-VN')} đ`
-}
-
-export function formatDateTime(value: string | null | undefined): string {
-  if (!value) {
-    return '-'
-  }
-
-  return new Date(value).toLocaleString('vi-VN')
-}
-
-export function getPaymentStatusMeta(status: OrderPaymentStatus): {
-  label: string
-  color: 'default' | 'warning' | 'success' | 'info'
-} {
-  if (status === 'paid') {
-    return { label: 'Đã thanh toán', color: 'success' }
-  }
-
-  if (status === 'deposit') {
-    return { label: 'Đặt cọc', color: 'info' }
-  }
-
-  return { label: 'Chưa thanh toán', color: 'warning' }
-}
-
-export function getProcessingStatusMeta(status: OrderProcessingStatus): {
-  label: string
-  color: 'default' | 'warning' | 'success' | 'info'
-} {
-  switch (status) {
-    case 'draft':
-      return { label: 'Nháp', color: 'default' }
-    case 'placed':
-      return { label: 'Đặt hàng', color: 'info' }
-    case 'confirmed':
-      return { label: 'Xác nhận', color: 'info' }
-    case 'picked_up':
-      return { label: 'DVVC lấy hàng', color: 'warning' }
-    case 'delivering':
-      return { label: 'Đang giao', color: 'warning' }
-    case 'completed':
-      return { label: 'Hoàn thành', color: 'success' }
-    case 'cancelled':
-      return { label: 'Đã hủy', color: 'default' }
-    case 'returned':
-      return { label: 'Trả hàng', color: 'default' }
-    default:
-      return { label: status, color: 'default' }
-  }
-}
+import { appToast } from '@/shared/ui/toast/toast.helpers'
+import { orderApi, type OrderListItem } from './order.api'
+import { formatCurrency, formatDateTime, getPaymentStatusMeta, getProcessingStatusMeta } from './order.utils'
 
 type OrdersCollectionPageProps = {
   title: string
@@ -137,8 +84,8 @@ export function OrdersCollectionPage({
   )
   const [isLoading, setIsLoading] = useState(rows.length === 0)
 
-  const fetchOrders = async () => {
-    setIsLoading(rows.length === 0)
+  const fetchOrders = useCallback(async () => {
+    setIsLoading(ordersCollectionCache?.view !== view || (ordersCollectionCache?.rows.length ?? 0) === 0)
 
     try {
       const data = await orderApi.getOrders(view === 'all' ? undefined : { view })
@@ -149,11 +96,11 @@ export function OrdersCollectionPage({
     } finally {
       setIsLoading(false)
     }
-  }
+  }, [view])
 
   useEffect(() => {
     void fetchOrders()
-  }, [view])
+  }, [fetchOrders])
 
   useEffect(() => {
     ordersCollectionCache = {
@@ -411,5 +358,6 @@ export function OrdersCollectionPage({
     />
   )
 }
+
 
 

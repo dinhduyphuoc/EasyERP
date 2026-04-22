@@ -21,6 +21,8 @@ import { OrdersListPage } from '@/pages/orders/orders-list-page'
 import { OrdersReturnsPage } from '@/pages/orders/orders-returns-page'
 import { PagePlaceholder } from '@/shared/ui/page/page-placeholder'
 import { InventoryAuditCreatePage } from '@/pages/inventory/inventory-audit-create-page'
+import { SettingsPage } from '@/pages/settings/settings-page'
+import { ShippingManagementView } from '@/pages/shipping/shipping-management-view'
 
 const childRoutes: RouteObject[] = []
 const customRouteElements: Record<string, ReactElement> = {
@@ -38,6 +40,7 @@ const customRouteElements: Record<string, ReactElement> = {
   '/products/create': <ProductCreatePage />,
   '/products/categories': <ProductCategoryListPage />,
   '/products/categories/create': <ProductCategoryCreatePage />,
+  '/settings': <SettingsPage />,
 }
 
 for (const item of sidebarMenu) {
@@ -114,6 +117,13 @@ childRoutes.push({
   path: 'products/categories/:id/edit',
   element: <ProductCategoryCreatePage />,
 })
+
+childRoutes.push({
+  path: 'settings/shipping-settings',
+  element: <ShippingManagementView/>,
+})
+
+
 
 const router = createBrowserRouter([
   {

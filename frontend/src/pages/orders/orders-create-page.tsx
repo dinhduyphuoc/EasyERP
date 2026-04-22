@@ -30,10 +30,10 @@ import {
   TextField,
   Typography,
 } from '@mui/material'
-import { appToast } from '@/shared/ui/toast/toast'
+import { appToast } from '@/shared/ui/toast/toast.helpers'
 import { borderedCardSx } from '@/shared/ui/paper'
 import { orderApi, type OrderCreatePayload, type OrderListItem, type OrderOptionLookup } from './order.api'
-import { formatCurrency } from './order.shared'
+import { formatCurrency } from './order.utils'
 
 type OrderItemForm = {
   variant_sku: string

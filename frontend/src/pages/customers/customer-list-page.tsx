@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Button, Chip, Paper, Stack, Typography, alpha } from '@mui/material'
 import SyncOutlinedIcon from '@mui/icons-material/SyncOutlined'
 import AddOutlinedIcon from '@mui/icons-material/AddOutlined'
@@ -7,7 +7,7 @@ import { CommonListLayout } from '@/shared/ui/list/common-list-layout'
 import { ListEmptyState } from '@/shared/ui/list/list-empty-state'
 import type { ListColumn, ListFilterConfig, ListTabConfig } from '@/shared/ui/list/common-list.types'
 import { customerApi, type CustomerCategory, type CustomerListItem } from './customer.api'
-import { appToast } from '@/shared/ui/toast/toast'
+import { appToast } from '@/shared/ui/toast/toast.helpers'
 
 type CustomerStatus = 'active' | 'inactive' | 'deleted'
 
@@ -85,8 +85,8 @@ export function CustomerListPage() {
   const [selectedCustomerIds, setSelectedCustomerIds] = useState<string[]>([])
   const [isDeleting, setIsDeleting] = useState(false)
 
-  const fetchCustomers = async () => {
-    setIsLoading(rows.length === 0)
+  const fetchCustomers = useCallback(async () => {
+    setIsLoading(customerListPageCache === null)
 
     try {
       const [customerData, categoryData] = await Promise.all([
@@ -102,11 +102,11 @@ export function CustomerListPage() {
     } finally {
       setIsLoading(false)
     }
-  }
+  }, [])
 
   useEffect(() => {
     void fetchCustomers()
-  }, [])
+  }, [fetchCustomers])
 
   useEffect(() => {
     customerListPageCache = {

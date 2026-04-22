@@ -16,7 +16,7 @@ import {
 } from '@mui/material'
 import { productApi } from '@/pages/products/product.api'
 import { defaultCardSx } from '@/shared/ui/paper'
-import { appToast } from '@/shared/ui/toast/toast'
+import { appToast } from '@/shared/ui/toast/toast.helpers'
 
 export function ProductCategoryCreatePage(): ReactElement {
   const { id } = useParams()
