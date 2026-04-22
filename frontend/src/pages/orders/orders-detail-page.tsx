@@ -26,6 +26,9 @@ import {
   OutlinedInput,
   Paper,
   Stack,
+  Step,
+  StepLabel,
+  Stepper,
   Table,
   TableBody,
   TableCell,
@@ -526,7 +529,7 @@ export function OrdersDetailPage(): ReactElement {
         </Stack>
       </Paper>
 
-      <OrderProgressCard order={order} currentIndex={progressIndex} />
+      <OrderProgressCard currentIndex={progressIndex} />
 
       <Box
         sx={{
@@ -900,39 +903,10 @@ export function OrdersDetailPage(): ReactElement {
 }
 
 function OrderProgressCard({
-  order,
   currentIndex,
 }: {
-  order: OrderListItem
   currentIndex: number
 }): ReactElement {
-  const timeline = (order.status_timeline ?? {}) as Record<string, unknown>
-
-  const getTimestampForStage = (stageKey: string): string => {
-    const stageData = timeline[stageKey]
-
-    if (!stageData) {
-      return 'Pending'
-    }
-
-    if (typeof stageData === 'string') {
-      return formatDateTime(stageData)
-    }
-
-    if (typeof stageData === 'object') {
-      const stageRecord = stageData as Record<string, unknown>
-      const candidate = ['timestamp', 'updated_at', 'created_at', 'at'].find(
-        (key) => typeof stageRecord[key] === 'string',
-      )
-
-      if (candidate) {
-        return formatDateTime(stageRecord[candidate] as string)
-      }
-    }
-
-    return 'Pending'
-  }
-
   return (
     <Paper sx={borderedCardSx}>
       <CardHeader
@@ -941,68 +915,37 @@ function OrderProgressCard({
         description="Nhân viên scan ngang để biết đơn đang ở đâu và timestamp của mỗi mốc."
       />
 
-      <Box
-        sx={{
-          mt: 2.5,
-          display: 'grid',
-          gridTemplateColumns: { xs: '1fr', md: `repeat(${stepperStages.length}, minmax(0, 1fr))` },
-          gap: 1.5,
-        }}
-      >
-        {stepperStages.map((stage, index) => {
-          const isComplete = currentIndex >= index && currentIndex !== -1
-          const isCurrent = currentIndex === index
-
-          return (
-            <Box key={stage.key} sx={{ position: 'relative' }}>
-              <Paper
-                variant="outlined"
-                sx={{
-                  p: 1.75,
-                  minHeight: 122,
-                  borderColor: (theme) =>
-                    isCurrent ? theme.palette.primary.main : alpha(theme.palette.divider, 0.9),
-                  bgcolor: (theme) =>
-                    isCurrent
-                      ? alpha(theme.palette.primary.light, 0.1)
-                      : isComplete
-                        ? alpha(theme.palette.success.light, 0.12)
-                        : '#fff',
-                }}
-              >
-                <Stack spacing={1.1}>
-                  <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-                    <Box
-                      sx={{
-                        width: 32,
-                        height: 32,
-                        borderRadius: '50%',
-                        display: 'grid',
-                        placeItems: 'center',
-                        fontWeight: 800,
-                        bgcolor: isCurrent ? 'primary.main' : isComplete ? 'success.main' : '#dbe4ea',
-                        color: isCurrent || isComplete ? '#fff' : '#516071',
-                      }}
-                    >
-                      {index + 1}
-                    </Box>
-                    <Typography sx={{ fontWeight: 700, color: '#0f172a' }}>{stage.label}</Typography>
-                  </Stack>
-                  <Typography variant="body2" color="text.secondary">
-                    {getTimestampForStage(stage.timelineKey)}
-                  </Typography>
-                  <Chip
-                    size="small"
-                    label={isCurrent ? 'Bước hiện tại' : isComplete ? 'Hoàn thành' : 'Đang chờ'}
-                    color={isCurrent ? 'primary' : isComplete ? 'success' : 'default'}
-                    sx={{ alignSelf: 'flex-start' }}
-                  />
-                </Stack>
-              </Paper>
-            </Box>
-          )
-        })}
+      <Box sx={{ mt: 2.5, display: { xs: 'none', md: 'block' } }}>
+        <Stepper id="desktop-stepper" activeStep={Math.max(currentIndex, 0)} sx={{ width: '100%', height: 40 }}>
+          {stepperStages.map((stage) => (
+            <Step sx={{ ':first-child': { pl: 0 }, ':last-child': { pr: 0 } }} key={stage.key}>
+              <StepLabel>{stage.label}</StepLabel>
+            </Step>
+          ))}
+        </Stepper>
       </Box>
+
+      <Stepper
+        id="mobile-stepper"
+        activeStep={Math.max(currentIndex, 0)}
+        alternativeLabel
+        sx={{ display: { xs: 'flex', md: 'none' }, mt: 2.5 }}
+      >
+        {stepperStages.map((stage) => (
+          <Step
+            sx={{
+              ':first-child': { pl: 0 },
+              ':last-child': { pr: 0 },
+              '& .MuiStepConnector-root': { top: { xs: 6, sm: 12 } },
+            }}
+            key={stage.key}
+          >
+            <StepLabel sx={{ '.MuiStepLabel-labelContainer': { maxWidth: '70px' } }}>
+              {stage.label}
+            </StepLabel>
+          </Step>
+        ))}
+      </Stepper>
     </Paper>
   )
 }
