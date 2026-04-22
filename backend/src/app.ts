@@ -6,6 +6,7 @@ import { productRouter } from "@/modules/product/product.routes";
 import { customerRouter, locationRouter } from "@/modules/customer/customer.routes";
 import { inventoryRouter } from "@/modules/inventory/inventory.routes";
 import { orderRouter } from "@/modules/order/order.routes";
+import { shippingRouter } from "@/modules/shipping/shipping.routes";
 
 const app = express();
 
@@ -32,6 +33,7 @@ app.use("/customers", customerRouter);
 app.use("/locations", locationRouter);
 app.use("/inventory", inventoryRouter);
 app.use("/orders", orderRouter);
+app.use("/shipping", shippingRouter);
 
 app.use(notFoundHandler);
 app.use(errorHandler);

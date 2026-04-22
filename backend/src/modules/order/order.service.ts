@@ -1,4 +1,5 @@
 import { prisma } from "@lib/prisma";
+import { createGHNClient } from "@/lib/ghn";
 import { Prisma } from "../../../generated/prisma/client";
 import { BadRequestError, NotFoundError } from "@/common";
 import { InventoryOrderOrchestration } from "@/modules/inventory/inventory.service";
@@ -12,6 +13,7 @@ import type {
   OrderPaymentStatusInput,
   OrderProcessingStatusInput,
   OrderRequestInput,
+  OrderShippingPrintResponse,
   OrderTypeInput,
   UpdateOrderRequestInput,
 } from "./order.types";
@@ -31,6 +33,7 @@ const ORDER_PROCESSING_STATUSES: OrderProcessingStatusInput[] = [
   "returned",
 ];
 const ORDER_TYPES: OrderTypeInput[] = ["sale", "return"];
+const DEFAULT_SHIPPING_STORE_ID = "default-store";
 
 const orderProcessingStatusLabels = {
   draft: "Nháp",
@@ -137,6 +140,40 @@ const parseRequiredPositiveInt = (value: unknown, fieldName: string) => {
   }
 
   return parsed;
+};
+
+const parseOptionalNonNegativeInt = (value: unknown, fieldName: string) => {
+  if (value === undefined || value === null || value === "") {
+    return undefined;
+  }
+
+  const parsed = Number(value);
+
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    throw new BadRequestError(`${fieldName} must be a non-negative integer`);
+  }
+
+  return parsed;
+};
+
+const parseOptionalIntArray = (value: unknown, fieldName: string) => {
+  if (value === undefined || value === null || value === "") {
+    return undefined;
+  }
+
+  if (!Array.isArray(value)) {
+    throw new BadRequestError(`${fieldName} must be an array of integers`);
+  }
+
+  return value.map((item, index) => {
+    const parsed = Number(item);
+
+    if (!Number.isInteger(parsed) || parsed < 0) {
+      throw new BadRequestError(`${fieldName}[${index}] must be a non-negative integer`);
+    }
+
+    return parsed;
+  });
 };
 
 const parseOptionalDate = (value: unknown, fieldName: string) => {
@@ -276,6 +313,56 @@ const getOrderForMutation = async (id: number) => {
   return order;
 };
 
+const getConnectedGHNCredentials = async () => {
+  const provider = await prisma.shippingProvider.findUnique({
+    where: { code: "ghn" },
+    select: { id: true },
+  });
+
+  if (!provider) {
+    throw new NotFoundError("GHN provider is not configured");
+  }
+
+  const connection = await prisma.shippingConnection.findUnique({
+    where: {
+      provider_id_store_id: {
+        provider_id: provider.id,
+        store_id: DEFAULT_SHIPPING_STORE_ID,
+      },
+    },
+    select: {
+      status: true,
+      credentials_json: true,
+    },
+  });
+
+  if (!connection || connection.status !== "connected") {
+    throw new BadRequestError("GHN connection is not available for the default store");
+  }
+
+  if (
+    !connection.credentials_json ||
+    typeof connection.credentials_json !== "object" ||
+    Array.isArray(connection.credentials_json)
+  ) {
+    throw new BadRequestError("GHN credentials are missing");
+  }
+
+  const credentials = connection.credentials_json as Record<string, unknown>;
+  const token = typeof credentials.token === "string" ? credentials.token.trim() : "";
+  const shopId = typeof credentials.shop_id === "string" ? credentials.shop_id.trim() : "";
+
+  if (!token) {
+    throw new BadRequestError("GHN token is missing");
+  }
+
+  if (!shopId) {
+    throw new BadRequestError("GHN shop_id is missing");
+  }
+
+  return { token, shopId };
+};
+
 const updateOrderStageTimeline = (
   currentTimeline: Prisma.JsonValue,
   stage: string,
@@ -382,6 +469,11 @@ const mapOrderItem = (item: {
   discount_amount: Prisma.Decimal;
   sub_total: Prisma.Decimal;
   notes: string | null;
+  item_weight: number | null;
+  item_length: number | null;
+  item_width: number | null;
+  item_height: number | null;
+  category_level1: string | null;
 }) => ({
   id: item.id,
   product_id: item.product_id,
@@ -393,6 +485,11 @@ const mapOrderItem = (item: {
   discount_amount: decimalToString(item.discount_amount),
   sub_total: decimalToString(item.sub_total),
   notes: item.notes,
+  item_weight: item.item_weight,
+  item_length: item.item_length,
+  item_width: item.item_width,
+  item_height: item.item_height,
+  category_level1: item.category_level1,
 });
 
 const mapOrderHistory = (entry: {
@@ -422,6 +519,35 @@ const mapOrder = (order: {
   customer_phone: string;
   customer_email: string | null;
   customer_address: string | null;
+  client_order_code: string | null;
+  note: string | null;
+  required_note: string | null;
+  payment_type_id: number | null;
+  from_name: string | null;
+  from_phone: string | null;
+  from_address: string | null;
+  from_ward_name: string | null;
+  from_district_name: string | null;
+  from_province_name: string | null;
+  return_phone: string | null;
+  return_address: string | null;
+  return_district_id: number | null;
+  return_ward_code: string | null;
+  to_ward_code: string | null;
+  to_district_id: number | null;
+  cod_amount: Prisma.Decimal;
+  content: string | null;
+  weight: number | null;
+  length: number | null;
+  width: number | null;
+  height: number | null;
+  insurance_value: Prisma.Decimal;
+  service_id: number | null;
+  service_type_id: number | null;
+  pick_station_id: number | null;
+  deliver_station_id: number | null;
+  coupon: string | null;
+  pick_shift: number[];
   sub_total: Prisma.Decimal;
   tax_amount: Prisma.Decimal;
   shipping_fee: Prisma.Decimal;
@@ -455,6 +581,11 @@ const mapOrder = (order: {
     discount_amount: Prisma.Decimal;
     sub_total: Prisma.Decimal;
     notes: string | null;
+    item_weight: number | null;
+    item_length: number | null;
+    item_width: number | null;
+    item_height: number | null;
+    category_level1: string | null;
   }>;
   history?: Array<{
     id: number;
@@ -477,6 +608,35 @@ const mapOrder = (order: {
     email: order.customer_email,
     address: order.customer_address,
   },
+  client_order_code: order.client_order_code,
+  note: order.note,
+  required_note: order.required_note,
+  payment_type_id: order.payment_type_id,
+  from_name: order.from_name,
+  from_phone: order.from_phone,
+  from_address: order.from_address,
+  from_ward_name: order.from_ward_name,
+  from_district_name: order.from_district_name,
+  from_province_name: order.from_province_name,
+  return_phone: order.return_phone,
+  return_address: order.return_address,
+  return_district_id: order.return_district_id,
+  return_ward_code: order.return_ward_code,
+  to_ward_code: order.to_ward_code,
+  to_district_id: order.to_district_id,
+  cod_amount: decimalToString(order.cod_amount),
+  content: order.content,
+  weight: order.weight,
+  length: order.length,
+  width: order.width,
+  height: order.height,
+  insurance_value: decimalToString(order.insurance_value),
+  service_id: order.service_id,
+  service_type_id: order.service_type_id,
+  pick_station_id: order.pick_station_id,
+  deliver_station_id: order.deliver_station_id,
+  coupon: order.coupon,
+  pick_shift: order.pick_shift,
   sub_total: decimalToString(order.sub_total),
   tax_amount: decimalToString(order.tax_amount),
   shipping_fee: decimalToString(order.shipping_fee),
@@ -776,13 +936,18 @@ const buildNormalizedItems = async (items: OrderItemRequestInput[]) => {
       discount_amount: discountAmount,
       sub_total: calculatedSubTotal,
       notes: toOptionalTrimmedString(item.notes) ?? null,
+      item_weight: parseOptionalNonNegativeInt(item.item_weight, `order_items[${index}].item_weight`) ?? null,
+      item_length: parseOptionalNonNegativeInt(item.item_length, `order_items[${index}].item_length`) ?? null,
+      item_width: parseOptionalNonNegativeInt(item.item_width, `order_items[${index}].item_width`) ?? null,
+      item_height: parseOptionalNonNegativeInt(item.item_height, `order_items[${index}].item_height`) ?? null,
+      category_level1: toOptionalTrimmedString(item.category_level1) ?? null,
     };
   });
 };
 
 export const OrderService = {
   getOrderOptions: async () => {
-    const [customers, variants, shippingServices, salesChannels] = await Promise.all([
+    const [customers, variants, historicalShippingServices, connectedShippingProviders, salesChannels] = await Promise.all([
       prisma.customer.findMany({
         where: { status: "active" },
         select: {
@@ -812,6 +977,18 @@ export const OrderService = {
         distinct: ["shipping_service"],
         select: { shipping_service: true },
         orderBy: [{ shipping_service: "asc" }],
+      }),
+      prisma.shippingConnection.findMany({
+        where: { status: "connected" },
+        distinct: ["provider_id"],
+        select: {
+          provider: {
+            select: {
+              display_name: true,
+            },
+          },
+        },
+        orderBy: [{ provider_id: "asc" }],
       }),
       prisma.order.findMany({
         where: { sales_channel: { not: null } },
@@ -849,9 +1026,14 @@ export const OrderService = {
         product_name: variant.product.product_name,
         selling_price: decimalToString(variant.selling_price),
       })),
-      shipping_services: shippingServices
-        .map((item) => item.shipping_service)
-        .filter((value): value is string => Boolean(value)),
+      shipping_services: Array.from(
+        new Set([
+          ...connectedShippingProviders.map((item) => item.provider.display_name),
+          ...historicalShippingServices
+            .map((item) => item.shipping_service)
+            .filter((value): value is string => Boolean(value)),
+        ]),
+      ).sort((a, b) => a.localeCompare(b, "vi")),
       sales_channels: salesChannels
         .map((item) => item.sales_channel)
         .filter((value): value is string => Boolean(value)),
@@ -875,6 +1057,46 @@ export const OrderService = {
     return mapOrder(order);
   },
 
+  getGHNPrintInfo: async (id: number): Promise<OrderShippingPrintResponse> => {
+    const order = await getOrderForMutation(id);
+
+    if ((order.shipping_service ?? "").trim().toLowerCase() !== "ghn") {
+      throw new BadRequestError("Only GHN orders can generate GHN print links");
+    }
+
+    const trackingCode = toOptionalTrimmedString(order.tracking_code);
+
+    if (!trackingCode) {
+      throw new BadRequestError("Tracking code is required before printing GHN shipping labels");
+    }
+
+    const { token, shopId } = await getConnectedGHNCredentials();
+    const ghnClient = createGHNClient({
+      token,
+      shopId,
+    });
+    const response = await ghnClient.order.printOrder({
+      order_codes: [trackingCode],
+    });
+
+    const printToken = response.data?.token;
+    const printUrls = response.print_urls;
+
+    if (!printToken || !printUrls) {
+      throw new BadRequestError("GHN did not return a printable label token");
+    }
+
+    return {
+      provider: "ghn",
+      order_id: order.id,
+      order_code: order.order_code,
+      tracking_code: trackingCode,
+      token: printToken,
+      expires_in_minutes: 30,
+      print_urls: printUrls,
+    };
+  },
+
   duplicateOrder: async (id: number, input: DuplicateOrderRequestInput = {}) => {
     const existingOrder = await getOrderForMutation(id);
     const actorName = toOptionalTrimmedString(input.actor_name) ?? "System";
@@ -891,6 +1113,35 @@ export const OrderService = {
         email: existingOrder.customer_email,
         address: existingOrder.customer_address,
       },
+      client_order_code: existingOrder.client_order_code,
+      note: existingOrder.note,
+      required_note: existingOrder.required_note,
+      payment_type_id: existingOrder.payment_type_id,
+      from_name: existingOrder.from_name,
+      from_phone: existingOrder.from_phone,
+      from_address: existingOrder.from_address,
+      from_ward_name: existingOrder.from_ward_name,
+      from_district_name: existingOrder.from_district_name,
+      from_province_name: existingOrder.from_province_name,
+      return_phone: existingOrder.return_phone,
+      return_address: existingOrder.return_address,
+      return_district_id: existingOrder.return_district_id,
+      return_ward_code: existingOrder.return_ward_code,
+      to_ward_code: existingOrder.to_ward_code,
+      to_district_id: existingOrder.to_district_id,
+      cod_amount: existingOrder.cod_amount.toString(),
+      content: existingOrder.content,
+      weight: existingOrder.weight,
+      length: existingOrder.length,
+      width: existingOrder.width,
+      height: existingOrder.height,
+      insurance_value: existingOrder.insurance_value.toString(),
+      service_id: existingOrder.service_id,
+      service_type_id: existingOrder.service_type_id,
+      pick_station_id: existingOrder.pick_station_id,
+      deliver_station_id: existingOrder.deliver_station_id,
+      coupon: existingOrder.coupon,
+      pick_shift: existingOrder.pick_shift,
       tax_amount: existingOrder.tax_amount.toString(),
       shipping_fee: existingOrder.shipping_fee.toString(),
       deposit_amount: 0,
@@ -928,6 +1179,11 @@ export const OrderService = {
         unit_price: item.unit_price.toString(),
         discount_amount: item.discount_amount.toString(),
         notes: item.notes ?? undefined,
+        item_weight: item.item_weight,
+        item_length: item.item_length,
+        item_width: item.item_width,
+        item_height: item.item_height,
+        category_level1: item.category_level1 ?? undefined,
       })),
     });
   },
@@ -942,6 +1198,56 @@ export const OrderService = {
       input.customer_id === null || input.customer_id === undefined
         ? null
         : parseOptionalPositiveInt(input.customer_id, "customer_id") ?? null;
+    const clientOrderCode = toOptionalTrimmedString(input.client_order_code) ?? null;
+    const note = toOptionalTrimmedString(input.note) ?? null;
+    const requiredNote = toOptionalTrimmedString(input.required_note) ?? null;
+    const paymentTypeId =
+      input.payment_type_id === null || input.payment_type_id === undefined
+        ? null
+        : parseOptionalNonNegativeInt(input.payment_type_id, "payment_type_id") ?? null;
+    const fromName = toOptionalTrimmedString(input.from_name) ?? null;
+    const fromPhone = toOptionalTrimmedString(input.from_phone) ?? null;
+    const fromAddress = toOptionalTrimmedString(input.from_address) ?? null;
+    const fromWardName = toOptionalTrimmedString(input.from_ward_name) ?? null;
+    const fromDistrictName = toOptionalTrimmedString(input.from_district_name) ?? null;
+    const fromProvinceName = toOptionalTrimmedString(input.from_province_name) ?? null;
+    const returnPhone = toOptionalTrimmedString(input.return_phone) ?? null;
+    const returnAddress = toOptionalTrimmedString(input.return_address) ?? null;
+    const returnDistrictId =
+      input.return_district_id === null || input.return_district_id === undefined
+        ? null
+        : parseOptionalPositiveInt(input.return_district_id, "return_district_id") ?? null;
+    const returnWardCode = toOptionalTrimmedString(input.return_ward_code) ?? null;
+    const toWardCode = toOptionalTrimmedString(input.to_ward_code) ?? null;
+    const toDistrictId =
+      input.to_district_id === null || input.to_district_id === undefined
+        ? null
+        : parseOptionalPositiveInt(input.to_district_id, "to_district_id") ?? null;
+    const codAmount = parseDecimal(input.cod_amount, "cod_amount", 0);
+    const content = toOptionalTrimmedString(input.content) ?? null;
+    const weight = parseOptionalNonNegativeInt(input.weight, "weight") ?? null;
+    const length = parseOptionalNonNegativeInt(input.length, "length") ?? null;
+    const width = parseOptionalNonNegativeInt(input.width, "width") ?? null;
+    const height = parseOptionalNonNegativeInt(input.height, "height") ?? null;
+    const insuranceValue = parseDecimal(input.insurance_value, "insurance_value", 0);
+    const serviceId =
+      input.service_id === null || input.service_id === undefined
+        ? null
+        : parseOptionalNonNegativeInt(input.service_id, "service_id") ?? null;
+    const serviceTypeId =
+      input.service_type_id === null || input.service_type_id === undefined
+        ? null
+        : parseOptionalNonNegativeInt(input.service_type_id, "service_type_id") ?? null;
+    const pickStationId =
+      input.pick_station_id === null || input.pick_station_id === undefined
+        ? null
+        : parseOptionalPositiveInt(input.pick_station_id, "pick_station_id") ?? null;
+    const deliverStationId =
+      input.deliver_station_id === null || input.deliver_station_id === undefined
+        ? null
+        : parseOptionalPositiveInt(input.deliver_station_id, "deliver_station_id") ?? null;
+    const coupon = toOptionalTrimmedString(input.coupon) ?? null;
+    const pickShift = parseOptionalIntArray(input.pick_shift, "pick_shift") ?? [];
     const shippingService = toOptionalTrimmedString(input.shipping_service) ?? null;
     const salesChannel = toOptionalTrimmedString(input.sales_channel) ?? null;
     const orderNotes = toOptionalTrimmedString(input.order_notes) ?? null;
@@ -1112,6 +1418,35 @@ export const OrderService = {
               customer_phone: customerPhone,
               customer_email: customerEmail,
               customer_address: customerAddress,
+              client_order_code: clientOrderCode,
+              note,
+              required_note: requiredNote,
+              payment_type_id: paymentTypeId,
+              from_name: fromName,
+              from_phone: fromPhone,
+              from_address: fromAddress,
+              from_ward_name: fromWardName,
+              from_district_name: fromDistrictName,
+              from_province_name: fromProvinceName,
+              return_phone: returnPhone,
+              return_address: returnAddress,
+              return_district_id: returnDistrictId,
+              return_ward_code: returnWardCode,
+              to_ward_code: toWardCode,
+              to_district_id: toDistrictId,
+              cod_amount: codAmount,
+              content,
+              weight,
+              length,
+              width,
+              height,
+              insurance_value: insuranceValue,
+              service_id: serviceId,
+              service_type_id: serviceTypeId,
+              pick_station_id: pickStationId,
+              deliver_station_id: deliverStationId,
+              coupon,
+              pick_shift: pickShift,
               sub_total: subTotal,
               tax_amount: taxAmount,
               shipping_fee: shippingFee,
@@ -1296,6 +1631,11 @@ export const OrderService = {
           unit_price: item.unit_price.toString(),
           discount_amount: item.discount_amount.toString(),
           notes: item.notes ?? undefined,
+          item_weight: item.item_weight,
+          item_length: item.item_length,
+          item_width: item.item_width,
+          item_height: item.item_height,
+          category_level1: item.category_level1 ?? undefined,
         }));
     const normalizedItems = await buildNormalizedItems(requestedItems);
 
@@ -1332,6 +1672,124 @@ export const OrderService = {
       existingOrder.customer_code ??
       customer?.client_code ??
       null;
+    const clientOrderCode =
+      input.client_order_code === undefined
+        ? existingOrder.client_order_code
+        : toOptionalTrimmedString(input.client_order_code) ?? null;
+    const note =
+      input.note === undefined ? existingOrder.note : toOptionalTrimmedString(input.note) ?? null;
+    const requiredNote =
+      input.required_note === undefined
+        ? existingOrder.required_note
+        : toOptionalTrimmedString(input.required_note) ?? null;
+    const paymentTypeId =
+      input.payment_type_id === undefined
+        ? existingOrder.payment_type_id
+        : input.payment_type_id === null
+          ? null
+          : parseOptionalNonNegativeInt(input.payment_type_id, "payment_type_id") ?? null;
+    const fromName =
+      input.from_name === undefined ? existingOrder.from_name : toOptionalTrimmedString(input.from_name) ?? null;
+    const fromPhone =
+      input.from_phone === undefined ? existingOrder.from_phone : toOptionalTrimmedString(input.from_phone) ?? null;
+    const fromAddress =
+      input.from_address === undefined
+        ? existingOrder.from_address
+        : toOptionalTrimmedString(input.from_address) ?? null;
+    const fromWardName =
+      input.from_ward_name === undefined
+        ? existingOrder.from_ward_name
+        : toOptionalTrimmedString(input.from_ward_name) ?? null;
+    const fromDistrictName =
+      input.from_district_name === undefined
+        ? existingOrder.from_district_name
+        : toOptionalTrimmedString(input.from_district_name) ?? null;
+    const fromProvinceName =
+      input.from_province_name === undefined
+        ? existingOrder.from_province_name
+        : toOptionalTrimmedString(input.from_province_name) ?? null;
+    const returnPhone =
+      input.return_phone === undefined
+        ? existingOrder.return_phone
+        : toOptionalTrimmedString(input.return_phone) ?? null;
+    const returnAddress =
+      input.return_address === undefined
+        ? existingOrder.return_address
+        : toOptionalTrimmedString(input.return_address) ?? null;
+    const returnDistrictId =
+      input.return_district_id === undefined
+        ? existingOrder.return_district_id
+        : input.return_district_id === null
+          ? null
+          : parseOptionalPositiveInt(input.return_district_id, "return_district_id") ?? null;
+    const returnWardCode =
+      input.return_ward_code === undefined
+        ? existingOrder.return_ward_code
+        : toOptionalTrimmedString(input.return_ward_code) ?? null;
+    const toWardCode =
+      input.to_ward_code === undefined
+        ? existingOrder.to_ward_code
+        : toOptionalTrimmedString(input.to_ward_code) ?? null;
+    const toDistrictId =
+      input.to_district_id === undefined
+        ? existingOrder.to_district_id
+        : input.to_district_id === null
+          ? null
+          : parseOptionalPositiveInt(input.to_district_id, "to_district_id") ?? null;
+    const codAmount =
+      input.cod_amount === undefined ? existingOrder.cod_amount : parseDecimal(input.cod_amount, "cod_amount", 0);
+    const content =
+      input.content === undefined ? existingOrder.content : toOptionalTrimmedString(input.content) ?? null;
+    const weight =
+      input.weight === undefined
+        ? existingOrder.weight
+        : parseOptionalNonNegativeInt(input.weight, "weight") ?? null;
+    const length =
+      input.length === undefined
+        ? existingOrder.length
+        : parseOptionalNonNegativeInt(input.length, "length") ?? null;
+    const width =
+      input.width === undefined
+        ? existingOrder.width
+        : parseOptionalNonNegativeInt(input.width, "width") ?? null;
+    const height =
+      input.height === undefined
+        ? existingOrder.height
+        : parseOptionalNonNegativeInt(input.height, "height") ?? null;
+    const insuranceValue =
+      input.insurance_value === undefined
+        ? existingOrder.insurance_value
+        : parseDecimal(input.insurance_value, "insurance_value", 0);
+    const serviceId =
+      input.service_id === undefined
+        ? existingOrder.service_id
+        : input.service_id === null
+          ? null
+          : parseOptionalNonNegativeInt(input.service_id, "service_id") ?? null;
+    const serviceTypeId =
+      input.service_type_id === undefined
+        ? existingOrder.service_type_id
+        : input.service_type_id === null
+          ? null
+          : parseOptionalNonNegativeInt(input.service_type_id, "service_type_id") ?? null;
+    const pickStationId =
+      input.pick_station_id === undefined
+        ? existingOrder.pick_station_id
+        : input.pick_station_id === null
+          ? null
+          : parseOptionalPositiveInt(input.pick_station_id, "pick_station_id") ?? null;
+    const deliverStationId =
+      input.deliver_station_id === undefined
+        ? existingOrder.deliver_station_id
+        : input.deliver_station_id === null
+          ? null
+          : parseOptionalPositiveInt(input.deliver_station_id, "deliver_station_id") ?? null;
+    const coupon =
+      input.coupon === undefined ? existingOrder.coupon : toOptionalTrimmedString(input.coupon) ?? null;
+    const pickShift =
+      input.pick_shift === undefined
+        ? existingOrder.pick_shift
+        : parseOptionalIntArray(input.pick_shift, "pick_shift") ?? [];
     const customerEmail =
       input.customer_info?.email === undefined
         ? existingOrder.customer_email
@@ -1471,6 +1929,35 @@ export const OrderService = {
           customer_phone: customerPhone,
           customer_email: customerEmail,
           customer_address: customerAddress,
+          client_order_code: clientOrderCode,
+          note,
+          required_note: requiredNote,
+          payment_type_id: paymentTypeId,
+          from_name: fromName,
+          from_phone: fromPhone,
+          from_address: fromAddress,
+          from_ward_name: fromWardName,
+          from_district_name: fromDistrictName,
+          from_province_name: fromProvinceName,
+          return_phone: returnPhone,
+          return_address: returnAddress,
+          return_district_id: returnDistrictId,
+          return_ward_code: returnWardCode,
+          to_ward_code: toWardCode,
+          to_district_id: toDistrictId,
+          cod_amount: codAmount,
+          content,
+          weight,
+          length,
+          width,
+          height,
+          insurance_value: insuranceValue,
+          service_id: serviceId,
+          service_type_id: serviceTypeId,
+          pick_station_id: pickStationId,
+          deliver_station_id: deliverStationId,
+          coupon,
+          pick_shift: pickShift,
           sub_total: subTotal,
           tax_amount: taxAmount,
           shipping_fee: shippingFee,

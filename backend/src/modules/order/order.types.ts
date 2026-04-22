@@ -23,6 +23,20 @@ export interface OrderParams {
   id?: string;
 }
 
+export interface OrderShippingPrintResponse {
+  provider: "ghn";
+  order_id: number;
+  order_code: string;
+  tracking_code: string;
+  token: string;
+  expires_in_minutes: number;
+  print_urls: {
+    a5: string;
+    "80x80": string;
+    "52x70": string;
+  };
+}
+
 export interface DuplicateOrderRequestInput {
   actor_name?: string;
   order_date?: string;
@@ -45,6 +59,11 @@ export interface OrderItemRequestInput {
   discount_amount?: number | string | null;
   sub_total?: number | string | null;
   notes?: string;
+  item_weight?: number | null;
+  item_length?: number | null;
+  item_width?: number | null;
+  item_height?: number | null;
+  category_level1?: string | null;
 }
 
 export interface OrderRequestInput {
@@ -59,6 +78,35 @@ export interface OrderRequestInput {
     address?: string | null;
     customer_code?: string | null;
   };
+  client_order_code?: string | null;
+  note?: string | null;
+  required_note?: string | null;
+  payment_type_id?: number | null;
+  from_name?: string | null;
+  from_phone?: string | null;
+  from_address?: string | null;
+  from_ward_name?: string | null;
+  from_district_name?: string | null;
+  from_province_name?: string | null;
+  return_phone?: string | null;
+  return_address?: string | null;
+  return_district_id?: number | null;
+  return_ward_code?: string | null;
+  to_ward_code?: string | null;
+  to_district_id?: number | null;
+  cod_amount?: number | string | null;
+  content?: string | null;
+  weight?: number | null;
+  length?: number | null;
+  width?: number | null;
+  height?: number | null;
+  insurance_value?: number | string | null;
+  service_id?: number | null;
+  service_type_id?: number | null;
+  pick_station_id?: number | null;
+  deliver_station_id?: number | null;
+  coupon?: string | null;
+  pick_shift?: number[] | null;
   sub_total?: number | string | null;
   tax_amount?: number | string | null;
   shipping_fee?: number | string | null;

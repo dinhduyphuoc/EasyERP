@@ -8,6 +8,7 @@ import type {
   OrderListQuery,
   OrderParams,
   OrderRequestInput,
+  OrderShippingPrintResponse,
   UpdateOrderRequestInput,
 } from "./order.types";
 
@@ -46,6 +47,11 @@ export const OrderController = {
   getOrderById: async (req: Request<OrderParams>, res: Response) => {
     const order = await OrderService.getOrderById(parseId(req.params.id));
     return res.status(200).json(order);
+  },
+
+  getGHNPrintInfo: async (req: Request<OrderParams>, res: Response) => {
+    const data = await OrderService.getGHNPrintInfo(parseId(req.params.id));
+    return res.status(200).json(data satisfies OrderShippingPrintResponse);
   },
 
   createOrder: async (
