@@ -4,6 +4,7 @@ import { Prisma } from "../../../generated/prisma/client";
 import { BadRequestError, NotFoundError } from "@/common";
 import { InventoryOrderOrchestration } from "@/modules/inventory/inventory.service";
 import type {
+  AddressRequestInput,
   DuplicateOrderRequestInput,
   OrderActionName,
   OrderActionRequestInput,
@@ -202,6 +203,18 @@ const parseDecimal = (value: unknown, fieldName: string, defaultValue = 0) => {
   }
 };
 
+const parseDecimalOrNull = (value: unknown, fieldName: string) => {
+  if (value === undefined || value === null || value === "") {
+    return null;
+  }
+
+  try {
+    return new Prisma.Decimal(value as string | number | Prisma.Decimal);
+  } catch {
+    throw new BadRequestError(`${fieldName} must be a valid number`);
+  }
+};
+
 const parseOrderPaymentStatus = (value: unknown) => {
   if (value === undefined || value === null || value === "") {
     return "unpaid" as const;
@@ -290,20 +303,28 @@ type OrderWithRelations = Prisma.OrderGetPayload<{
   include: {
     items: true;
     history: true;
+    from_address_detail: true;
+    to_address_detail: true;
+    return_address_detail: true;
   };
 }>;
+
+const orderInclude = {
+  items: {
+    orderBy: [{ id: "asc" }],
+  },
+  history: {
+    orderBy: [{ created_at: "asc" }, { id: "asc" }],
+  },
+  from_address_detail: true,
+  to_address_detail: true,
+  return_address_detail: true,
+} satisfies Prisma.OrderInclude;
 
 const getOrderForMutation = async (id: number) => {
   const order = await prisma.order.findUnique({
     where: { id },
-    include: {
-      items: {
-        orderBy: [{ id: "asc" }],
-      },
-      history: {
-        orderBy: [{ created_at: "asc" }, { id: "asc" }],
-      },
-    },
+    include: orderInclude,
   });
 
   if (!order) {
@@ -424,14 +445,7 @@ const persistOrderMutation = async ({
     return tx.order.update({
       where: { id: orderId },
       data,
-      include: {
-        items: {
-          orderBy: [{ id: "asc" }],
-        },
-        history: {
-          orderBy: [{ created_at: "asc" }, { id: "asc" }],
-        },
-      },
+      include: orderInclude,
     });
   });
 };
@@ -508,6 +522,158 @@ const mapOrderHistory = (entry: {
   timestamp: entry.created_at.toISOString(),
 });
 
+const mapAddress = (address: {
+  id: number;
+  state_id: number;
+  city_id: number;
+  district_id: number | null;
+  address_line: string;
+  address_line2: string | null;
+  state_name: string;
+  city_name: string;
+  district_name: string | null;
+  postal_code: string | null;
+  country_code: string;
+  latitude: Prisma.Decimal | null;
+  longitude: Prisma.Decimal | null;
+  note: string | null;
+} | null) => {
+  if (!address) {
+    return null;
+  }
+
+  return {
+    id: address.id,
+    state_id: address.state_id,
+    city_id: address.city_id,
+    district_id: address.district_id,
+    address_line: address.address_line,
+    address_line2: address.address_line2,
+    state_name: address.state_name,
+    city_name: address.city_name,
+    district_name: address.district_name,
+    postal_code: address.postal_code,
+    country_code: address.country_code,
+    latitude: address.latitude?.toString() ?? null,
+    longitude: address.longitude?.toString() ?? null,
+    note: address.note,
+  };
+};
+
+const getOrCreateAddress = async (
+  tx: Prisma.TransactionClient,
+  input: AddressRequestInput | null | undefined,
+  fieldName: string,
+) => {
+  const existingAddressId =
+    input?.id === null || input?.id === undefined
+      ? null
+      : parseOptionalPositiveInt(input.id, `${fieldName}.id`) ?? null;
+
+  if (existingAddressId) {
+    const address = await tx.address.findUnique({
+      where: { id: existingAddressId },
+      select: { id: true },
+    });
+
+    if (!address) {
+      throw new BadRequestError(`${fieldName}.id is invalid`);
+    }
+
+    return address.id;
+  }
+
+  if (!input || typeof input !== "object") {
+    return null;
+  }
+
+  const stateId = parseOptionalPositiveInt(input.state_id, `${fieldName}.state_id`);
+  const cityId = parseOptionalPositiveInt(input.city_id, `${fieldName}.city_id`);
+  const districtId =
+    input.district_id === null || input.district_id === undefined
+      ? null
+      : parseOptionalPositiveInt(input.district_id, `${fieldName}.district_id`) ?? null;
+  const addressLine = toOptionalTrimmedString(input.address_line);
+
+  if (!stateId) {
+    throw new BadRequestError(`${fieldName}.state_id is required`);
+  }
+
+  if (!cityId) {
+    throw new BadRequestError(`${fieldName}.city_id is required`);
+  }
+
+  if (!addressLine) {
+    throw new BadRequestError(`${fieldName}.address_line is required`);
+  }
+
+  const [state, city, district] = await Promise.all([
+    tx.state.findUnique({ where: { id: stateId }, select: { id: true, name: true } }),
+    tx.city.findUnique({ where: { id: cityId }, select: { id: true, state_id: true, name: true } }),
+    districtId
+      ? tx.district.findUnique({
+          where: { id: districtId },
+          select: { id: true, city_id: true, name: true },
+        })
+      : Promise.resolve(null),
+  ]);
+
+  if (!state) {
+    throw new BadRequestError(`${fieldName}.state_id is invalid`);
+  }
+
+  if (!city || city.state_id !== state.id) {
+    throw new BadRequestError(`${fieldName}.city_id is invalid for the selected state`);
+  }
+
+  if (districtId && (!district || district.city_id !== city.id)) {
+    throw new BadRequestError(`${fieldName}.district_id is invalid for the selected city`);
+  }
+
+  const address = await tx.address.create({
+    data: {
+      state_id: state.id,
+      city_id: city.id,
+      district_id: district?.id ?? null,
+      address_line: addressLine,
+      address_line2: toOptionalTrimmedString(input.address_line2) ?? null,
+      state_name: state.name,
+      city_name: city.name,
+      district_name: district?.name ?? null,
+      postal_code: toOptionalTrimmedString(input.postal_code) ?? null,
+      country_code: toOptionalTrimmedString(input.country_code) ?? "VN",
+      latitude: parseDecimalOrNull(input.latitude, `${fieldName}.latitude`),
+      longitude: parseDecimalOrNull(input.longitude, `${fieldName}.longitude`),
+      note: toOptionalTrimmedString(input.note) ?? null,
+    },
+    select: { id: true },
+  });
+
+  return address.id;
+};
+
+const resolveOrderAddressId = async (
+  tx: Prisma.TransactionClient,
+  explicitAddressId: number | null,
+  addressInput: AddressRequestInput | null | undefined,
+  fieldName: string,
+) => {
+  if (explicitAddressId) {
+    const address = await tx.address.findUnique({
+      where: { id: explicitAddressId },
+      select: { id: true },
+    });
+
+    if (!address) {
+      throw new BadRequestError(`${fieldName}_id is invalid`);
+    }
+
+    return address.id;
+  }
+
+  return getOrCreateAddress(tx, addressInput, `${fieldName}_detail`);
+};
+
 const mapOrder = (order: {
   id: number;
   order_code: string;
@@ -523,6 +689,9 @@ const mapOrder = (order: {
   note: string | null;
   required_note: string | null;
   payment_type_id: number | null;
+  from_address_id: number | null;
+  to_address_id: number | null;
+  return_address_id: number | null;
   from_name: string | null;
   from_phone: string | null;
   from_address: string | null;
@@ -595,6 +764,9 @@ const mapOrder = (order: {
     metadata: Prisma.JsonValue;
     created_at: Date;
   }>;
+  from_address_detail?: Parameters<typeof mapAddress>[0];
+  to_address_detail?: Parameters<typeof mapAddress>[0];
+  return_address_detail?: Parameters<typeof mapAddress>[0];
 }) => ({
   id: order.id,
   order_code: order.order_code,
@@ -612,6 +784,12 @@ const mapOrder = (order: {
   note: order.note,
   required_note: order.required_note,
   payment_type_id: order.payment_type_id,
+  from_address_id: order.from_address_id,
+  to_address_id: order.to_address_id,
+  return_address_id: order.return_address_id,
+  from_address_detail: mapAddress(order.from_address_detail ?? null),
+  to_address_detail: mapAddress(order.to_address_detail ?? null),
+  return_address_detail: mapAddress(order.return_address_detail ?? null),
   from_name: order.from_name,
   from_phone: order.from_phone,
   from_address: order.from_address,
@@ -949,12 +1127,20 @@ export const OrderService = {
   getOrderOptions: async () => {
     const [customers, variants, historicalShippingServices, connectedShippingProviders, salesChannels] = await Promise.all([
       prisma.customer.findMany({
-        where: { status: "active" },
+        where: {
+          status: "active",
+          phone: { not: null },
+        },
         select: {
           id: true,
           client_code: true,
           full_name: true,
           phone: true,
+          addresses: {
+            where: { is_default: true },
+            include: { address: true },
+            take: 1,
+          },
         },
         orderBy: [{ full_name: "asc" }],
       }),
@@ -963,10 +1149,18 @@ export const OrderService = {
         select: {
           sku: true,
           selling_price: true,
+          image_url: true,
           product_id: true,
+          inventory_stock: {
+            select: {
+              on_hand: true,
+              available: true,
+            },
+          },
           product: {
             select: {
               product_name: true,
+              image_url: true,
             },
           },
         },
@@ -1018,6 +1212,22 @@ export const OrderService = {
         client_code: customer.client_code,
         full_name: customer.full_name,
         phone: customer.phone,
+        default_address: customer.addresses[0]
+          ? {
+              id: customer.addresses[0].id,
+              address: {
+                id: customer.addresses[0].address.id,
+                state_id: customer.addresses[0].address.state_id,
+                city_id: customer.addresses[0].address.city_id,
+                district_id: customer.addresses[0].address.district_id,
+                address_line: customer.addresses[0].address.address_line,
+                address_line2: customer.addresses[0].address.address_line2,
+                state_name: customer.addresses[0].address.state_name,
+                city_name: customer.addresses[0].address.city_name,
+                district_name: customer.addresses[0].address.district_name,
+              },
+            }
+          : null,
       })),
       products: variants.map((variant) => ({
         sku: variant.sku,
@@ -1025,6 +1235,9 @@ export const OrderService = {
         product_id: variant.product_id,
         product_name: variant.product.product_name,
         selling_price: decimalToString(variant.selling_price),
+        image_url: variant.image_url ?? variant.product.image_url,
+        stock_on_hand: variant.inventory_stock?.on_hand ?? 0,
+        stock_available: variant.inventory_stock?.available ?? 0,
       })),
       shipping_services: Array.from(
         new Set([
@@ -1045,6 +1258,9 @@ export const OrderService = {
       where: buildWhereClause(query),
       include: {
         items: true,
+        from_address_detail: true,
+        to_address_detail: true,
+        return_address_detail: true,
       },
       orderBy: [{ order_date: "desc" }, { id: "desc" }],
     });
@@ -1117,6 +1333,9 @@ export const OrderService = {
       note: existingOrder.note,
       required_note: existingOrder.required_note,
       payment_type_id: existingOrder.payment_type_id,
+      from_address_id: existingOrder.from_address_id,
+      to_address_id: existingOrder.to_address_id,
+      return_address_id: existingOrder.return_address_id,
       from_name: existingOrder.from_name,
       from_phone: existingOrder.from_phone,
       from_address: existingOrder.from_address,
@@ -1205,6 +1424,18 @@ export const OrderService = {
       input.payment_type_id === null || input.payment_type_id === undefined
         ? null
         : parseOptionalNonNegativeInt(input.payment_type_id, "payment_type_id") ?? null;
+    const requestedFromAddressId =
+      input.from_address_id === null || input.from_address_id === undefined
+        ? null
+        : parseOptionalPositiveInt(input.from_address_id, "from_address_id") ?? null;
+    const requestedToAddressId =
+      input.to_address_id === null || input.to_address_id === undefined
+        ? null
+        : parseOptionalPositiveInt(input.to_address_id, "to_address_id") ?? null;
+    const requestedReturnAddressId =
+      input.return_address_id === null || input.return_address_id === undefined
+        ? null
+        : parseOptionalPositiveInt(input.return_address_id, "return_address_id") ?? null;
     const fromName = toOptionalTrimmedString(input.from_name) ?? null;
     const fromPhone = toOptionalTrimmedString(input.from_phone) ?? null;
     const fromAddress = toOptionalTrimmedString(input.from_address) ?? null;
@@ -1407,6 +1638,12 @@ export const OrderService = {
             throw new BadRequestError(`Order code "${resolvedOrderCode}" already exists`);
           }
 
+          const [fromAddressId, toAddressId, returnAddressId] = await Promise.all([
+            resolveOrderAddressId(tx, requestedFromAddressId, input.from_address_detail, "from_address"),
+            resolveOrderAddressId(tx, requestedToAddressId, input.to_address_detail, "to_address"),
+            resolveOrderAddressId(tx, requestedReturnAddressId, input.return_address_detail, "return_address"),
+          ]);
+
           const order = await tx.order.create({
             data: {
               order_code: resolvedOrderCode,
@@ -1422,6 +1659,9 @@ export const OrderService = {
               note,
               required_note: requiredNote,
               payment_type_id: paymentTypeId,
+              from_address_id: fromAddressId,
+              to_address_id: toAddressId,
+              return_address_id: returnAddressId,
               from_name: fromName,
               from_phone: fromPhone,
               from_address: fromAddress,
@@ -1474,14 +1714,7 @@ export const OrderService = {
                 create: historyEntries,
               },
             },
-            include: {
-              items: {
-                orderBy: [{ id: "asc" }],
-              },
-              history: {
-                orderBy: [{ created_at: "asc" }, { id: "asc" }],
-              },
-            },
+            include: orderInclude,
           });
 
           if (order.processing_status === "confirmed") {
@@ -1688,6 +1921,30 @@ export const OrderService = {
         : input.payment_type_id === null
           ? null
           : parseOptionalNonNegativeInt(input.payment_type_id, "payment_type_id") ?? null;
+    const requestedFromAddressId =
+      input.from_address_detail !== undefined
+        ? null
+        : input.from_address_id === undefined
+        ? existingOrder.from_address_id
+        : input.from_address_id === null
+          ? null
+          : parseOptionalPositiveInt(input.from_address_id, "from_address_id") ?? null;
+    const requestedToAddressId =
+      input.to_address_detail !== undefined
+        ? null
+        : input.to_address_id === undefined
+        ? existingOrder.to_address_id
+        : input.to_address_id === null
+          ? null
+          : parseOptionalPositiveInt(input.to_address_id, "to_address_id") ?? null;
+    const requestedReturnAddressId =
+      input.return_address_detail !== undefined
+        ? null
+        : input.return_address_id === undefined
+        ? existingOrder.return_address_id
+        : input.return_address_id === null
+          ? null
+          : parseOptionalPositiveInt(input.return_address_id, "return_address_id") ?? null;
     const fromName =
       input.from_name === undefined ? existingOrder.from_name : toOptionalTrimmedString(input.from_name) ?? null;
     const fromPhone =
@@ -1898,6 +2155,18 @@ export const OrderService = {
     );
 
     const updatedOrder = await prisma.$transaction(async (tx) => {
+      const [fromAddressId, toAddressId, returnAddressId] = await Promise.all([
+        input.from_address_detail === undefined
+          ? resolveOrderAddressId(tx, requestedFromAddressId, undefined, "from_address")
+          : resolveOrderAddressId(tx, requestedFromAddressId, input.from_address_detail, "from_address"),
+        input.to_address_detail === undefined
+          ? resolveOrderAddressId(tx, requestedToAddressId, undefined, "to_address")
+          : resolveOrderAddressId(tx, requestedToAddressId, input.to_address_detail, "to_address"),
+        input.return_address_detail === undefined
+          ? resolveOrderAddressId(tx, requestedReturnAddressId, undefined, "return_address")
+          : resolveOrderAddressId(tx, requestedReturnAddressId, input.return_address_detail, "return_address"),
+      ]);
+
       await tx.orderItem.deleteMany({
         where: { order_id: id },
       });
@@ -1933,6 +2202,9 @@ export const OrderService = {
           note,
           required_note: requiredNote,
           payment_type_id: paymentTypeId,
+          from_address_id: fromAddressId,
+          to_address_id: toAddressId,
+          return_address_id: returnAddressId,
           from_name: fromName,
           from_phone: fromPhone,
           from_address: fromAddress,
@@ -1982,14 +2254,7 @@ export const OrderService = {
             create: normalizedItems,
           },
         },
-        include: {
-          items: {
-            orderBy: [{ id: "asc" }],
-          },
-          history: {
-            orderBy: [{ created_at: "asc" }, { id: "asc" }],
-          },
-        },
+        include: orderInclude,
       });
     });
 

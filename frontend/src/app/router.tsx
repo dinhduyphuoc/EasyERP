@@ -79,6 +79,11 @@ childRoutes.push({
 })
 
 childRoutes.push({
+  path: 'customers/:id',
+  element: <CustomerCreatePage />,
+})
+
+childRoutes.push({
   path: 'orders/create',
   element: <OrdersCreatePage />,
 })

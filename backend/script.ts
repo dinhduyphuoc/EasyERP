@@ -3,6 +3,9 @@ import { ProductService } from "@/modules/product/product.service";
 import { CustomerService } from "@/modules/customer/customer.service";
 import { InventoryService } from "@/modules/inventory/inventory.service";
 import { OrderService } from "@/modules/order/order.service";
+import { existsSync, readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 const DEMO_CATEGORY_NAME = "Demo Inventory";
 const DEMO_CUSTOMERS = [
@@ -23,6 +26,47 @@ const DEMO_ORDER_CODES = {
   completed: "DH9004",
   cancelled: "DH9005",
 } as const;
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const ADDRESS_SEED_SQL_PATH = path.join(__dirname, "prisma", "seeds", "address_seed.sql");
+const SQL_STATEMENT_MARKER = "-- @@statement@@";
+
+function loadSeedStatements(filePath: string) {
+  if (!existsSync(filePath)) {
+    return [];
+  }
+
+  return readFileSync(filePath, "utf8")
+    .split(SQL_STATEMENT_MARKER)
+    .map((statement) => statement.trim())
+    .filter(Boolean);
+}
+
+async function ensureAddressSeed() {
+  const statements = loadSeedStatements(ADDRESS_SEED_SQL_PATH);
+
+  if (statements.length === 0) {
+    console.log("Address seed SQL not found. Skip address seed.");
+    return;
+  }
+
+  await prisma.$transaction(async (tx) => {
+    for (const statement of statements) {
+      await tx.$executeRawUnsafe(statement);
+    }
+  });
+
+  const [stateCount, cityCount, districtCount] = await Promise.all([
+    prisma.state.count(),
+    prisma.city.count(),
+    prisma.district.count(),
+  ]);
+
+  console.log(
+    `Address seed completed successfully. States: ${stateCount}, Cities: ${cityCount}, Districts: ${districtCount}`,
+  );
+}
 
 async function ensureDemoCategory() {
   const existing = await prisma.category.findFirst({
@@ -141,6 +185,22 @@ async function ensureSeedData() {
   }
 
   const [first, second = first, third = second] = variants;
+  const seedVariantSkus = [...new Set([first.sku, second.sku, third.sku])];
+  const existingSeedStocks = await prisma.inventoryStock.count({
+    where: {
+      product_variant_id: {
+        in: seedVariantSkus,
+      },
+    },
+  });
+
+  if (existingSeedStocks > 0) {
+    console.log("Inventory seed skipped because demo stock already exists.");
+    return {
+      seededSkus: variants.map((variant) => variant.sku),
+      inventorySeedApplied: false,
+    };
+  }
 
   await InventoryService.initialize({
     product_variant_id: first.sku,
@@ -275,7 +335,10 @@ async function ensureSeedData() {
     metadata: { source: "script.ts" },
   });
 
-  return variants.map((variant) => variant.sku);
+  return {
+    seededSkus: variants.map((variant) => variant.sku),
+    inventorySeedApplied: true,
+  };
 }
 
 async function ensureDemoCustomers() {
@@ -493,12 +556,15 @@ async function ensureDemoOrders(variantSkus: string[], customerIds: number[]) {
 }
 
 async function main() {
-  const seededSkus = await ensureSeedData();
+  await ensureAddressSeed();
+  const { seededSkus, inventorySeedApplied } = await ensureSeedData();
   const customers = await ensureDemoCustomers();
-  const seededOrderCodes = await ensureDemoOrders(
-    seededSkus,
-    customers.map((customer) => customer.id),
-  );
+  const seededOrderCodes = inventorySeedApplied
+    ? await ensureDemoOrders(
+        seededSkus,
+        customers.map((customer) => customer.id),
+      )
+    : [];
   const stockList = await prisma.inventoryStock.findMany({
     where: {
       product_variant_id: {
@@ -513,7 +579,11 @@ async function main() {
   console.log("Inventory seed completed successfully.");
   console.log("Seeded variants:", seededSkus.join(", "));
   console.log("Seeded customers:", customers.map((customer) => customer.client_code).join(", "));
-  console.log("Seeded orders:", seededOrderCodes.join(", "));
+  console.log(
+    inventorySeedApplied
+      ? `Seeded orders: ${seededOrderCodes.join(", ")}`
+      : "Seeded orders: skipped because demo inventory already existed.",
+  );
   console.log("Current stock snapshots:", JSON.stringify(stockList, null, 2));
 }
 

@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState, type ReactElement } from 'react'
-import { useNavigate } from 'react-router'
+import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
+import { useNavigate, useParams } from 'react-router'
 import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 import SaveOutlinedIcon from '@mui/icons-material/SaveOutlined'
 import {
@@ -11,41 +11,159 @@ import {
   Stack,
   Typography,
 } from '@mui/material'
-import { customerApi, type CustomerCategory, type CustomerCreatePayload } from './customer.api'
+import {
+  customerApi,
+  type CityItem,
+  type CustomerCategory,
+  type CustomerCreatePayload,
+  type DistrictItem,
+  type LocationItem,
+} from './customer.api'
 import { defaultCardSx } from '@/shared/ui/paper'
 import { appToast } from '@/shared/ui/toast/toast.helpers'
-import { StackedTextField } from '@/shared/ui/form/stacked-text-field'
 import { StackedDropdown } from '@/shared/ui/form/stacked-dropdown'
+import { StackedTextField } from '@/shared/ui/form/stacked-text-field'
+
+type GenderValue = '' | 'male' | 'female' | 'other'
 
 export function CustomerCreatePage(): ReactElement {
   const navigate = useNavigate()
+  const { id } = useParams()
+  const isEditMode = Boolean(id)
+  const isHydratingRef = useRef(false)
   const [clientCode, setClientCode] = useState('')
   const [fullName, setFullName] = useState('')
-  const [phone, setPhone] = useState('')
-  const [status, setStatus] = useState<'active' | 'inactive'>('active')
   const [customerCategoryId, setCustomerCategoryId] = useState('')
+  const [phone, setPhone] = useState('')
+  const [email, setEmail] = useState('')
+  const [stateId, setStateId] = useState('')
+  const [cityId, setCityId] = useState('')
+  const [districtId, setDistrictId] = useState('')
+  const [addressLine, setAddressLine] = useState('')
+  const [addressLine2, setAddressLine2] = useState('')
+  const [addressNote, setAddressNote] = useState('')
+  const [birthDate, setBirthDate] = useState('')
+  const [gender, setGender] = useState<GenderValue>('')
+  const [taxCode, setTaxCode] = useState('')
   const [categories, setCategories] = useState<CustomerCategory[]>([])
+  const [states, setStates] = useState<LocationItem[]>([])
+  const [cities, setCities] = useState<CityItem[]>([])
+  const [districts, setDistricts] = useState<DistrictItem[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
   const [hasAttemptedSave, setHasAttemptedSave] = useState(false)
 
   useEffect(() => {
-    const fetchCategories = async () => {
+    const fetchInitialData = async () => {
       setIsLoading(true)
 
       try {
-        const data = await customerApi.getCustomerCategories()
-        setCategories(data)
+        const [categoryData, stateData, customerData] = await Promise.all([
+          customerApi.getCustomerCategories(),
+          customerApi.getStates({ is_active: true }),
+          id ? customerApi.getCustomerById(id) : Promise.resolve(null),
+        ])
+        setCategories(categoryData)
+        setStates(stateData)
+        if (customerData) {
+          isHydratingRef.current = true
+          const primaryAddress =
+            customerData.addresses.find((item) => item.is_default) ?? customerData.addresses[0] ?? null
+          const address = primaryAddress?.address ?? null
+          const [cityData, districtData] = await Promise.all([
+            address ? customerApi.getCities({ state_id: address.state_id, is_active: true }) : Promise.resolve([]),
+            address ? customerApi.getDistricts({ city_id: address.city_id, is_active: true }) : Promise.resolve([]),
+          ])
+
+          setClientCode(customerData.client_code)
+          setFullName(customerData.full_name)
+          setCustomerCategoryId(customerData.customer_category_id ? String(customerData.customer_category_id) : '')
+          setPhone(customerData.phone ?? '')
+          setEmail(customerData.email ?? '')
+          setBirthDate(customerData.birth_date ? customerData.birth_date.slice(0, 10) : '')
+          setGender(customerData.gender ?? '')
+          setTaxCode(customerData.tax_code ?? '')
+          setCities(cityData)
+          setDistricts(districtData)
+          setStateId(address ? String(address.state_id) : '')
+          setCityId(address ? String(address.city_id) : '')
+          setDistrictId(address?.district_id ? String(address.district_id) : '')
+          setAddressLine(address?.address_line ?? '')
+          setAddressLine2(address?.address_line2 ?? '')
+          setAddressNote(primaryAddress?.note ?? address?.note ?? '')
+
+          window.setTimeout(() => {
+            isHydratingRef.current = false
+          }, 0)
+        }
       } catch (error) {
-        console.error('Lỗi khi tải nhóm khách hàng:', error)
-        appToast.error('Không thể tải nhóm khách hàng.')
+        console.error('Lỗi khi tải dữ liệu khách hàng:', error)
+        appToast.error('Không thể tải dữ liệu tạo khách hàng.')
       } finally {
         setIsLoading(false)
       }
     }
 
-    void fetchCategories()
-  }, [])
+    void fetchInitialData()
+  }, [id])
+
+  useEffect(() => {
+    if (isHydratingRef.current) {
+      return
+    }
+
+    if (!stateId) {
+      setCities([])
+      setCityId('')
+      setDistricts([])
+      setDistrictId('')
+      return
+    }
+
+    const fetchCities = async () => {
+      try {
+        const data = await customerApi.getCities({ state_id: Number(stateId), is_active: true })
+        setCities(data)
+      } catch (error) {
+        console.error('Lỗi khi tải huyện/quận:', error)
+        appToast.error('Không thể tải danh sách huyện/quận.')
+      }
+    }
+
+    setCityId('')
+    setDistricts([])
+    setDistrictId('')
+    void fetchCities()
+  }, [stateId])
+
+  useEffect(() => {
+    if (isHydratingRef.current) {
+      return
+    }
+
+    if (!cityId) {
+      setDistricts([])
+      setDistrictId('')
+      return
+    }
+
+    const fetchDistricts = async () => {
+      try {
+        const data = await customerApi.getDistricts({ city_id: Number(cityId), is_active: true })
+        setDistricts(data)
+      } catch (error) {
+        console.error('Lỗi khi tải xã/phường:', error)
+        appToast.error('Không thể tải danh sách xã/phường.')
+      }
+    }
+
+    setDistrictId('')
+    void fetchDistricts()
+  }, [cityId])
+
+  const hasAnyAddressInput = Boolean(
+    stateId || cityId || districtId || addressLine.trim() || addressLine2.trim() || addressNote.trim(),
+  )
 
   const errors = useMemo(() => {
     const nextErrors: Record<string, string> = {}
@@ -58,8 +176,22 @@ export function CustomerCreatePage(): ReactElement {
       nextErrors.phone = 'Số điện thoại là bắt buộc.'
     }
 
+    if (hasAnyAddressInput) {
+      if (!stateId) {
+        nextErrors.state_id = 'Tỉnh/Thành phố là bắt buộc khi nhập địa chỉ.'
+      }
+
+      if (!cityId) {
+        nextErrors.city_id = 'Huyện/Quận là bắt buộc khi nhập địa chỉ.'
+      }
+
+      if (!addressLine.trim()) {
+        nextErrors.address_line = 'Địa chỉ 1 là bắt buộc khi nhập địa chỉ.'
+      }
+    }
+
     return nextErrors
-  }, [fullName, phone])
+  }, [addressLine, cityId, fullName, hasAnyAddressInput, phone, stateId])
 
   const visibleErrors = hasAttemptedSave ? errors : {}
   const canSave = !isLoading && !isSaving && Object.keys(errors).length === 0
@@ -78,7 +210,11 @@ export function CustomerCreatePage(): ReactElement {
       const payload: CustomerCreatePayload = {
         full_name: fullName.trim(),
         phone: phone.trim(),
-        status,
+        email: email.trim() || null,
+        birth_date: birthDate || null,
+        gender: gender || null,
+        tax_code: taxCode.trim() || null,
+        status: 'active',
         customer_category_id: customerCategoryId ? Number(customerCategoryId) : null,
       }
 
@@ -86,8 +222,34 @@ export function CustomerCreatePage(): ReactElement {
         payload.client_code = clientCode.trim()
       }
 
-      await customerApi.createCustomer(payload)
-      appToast.success('Thêm khách hàng thành công.')
+      if (hasAnyAddressInput) {
+        payload.addresses = [
+          {
+            type: 'shipping',
+            label: 'Địa chỉ chính',
+            is_default: true,
+            recipient_name: fullName.trim(),
+            recipient_phone: phone.trim(),
+            note: addressNote.trim() || null,
+            address: {
+              state_id: Number(stateId),
+              city_id: Number(cityId),
+              district_id: districtId ? Number(districtId) : null,
+              address_line: addressLine.trim(),
+              address_line2: addressLine2.trim() || null,
+              note: addressNote.trim() || null,
+            },
+          },
+        ]
+      }
+
+      if (isEditMode && id) {
+        await customerApi.updateCustomer(id, payload)
+        appToast.success('Cập nhật khách hàng thành công.')
+      } else {
+        await customerApi.createCustomer(payload)
+        appToast.success('Thêm khách hàng thành công.')
+      }
       navigate('/customers')
     } catch (error) {
       console.error('Lỗi khi tạo khách hàng:', error)
@@ -103,7 +265,9 @@ export function CustomerCreatePage(): ReactElement {
         'message' in error.response.data &&
         typeof error.response.data.message === 'string'
           ? error.response.data.message
-          : 'Không thể tạo khách hàng. Vui lòng thử lại.'
+          : isEditMode
+            ? 'Không thể cập nhật khách hàng. Vui lòng thử lại.'
+            : 'Không thể tạo khách hàng. Vui lòng thử lại.'
 
       appToast.error(message)
     } finally {
@@ -113,111 +277,226 @@ export function CustomerCreatePage(): ReactElement {
 
   return (
     <Box sx={{ px: { xs: 2, md: 3, xl: 4 }, pb: 8 }}>
-      <Paper sx={{ ...defaultCardSx, mb: 2 }}>
-        <Stack
-          direction={{ xs: 'column', md: 'row' }}
-          spacing={2}
-          sx={{ justifyContent: 'space-between', alignItems: { md: 'center' } }}
-        >
-          <Box>
-            <Typography variant="h5" sx={{ fontWeight: 700, color: '#101828' }}>
-              Thêm khách hàng
+      <Box sx={{ mb: 2 }}>
+        <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} sx={{ justifyContent: 'space-between', alignItems: { md: 'center' } }}>
+          <Stack direction="row" spacing={2} sx={{ alignItems: 'center', cursor: 'pointer' }} onClick={() => navigate('/customers')}>
+            <Paper sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', p: 1 }}>
+              <ArrowBackIcon sx={{ color: '#344054' }} />
+            </Paper>
+            <Typography variant="h6" sx={{ fontWeight: 600, color: '#101828' }}>
+              {isEditMode ? 'Chỉnh sửa khách hàng' : 'Thêm khách hàng'}
             </Typography>
-            <Typography sx={{ color: '#667085', mt: 0.5 }}>
-              Tạo hồ sơ khách hàng mới để dùng cho chăm sóc khách hàng, bán hàng và các báo
-              cáo liên quan sau này.
-            </Typography>
-          </Box>
-          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
-            <Button variant="outlined" startIcon={<ArrowBackIcon />} onClick={() => navigate('/customers')}>
-              Quay lại
-            </Button>
-            <Button
-              variant="contained"
-              color="secondary"
-              startIcon={isSaving ? <CircularProgress size={16} color="inherit" /> : <SaveOutlinedIcon />}
-              onClick={() => void handleSave()}
-              disabled={!canSave}
-            >
-              {isSaving ? 'Đang lưu...' : 'Lưu khách hàng'}
-            </Button>
           </Stack>
+
+          <Button
+            variant="contained"
+            color="secondary"
+            startIcon={isSaving ? <CircularProgress size={16} color="inherit" /> : <SaveOutlinedIcon />}
+            onClick={() => void handleSave()}
+            disabled={!canSave}
+          >
+            {isSaving ? 'Đang lưu...' : isEditMode ? 'Cập nhật' : 'Lưu'}
+          </Button>
         </Stack>
-      </Paper>
+      </Box>
 
-      <Paper sx={defaultCardSx}>
-        <Stack spacing={3}>
-          <Box>
-            <Typography variant="h6" sx={{ fontWeight: 700 }}>
-              Thông tin khách hàng
+      <Stack spacing={3}>
+        <Paper sx={defaultCardSx}>
+          <Stack spacing={3}>
+            <Typography variant="h6" sx={{ fontWeight: 600 }}>
+              Thông tin chung
             </Typography>
-            <Typography sx={{ color: '#667085', mt: 0.5 }}>
-              Nhập các thông tin chính theo dữ liệu khách hàng hiện đang quản lý trong hệ thống.
+
+            <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' } }}>
+              <Box sx={{ gridColumn: '1 / -1' }}>
+                <StackedTextField
+                  fullWidth
+                  label="Tên khách hàng *"
+                  placeholder="Ví dụ: Nguyễn Văn A"
+                  value={fullName}
+                  onChange={(event) => setFullName(event.target.value)}
+                  error={Boolean(visibleErrors.full_name)}
+                  helperText={visibleErrors.full_name}
+                  disabled={isLoading}
+                />
+              </Box>
+
+              <StackedTextField
+                fullWidth
+                label="Mã khách hàng"
+                placeholder="Để trống để hệ thống tự tạo"
+                value={clientCode}
+                onChange={(event) => setClientCode(event.target.value)}
+                disabled={isLoading}
+              />
+
+              <StackedDropdown
+                fullWidth
+                label="Nhóm khách hàng"
+                value={customerCategoryId}
+                onChange={(event) => setCustomerCategoryId(event.target.value as string)}
+                disabled={isLoading}
+              >
+                <MenuItem value="">Chưa phân nhóm</MenuItem>
+                {categories.map((category) => (
+                  <MenuItem key={category.id} value={String(category.id)}>
+                    {category.category_name}
+                  </MenuItem>
+                ))}
+              </StackedDropdown>
+
+              <StackedTextField
+                fullWidth
+                label="Số điện thoại *"
+                placeholder="Ví dụ: 0901234567"
+                value={phone}
+                onChange={(event) => setPhone(event.target.value)}
+                error={Boolean(visibleErrors.phone)}
+                helperText={visibleErrors.phone}
+                disabled={isLoading}
+              />
+
+              <StackedTextField
+                fullWidth
+                label="Email"
+                placeholder="Ví dụ: khachhang@example.com"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                disabled={isLoading}
+              />
+            </Box>
+          </Stack>
+        </Paper>
+
+        <Paper sx={defaultCardSx}>
+          <Stack spacing={3}>
+            <Typography variant="h6" sx={{ fontWeight: 600 }}>
+              Thông tin địa chỉ
             </Typography>
-          </Box>
 
-          <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
-            <StackedTextField
-              fullWidth
-              label="Mã khách hàng"
-              placeholder="Để trống để hệ thống tự tạo, ví dụ: KH0001"
-              value={clientCode}
-              onChange={(event) => setClientCode(event.target.value)}
-              helperText="Nếu để trống, hệ thống sẽ tự sinh mã bắt đầu bằng KH."
-              disabled={isLoading}
-            />
-            <StackedTextField
-              fullWidth
-              label="Số điện thoại *"
-              placeholder="Ví dụ: 0901234567"
-              value={phone}
-              onChange={(event) => setPhone(event.target.value)}
-              error={Boolean(visibleErrors.phone)}
-              helperText={visibleErrors.phone}
-              disabled={isLoading}
-            />
+            <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' } }}>
+              <StackedDropdown
+                fullWidth
+                label="Tỉnh/Thành phố"
+                value={stateId}
+                onChange={(event) => setStateId(event.target.value as string)}
+                error={Boolean(visibleErrors.state_id)}
+                helperText={visibleErrors.state_id}
+                disabled={isLoading}
+              >
+                <MenuItem value="">Chọn tỉnh/thành phố</MenuItem>
+                {states.map((state) => (
+                  <MenuItem key={state.id} value={String(state.id)}>
+                    {state.name}
+                  </MenuItem>
+                ))}
+              </StackedDropdown>
+
+              <StackedDropdown
+                fullWidth
+                label="Huyện/Quận"
+                value={cityId}
+                onChange={(event) => setCityId(event.target.value as string)}
+                error={Boolean(visibleErrors.city_id)}
+                helperText={visibleErrors.city_id}
+                disabled={isLoading || !stateId}
+              >
+                <MenuItem value="">Chọn huyện/quận</MenuItem>
+                {cities.map((city) => (
+                  <MenuItem key={city.id} value={String(city.id)}>
+                    {city.name}
+                  </MenuItem>
+                ))}
+              </StackedDropdown>
+
+              <StackedDropdown
+                fullWidth
+                label="Xã/Phường"
+                value={districtId}
+                onChange={(event) => setDistrictId(event.target.value as string)}
+                disabled={isLoading || !cityId}
+              >
+                <MenuItem value="">Chọn xã/phường</MenuItem>
+                {districts.map((district) => (
+                  <MenuItem key={district.id} value={String(district.id)}>
+                    {district.name}
+                  </MenuItem>
+                ))}
+              </StackedDropdown>
+
+              <StackedTextField
+                fullWidth
+                label="Địa chỉ 1"
+                placeholder="Số nhà, tên đường"
+                value={addressLine}
+                onChange={(event) => setAddressLine(event.target.value)}
+                error={Boolean(visibleErrors.address_line)}
+                helperText={visibleErrors.address_line}
+                disabled={isLoading}
+              />
+
+              <StackedTextField
+                fullWidth
+                label="Địa chỉ 2"
+                placeholder="Tòa nhà, tầng, khu vực"
+                value={addressLine2}
+                onChange={(event) => setAddressLine2(event.target.value)}
+                disabled={isLoading}
+              />
+
+              <StackedTextField
+                fullWidth
+                label="Ghi chú"
+                placeholder="Ghi chú giao hàng hoặc liên hệ"
+                value={addressNote}
+                onChange={(event) => setAddressNote(event.target.value)}
+                disabled={isLoading}
+              />
+            </Box>
           </Stack>
+        </Paper>
 
-          <StackedTextField
-            fullWidth
-            label="Tên khách hàng *"
-            placeholder="Ví dụ: Nguyễn Văn A"
-            value={fullName}
-            onChange={(event) => setFullName(event.target.value)}
-            error={Boolean(visibleErrors.full_name)}
-            helperText={visibleErrors.full_name}
-            disabled={isLoading}
-          />
+        <Paper sx={defaultCardSx}>
+          <Stack spacing={3}>
+            <Typography variant="h6" sx={{ fontWeight: 600 }}>
+              Thông tin bổ sung
+            </Typography>
 
-          <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
-            <StackedDropdown
-              fullWidth
-              label="Trạng thái"
-              value={status}
-              onChange={(event) => setStatus(event.target.value as 'active' | 'inactive')}
-              disabled={isLoading}
-            >
-              <MenuItem value="active">Đang hoạt động</MenuItem>
-              <MenuItem value="inactive">Ngừng hoạt động</MenuItem>
-            </StackedDropdown>
+            <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' } }}>
+              <StackedTextField
+                fullWidth
+                type="date"
+                label="Ngày tháng năm sinh"
+                value={birthDate}
+                onChange={(event) => setBirthDate(event.target.value)}
+                disabled={isLoading}
+              />
 
-            <StackedDropdown
-              fullWidth
-              label="Nhóm khách hàng"
-              value={customerCategoryId}
-              onChange={(event) => setCustomerCategoryId(event.target.value as string)}
-              disabled={isLoading}
-            >
-              <MenuItem value="">Chưa phân nhóm</MenuItem>
-              {categories.map((category) => (
-                <MenuItem key={category.id} value={String(category.id)}>
-                  {category.category_name}
-                </MenuItem>
-              ))}
-            </StackedDropdown>
+              <StackedDropdown
+                fullWidth
+                label="Giới tính"
+                value={gender}
+                onChange={(event) => setGender(event.target.value as GenderValue)}
+                disabled={isLoading}
+              >
+                <MenuItem value="">Chưa chọn</MenuItem>
+                <MenuItem value="male">Nam</MenuItem>
+                <MenuItem value="female">Nữ</MenuItem>
+                <MenuItem value="other">Khác</MenuItem>
+              </StackedDropdown>
+
+              <StackedTextField
+                fullWidth
+                label="MST"
+                placeholder="Mã số thuế"
+                value={taxCode}
+                onChange={(event) => setTaxCode(event.target.value)}
+                disabled={isLoading}
+              />
+            </Box>
           </Stack>
-        </Stack>
-      </Paper>
+        </Paper>
+      </Stack>
     </Box>
   )
 }

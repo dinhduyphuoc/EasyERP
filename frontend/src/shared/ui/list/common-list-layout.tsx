@@ -84,10 +84,7 @@ export function CommonListLayout<T>({
 
   return (
 
-    <Stack sx={{
-      mx: { xs: 2, md: 3, xl: 4 },
-      px: { xs: 1, md: 2, xl: 3 }
-    }} spacing={3}>
+    <Stack spacing={3}>
       <ListPageHeader title={title} description={description} actions={headerActions} />
       <Paper>
         {tabs && activeTab && onTabChange ? (

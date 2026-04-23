@@ -49,6 +49,20 @@ export interface OrderHistoryInput {
   metadata?: Record<string, unknown>;
 }
 
+export interface AddressRequestInput {
+  id?: number | null;
+  state_id?: number | null;
+  city_id?: number | null;
+  district_id?: number | null;
+  address_line?: string | null;
+  address_line2?: string | null;
+  postal_code?: string | null;
+  country_code?: string | null;
+  latitude?: number | string | null;
+  longitude?: number | string | null;
+  note?: string | null;
+}
+
 export interface OrderItemRequestInput {
   product_id?: number | null;
   variant_sku?: string | null;
@@ -82,6 +96,12 @@ export interface OrderRequestInput {
   note?: string | null;
   required_note?: string | null;
   payment_type_id?: number | null;
+  from_address_id?: number | null;
+  to_address_id?: number | null;
+  return_address_id?: number | null;
+  from_address_detail?: AddressRequestInput | null;
+  to_address_detail?: AddressRequestInput | null;
+  return_address_detail?: AddressRequestInput | null;
   from_name?: string | null;
   from_phone?: string | null;
   from_address?: string | null;

@@ -95,6 +95,20 @@ export type OrderOptionLookup = {
     client_code: string
     full_name: string
     phone: string
+    default_address: {
+      id: number
+      address: {
+        id: number
+        state_id: number
+        city_id: number
+        district_id: number | null
+        address_line: string
+        address_line2: string | null
+        state_name: string
+        city_name: string
+        district_name: string | null
+      }
+    } | null
   }>
   products: Array<{
     sku: string
@@ -102,6 +116,9 @@ export type OrderOptionLookup = {
     product_id: number
     product_name: string
     selling_price: string
+    image_url: string | null
+    stock_on_hand: number
+    stock_available: number
   }>
   shipping_services: string[]
   sales_channels: string[]

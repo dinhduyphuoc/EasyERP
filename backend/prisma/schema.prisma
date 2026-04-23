@@ -117,7 +117,14 @@ enum ProductVariantStatus {
 enum CustomerStatus {
   active
   inactive
+  soft_deleted
   deleted
+}
+
+enum CustomerGender {
+  male
+  female
+  other
 }
 
 enum OrderPaymentStatus {
@@ -146,6 +153,14 @@ enum ShippingConnectionStatus {
   disconnected
   connected
   error
+}
+
+enum CustomerAddressType {
+  billing
+  shipping
+  office
+  warehouse
+  other
 }
 
 // ---------------------------------------------------------
@@ -288,7 +303,11 @@ model Customer {
   id                   Int               @id @default(autoincrement())
   client_code          String            @unique
   full_name            String
-  phone                String            @unique
+  phone                String?
+  email                String?
+  birth_date           DateTime?
+  gender               CustomerGender?
+  tax_code             String?
   status               CustomerStatus    @default(active)
   customer_category_id Int?
   created_at           DateTime          @default(now())
@@ -296,10 +315,14 @@ model Customer {
 
   customer_category    CustomerCategory? @relation(fields: [customer_category_id], references: [id])
   orders               Order[]
+  addresses            CustomerAddress[]
 
   @@index([full_name])
   @@index([client_code])
+  @@index([phone])
   @@index([status])
+  @@index([email])
+  @@index([tax_code])
 }
 
 model Location {
@@ -324,6 +347,7 @@ model State {
   updated_at      DateTime   @default(now()) @updatedAt
 
   cities          City[]
+  addresses       Address[]
 }
 
 model City {
@@ -338,6 +362,7 @@ model City {
 
   state           State      @relation(fields: [state_id], references: [id])
   districts       District[]
+  addresses       Address[]
 
   @@unique([state_id, code])
   @@unique([state_id, normalized_name])
@@ -355,10 +380,65 @@ model District {
   updated_at      DateTime  @default(now()) @updatedAt
 
   city            City      @relation(fields: [city_id], references: [id])
+  addresses       Address[]
 
   @@unique([city_id, code])
   @@unique([city_id, normalized_name])
   @@index([city_id])
+}
+
+model Address {
+  id             Int       @id @default(autoincrement())
+  state_id       Int
+  city_id        Int
+  district_id    Int?
+  address_line   String
+  address_line2  String?
+  state_name     String
+  city_name      String
+  district_name  String?
+  postal_code    String?
+  country_code   String    @default("VN")
+  latitude       Decimal?  @db.Decimal(10, 7)
+  longitude      Decimal?  @db.Decimal(10, 7)
+  note           String?
+  created_at     DateTime  @default(now())
+  updated_at     DateTime  @default(now()) @updatedAt
+
+  state          State     @relation(fields: [state_id], references: [id])
+  city           City      @relation(fields: [city_id], references: [id])
+  district       District? @relation(fields: [district_id], references: [id])
+  customers      CustomerAddress[]
+  orders_from    Order[]   @relation("OrderFromAddress")
+  orders_to      Order[]   @relation("OrderToAddress")
+  orders_return  Order[]   @relation("OrderReturnAddress")
+
+  @@index([state_id])
+  @@index([city_id])
+  @@index([district_id])
+}
+
+model CustomerAddress {
+  id              Int                 @id @default(autoincrement())
+  customer_id     Int
+  address_id      Int
+  type            CustomerAddressType @default(shipping)
+  label           String?
+  is_default      Boolean             @default(false)
+  recipient_name  String?
+  recipient_phone String?
+  note            String?
+  created_at      DateTime            @default(now())
+  updated_at      DateTime            @default(now()) @updatedAt
+
+  customer        Customer            @relation(fields: [customer_id], references: [id], onDelete: Cascade)
+  address         Address             @relation(fields: [address_id], references: [id], onDelete: Cascade)
+
+  @@unique([customer_id, address_id, type])
+  @@index([customer_id])
+  @@index([address_id])
+  @@index([type])
+  @@index([is_default])
 }
 
 model Order {
@@ -377,6 +457,9 @@ model Order {
   note                      String?
   required_note             String?
   payment_type_id           Int?
+  from_address_id           Int?
+  to_address_id             Int?
+  return_address_id         Int?
   from_name                 String?
   from_phone                String?
   from_address              String?
@@ -427,6 +510,9 @@ model Order {
 
   items                     OrderItem[]
   history                   OrderHistory[]
+  from_address_detail       Address?              @relation("OrderFromAddress", fields: [from_address_id], references: [id])
+  to_address_detail         Address?              @relation("OrderToAddress", fields: [to_address_id], references: [id])
+  return_address_detail     Address?              @relation("OrderReturnAddress", fields: [return_address_id], references: [id])
 
   @@index([order_code])
   @@index([order_date])
@@ -434,6 +520,9 @@ model Order {
   @@index([processing_status])
   @@index([order_type])
   @@index([customer_id])
+  @@index([from_address_id])
+  @@index([to_address_id])
+  @@index([return_address_id])
 }
 
 model OrderItem {

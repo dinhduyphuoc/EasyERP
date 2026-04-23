@@ -2,14 +2,14 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Button, Chip, Paper, Stack, Typography, alpha } from '@mui/material'
 import SyncOutlinedIcon from '@mui/icons-material/SyncOutlined'
 import AddOutlinedIcon from '@mui/icons-material/AddOutlined'
-import { Link as RouterLink } from 'react-router'
+import { Link as RouterLink, useNavigate } from 'react-router'
 import { CommonListLayout } from '@/shared/ui/list/common-list-layout'
 import { ListEmptyState } from '@/shared/ui/list/list-empty-state'
 import type { ListColumn, ListFilterConfig, ListTabConfig } from '@/shared/ui/list/common-list.types'
 import { customerApi, type CustomerCategory, type CustomerListItem } from './customer.api'
 import { appToast } from '@/shared/ui/toast/toast.helpers'
 
-type CustomerStatus = 'active' | 'inactive' | 'deleted'
+type CustomerStatus = 'active' | 'inactive' | 'soft_deleted' | 'deleted'
 
 type CustomerListPageCache = {
   activeTab: string
@@ -70,6 +70,7 @@ function matchesTab(row: CustomerListItem, activeTab: string) {
 }
 
 export function CustomerListPage() {
+  const navigate = useNavigate()
   const [activeTab, setActiveTab] = useState(customerListPageCache?.activeTab ?? 'all')
   const [searchValue, setSearchValue] = useState(customerListPageCache?.searchValue ?? '')
   const [filterValues, setFilterValues] = useState<Record<string, string>>(
@@ -152,13 +153,15 @@ export function CustomerListPage() {
         keyword.length === 0 ||
         row.client_code.toLowerCase().includes(keyword) ||
         row.full_name.toLowerCase().includes(keyword) ||
-        row.phone.toLowerCase().includes(keyword)
+        (row.phone ?? '').toLowerCase().includes(keyword) ||
+        (row.email ?? '').toLowerCase().includes(keyword) ||
+        (row.tax_code ?? '').toLowerCase().includes(keyword)
 
       const matchesCategory =
         !filterValues.customer_category_id ||
         String(row.customer_category_id ?? '') === filterValues.customer_category_id
 
-      return matchesKeyword && matchesCategory && matchesTab(row, activeTab) && row.status !== 'deleted'
+      return matchesKeyword && matchesCategory && matchesTab(row, activeTab) && row.status !== 'deleted' && row.status !== 'soft_deleted'
     })
   }, [activeTab, filterValues.customer_category_id, rows, searchValue])
 
@@ -221,7 +224,7 @@ export function CustomerListPage() {
       {
         key: 'phone',
         title: 'Số điện thoại',
-        render: (row) => row.phone,
+        render: (row) => row.phone ?? '-',
       },
       {
         key: 'customer_category',
@@ -303,6 +306,7 @@ export function CustomerListPage() {
         onSelectedRowKeysChange: setSelectedCustomerIds,
         getRowLabel: (row) => row.full_name,
       }}
+      onRowClick={(row) => navigate(`/customers/${row.id}`)}
       loading={isLoading && rows.length === 0}
       emptyState={
         <ListEmptyState

@@ -188,7 +188,9 @@ export function DashboardLayout() {
               </Stack>
             </Paper>
 
-            <Outlet />
+            <Box sx={{ mx: { xs: 2, md: 3, xl: 4 }, px: { xs: 1, md: 2, xl: 3 } }}>
+              <Outlet />
+            </Box>
           </Box>
         </Box>
       </Box>

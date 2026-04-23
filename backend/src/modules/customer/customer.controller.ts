@@ -7,6 +7,7 @@ import type {
   CustomerParams,
   CustomerRequestInput,
   LocationListQuery,
+  UpdateCustomerRequestInput,
 } from "./customer.types";
 
 const parsePayload = <T>(body: unknown) => {
@@ -33,6 +34,16 @@ const parseIds = (body: unknown) => {
   return [...new Set(ids)];
 };
 
+const parseId = (value: string | undefined) => {
+  const id = Number(value);
+
+  if (!value || Number.isNaN(id) || id <= 0 || !Number.isInteger(id)) {
+    throw new BadRequestError("Invalid id");
+  }
+
+  return id;
+};
+
 export const CustomerController = {
   createCustomer: async (
     req: Request<{}, {}, CustomerRequestInput>,
@@ -52,6 +63,22 @@ export const CustomerController = {
     return res.status(200).json(customers);
   },
 
+  getCustomerById: async (req: Request<CustomerParams>, res: Response) => {
+    const customer = await CustomerService.getCustomerById(parseId(req.params.id));
+    return res.status(200).json(customer);
+  },
+
+  updateCustomer: async (
+    req: Request<CustomerParams, {}, UpdateCustomerRequestInput>,
+    res: Response,
+  ) => {
+    const customer = await CustomerService.updateCustomer(
+      parseId(req.params.id),
+      parsePayload<UpdateCustomerRequestInput>(req.body),
+    );
+    return res.status(200).json(customer);
+  },
+
   getCustomerCategories: async (_req: Request, res: Response) => {
     const categories = await CustomerService.getCustomerCategories();
     return res.status(200).json(categories);
@@ -63,6 +90,16 @@ export const CustomerController = {
   ) => {
     const result = await CustomerService.deleteCustomers(parseIds(req.body));
     return res.status(200).json(result);
+  },
+
+  deleteCustomer: async (req: Request<CustomerParams>, res: Response) => {
+    const result = await CustomerService.deleteCustomers([parseId(req.params.id)]);
+    return res.status(200).json(result);
+  },
+
+  restoreCustomer: async (req: Request<CustomerParams>, res: Response) => {
+    const customer = await CustomerService.restoreCustomer(parseId(req.params.id));
+    return res.status(200).json(customer);
   },
 
   getStates: async (

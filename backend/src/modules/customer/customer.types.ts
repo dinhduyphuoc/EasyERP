@@ -1,4 +1,5 @@
-export type CustomerStatusInput = "active" | "inactive" | "deleted";
+export type CustomerStatusInput = "active" | "inactive" | "soft_deleted" | "deleted";
+export type CustomerGenderInput = "male" | "female" | "other";
 
 export interface CustomerListQuery {
   search?: string;
@@ -10,8 +11,45 @@ export interface CustomerRequestInput {
   client_code?: string;
   full_name: string;
   phone: string;
+  email?: string | null;
+  birth_date?: string | null;
+  gender?: CustomerGenderInput | null;
+  tax_code?: string | null;
   status?: "active" | "inactive";
   customer_category_id?: number | null;
+  addresses?: CustomerAddressRequestInput[];
+}
+
+export interface UpdateCustomerRequestInput extends Partial<Omit<CustomerRequestInput, "full_name" | "phone">> {
+  full_name?: string;
+  phone?: string | null;
+}
+
+export type CustomerAddressTypeInput = "billing" | "shipping" | "office" | "warehouse" | "other";
+
+export interface AddressRequestInput {
+  id?: number | null;
+  state_id?: number | null;
+  city_id?: number | null;
+  district_id?: number | null;
+  address_line?: string | null;
+  address_line2?: string | null;
+  postal_code?: string | null;
+  country_code?: string | null;
+  latitude?: number | string | null;
+  longitude?: number | string | null;
+  note?: string | null;
+}
+
+export interface CustomerAddressRequestInput {
+  address_id?: number | null;
+  address?: AddressRequestInput | null;
+  type?: CustomerAddressTypeInput;
+  label?: string | null;
+  is_default?: boolean | null;
+  recipient_name?: string | null;
+  recipient_phone?: string | null;
+  note?: string | null;
 }
 
 export interface CustomerParams {
