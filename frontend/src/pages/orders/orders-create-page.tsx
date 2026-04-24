@@ -40,6 +40,7 @@ import { appToast } from '@/shared/ui/toast/toast.helpers'
 import { borderedCardSx } from '@/shared/ui/paper'
 import { StackedTextField } from '@/shared/ui/form/stacked-text-field'
 import { StackedDropdown } from '@/shared/ui/form/stacked-dropdown'
+import { SummaryPaperHeader } from '@/shared/ui/summary-paper-header'
 import { orderApi, type OrderCreatePayload, type OrderListItem, type OrderOptionLookup } from './order.api'
 import { formatCurrency } from './order.utils'
 
@@ -317,7 +318,7 @@ export function OrdersCreatePage(): ReactElement {
           setCustomerSearch(
             [orderData.customer_info.name, orderData.customer_info.phone, orderData.customer_info.customer_code]
               .filter(Boolean)
-              .join(' â€¢ '),
+              .join(' • '),
           )
           setPaymentStatus(orderData.payment_status)
           setProcessingStatus(orderData.processing_status)
@@ -379,7 +380,7 @@ export function OrdersCreatePage(): ReactElement {
               duplicateSource.customer_info.customer_code,
             ]
               .filter(Boolean)
-              .join(' â€¢ '),
+              .join(' • '),
           )
           setPaymentStatus('unpaid')
           setProcessingStatus('draft')
@@ -421,11 +422,11 @@ export function OrdersCreatePage(): ReactElement {
                 })
               : [],
           )
-          appToast.info(`Da nap du lieu tu don ${duplicateSource.order_code}. Ban dang tao mot ban sao moi.`)
+          appToast.info(`Đã sao chép từ đơn hàng ${duplicateSource.order_code}. Bạn đang tạo một bản sao mới.`)
         }
       } catch (error) {
-        console.error('Loi khi tai du lieu don hang:', error)
-        appToast.error(getErrorMessage(error, 'Khong the tai du lieu don hang.'))
+        console.error('Lỗi khi tải dữ liệu đơn hàng:', error)
+        appToast.error(getErrorMessage(error, 'Không thể tải dữ liệu đơn hàng.'))
       } finally {
         setIsStatesLoading(false)
         setIsLoading(false)
@@ -451,8 +452,8 @@ export function OrdersCreatePage(): ReactElement {
         })
         setCities(nextCities)
       } catch (error) {
-        console.error('Loi khi tai danh sach huyen/quan:', error)
-        appToast.error(getErrorMessage(error, 'Khong the tai danh sach Huyen/Quan.'))
+        console.error('Lỗi khi tải danh sách Huyện/Quận:', error)
+        appToast.error(getErrorMessage(error, 'Không thể tải danh sách Huyện/Quận.'))
       } finally {
         setIsCitiesLoading(false)
       }
@@ -477,8 +478,8 @@ export function OrdersCreatePage(): ReactElement {
         })
         setDistricts(nextDistricts)
       } catch (error) {
-        console.error('Loi khi tai danh sach xa/phuong:', error)
-        appToast.error(getErrorMessage(error, 'Khong the tai danh sach Xa/Phuong.'))
+        console.error('Lỗi khi tải danh sách Xa/Phường:', error)
+        appToast.error(getErrorMessage(error, 'Không thể tải danh sách Xa/Phường.'))
       } finally {
         setIsDistrictsLoading(false)
       }
@@ -576,40 +577,40 @@ export function OrdersCreatePage(): ReactElement {
     const nextErrors: Record<string, string> = {}
 
     if (!customerName.trim()) {
-      nextErrors.customer_name = 'Ten khach hang la bat buoc.'
+      nextErrors.customer_name = 'Tên khách hàng là bắt buộc.'
     }
 
     if (!customerPhone.trim()) {
-      nextErrors.customer_phone = 'So dien thoai la bat buoc.'
+      nextErrors.customer_phone = 'Số điện thoại là bắt buộc.'
     }
 
     const validItems = itemRows.filter((item) => item.product_name.trim() || item.sku.trim())
 
     if (processingStatus !== 'draft' && validItems.length === 0) {
-      nextErrors.order_items = 'Don hang can it nhat mot san pham.'
+      nextErrors.order_items = 'Đơn hàng cần ít nhất một sản phẩm.'
     }
 
     if (
       processingStatus !== 'draft' &&
       validItems.some((item) => !item.product_name.trim() || !item.sku.trim() || Number(item.quantity) <= 0)
     ) {
-      nextErrors.order_items = 'Moi dong san pham can co ten, SKU va so luong hop le.'
+      nextErrors.order_items = 'Mỗi dòng sản phẩm cần có tên, SKU và số lượng hợp lệ.'
     }
 
     if (paymentStatus === 'deposit' && normalizedDepositAmount <= 0) {
-      nextErrors.deposit_amount = 'Vui long nhap so tien coc lon hon 0.'
+      nextErrors.deposit_amount = 'Vui lòng nhập số tiền cọc lớn hơn 0.'
     }
 
     if (paymentStatus === 'deposit' && normalizedDepositAmount > totalAmount) {
-      nextErrors.deposit_amount = 'Tien coc khong duoc lon hon tong don.'
+      nextErrors.deposit_amount = 'Tiền cọc không được lớn hơn tổng đơn hàng.'
     }
 
     if (paymentStatus === 'unpaid' && processingStatus === 'completed') {
-      nextErrors.processing_status = 'Don chua thanh toan khong the danh dau hoan thanh.'
+      nextErrors.processing_status = 'Đơn chưa thanh toán không thể đánh dấu hoàn thành.'
     }
 
     if (paymentStatus === 'deposit' && processingStatus === 'completed') {
-      nextErrors.processing_status = 'Don dat coc chua the hoan thanh khi van con cong no.'
+      nextErrors.processing_status = 'Đơn đặt cọc chưa thể hoàn thành khi vẫn còn công nợ.'
     }
 
     return nextErrors
@@ -619,7 +620,7 @@ export function OrdersCreatePage(): ReactElement {
   const canSave = !isLoading && !isSaving && Object.keys(errors).length === 0
   const canEditOrder = !isEditMode || !loadedOrder || ['draft', 'placed'].includes(loadedOrder.processing_status)
   const paymentStatusLabel =
-    paymentStatus === 'paid' ? 'Da thanh toan du' : paymentStatus === 'deposit' ? 'Dat coc' : 'Chua thanh toan'
+    paymentStatus === 'paid' ? 'Đã thanh toán đủ' : paymentStatus === 'deposit' ? 'Đặt cọc' : 'Chưa thanh toán'
   const hasSelectedCustomer = Boolean(customerName.trim() || customerPhone.trim() || customerAddress.trim() || customerId)
   const customerSearchOptions = useMemo<CustomerAutocompleteOption[]>(() => {
     const normalizedKeyword = customerSearch.trim().toLowerCase()
@@ -756,7 +757,7 @@ export function OrdersCreatePage(): ReactElement {
       Boolean(customerModalForm.addressLine.trim() && customerModalForm.state && customerModalForm.city)
 
     if (!fullName || !phone) {
-      appToast.warning('Vui long nhap ho ten va so dien thoai khach hang.')
+      appToast.warning('Vui lòng nhập họ tên và số điện thoại khách hàng.')
       return
     }
 
@@ -774,7 +775,7 @@ export function OrdersCreatePage(): ReactElement {
             addresses: [
               {
                 type: 'shipping',
-                label: 'Äá»‹a chá»‰ chÃ­nh',
+                label: 'Địa chỉ chính',
                 is_default: true,
                 recipient_name: fullName,
                 recipient_phone: phone,
@@ -810,8 +811,8 @@ export function OrdersCreatePage(): ReactElement {
               : current,
           )
         } catch (error) {
-          console.error('Lá»—i khi cáº­p nháº­t Ä‘á»‹a chá»‰ máº·c Ä‘á»‹nh:', error)
-          appToast.error(getErrorMessage(error, 'KhÃ´ng thá»ƒ cáº­p nháº­t Ä‘á»‹a chá»‰ máº·c Ä‘á»‹nh.'))
+          console.error('Lỗi khi cập nhật địa chỉ mặc định:', error)
+          appToast.error(getErrorMessage(error, 'Không thể cập nhật địa chỉ mặc định.'))
           setIsCustomerModalSaving(false)
           return
         } finally {
@@ -819,7 +820,7 @@ export function OrdersCreatePage(): ReactElement {
         }
       }
       setCustomerModalOpen(false)
-      appToast.success('Da cap nhat thong tin khach hang tren don hang.')
+      appToast.success('Đã cập nhật thông tin khách hàng trên đơn hàng.')
       return
     }
 
@@ -834,7 +835,7 @@ export function OrdersCreatePage(): ReactElement {
           ? [
               {
                 type: 'shipping',
-                label: 'Äá»‹a chá»‰ chÃ­nh',
+                label: 'Địa chỉ chính',
                 is_default: true,
                 recipient_name: fullName,
                 recipient_phone: phone,
@@ -878,10 +879,10 @@ export function OrdersCreatePage(): ReactElement {
       setCustomerAddress(address)
       setCustomerSearch(`${createdCustomer.full_name} - ${createdCustomer.client_code} - ${createdCustomer.phone ?? phone}`)
       setCustomerModalOpen(false)
-      appToast.success(`ÄÃ£ thÃªm khÃ¡ch hÃ ng ${createdCustomer.full_name} vÃ o Ä‘Æ¡n hÃ ng.`)
+      appToast.success(`Đã thêm khách hàng ${createdCustomer.full_name} vào đơn hàng.`)
     } catch (error) {
-      console.error('Lá»—i khi táº¡o khÃ¡ch hÃ ng:', error)
-      appToast.error(getErrorMessage(error, 'KhÃ´ng thá»ƒ táº¡o khÃ¡ch hÃ ng má»›i.'))
+      console.error('Lỗi khi tạo khách hàng:', error)
+      appToast.error(getErrorMessage(error, 'Không thể tạo khách hàng mới.'))
     } finally {
       setIsCustomerModalSaving(false)
     }
@@ -958,7 +959,7 @@ export function OrdersCreatePage(): ReactElement {
     setHasAttemptedSave(true)
 
     if (!canSave) {
-      appToast.warning('Vui long kiem tra lai thong tin truoc khi luu don hang.')
+      appToast.warning('Vui lòng kiểm tra lại thông tin trước khi lưu đơn hàng.')
       return
     }
 
@@ -1014,7 +1015,7 @@ export function OrdersCreatePage(): ReactElement {
         isEditMode && orderId ? await orderApi.updateOrder(orderId, payload) : await orderApi.createOrder(payload)
 
       appToast.success(
-        isEditMode ? `Cap nhat don hang ${order.order_code} thanh cong.` : `Tao don hang ${order.order_code} thanh cong.`,
+        isEditMode ? `Cập nhật đơn hàng ${order.order_code} thành công.` : `Tạo đơn hàng ${order.order_code} thành công.`,
       )
       navigate(`/orders/${order.id}`)
     } catch (error) {
@@ -1022,7 +1023,7 @@ export function OrdersCreatePage(): ReactElement {
       appToast.error(
         getErrorMessage(
           error,
-          isEditMode ? 'Khong the cap nhat don hang. Vui long thu lai.' : 'Khong the tao don hang. Vui long thu lai.',
+          isEditMode ? 'Không thể cập nhật đơn hàng. Vui lòng thử lại.' : 'Không thể tạo đơn hàng. Vui lòng thử lại.',
         ),
       )
     } finally {
@@ -1058,7 +1059,7 @@ export function OrdersCreatePage(): ReactElement {
               onClick={() => void handleSave()}
               disabled={!canSave || !canEditOrder}
             >
-              LÆ°u
+              Lưu
             </Button>
           </Stack>
         </Stack>
@@ -1074,7 +1075,7 @@ export function OrdersCreatePage(): ReactElement {
         <Stack spacing={2.5}>
           <Paper sx={borderedCardSx}>
             <Stack spacing={3}>
-              <Typography variant='h6' sx={{ fontWeight: 600, color: '#0f172a' }}>Thông tin khách hàng</Typography>
+              <SummaryPaperHeader title="Thông tin khách hàng" />
 
               {hasSelectedCustomer ? (
                 <Stack
@@ -1235,11 +1236,7 @@ export function OrdersCreatePage(): ReactElement {
 
           <Paper sx={borderedCardSx}>
             <Stack spacing={2}>
-              <Box>
-                <Typography variant="h6" sx={{ fontWeight: 600, color: '#0f172a' }}>
-                  Sản phẩm
-                </Typography>
-              </Box>
+              <SummaryPaperHeader title="Sản phẩm" />
 
               <Autocomplete
                 key={productSearchResetKey}
@@ -1367,8 +1364,8 @@ export function OrdersCreatePage(): ReactElement {
                 >
                   <Inventory2OutlinedIcon />
                 </Box>
-                <Typography variant="subtitle1" sx={{ fontWeight: 700, color: '#0f172a' }}>
-                  Bắt đầu tìm để thêm sản phẩm
+                <Typography variant="subtitle1" sx={{ fontWeight: 500, color: '#1d2841' }}>
+                  Chưa có sản phẩm nào
                 </Typography>
               </Stack>
             ) : (
@@ -1384,10 +1381,10 @@ export function OrdersCreatePage(): ReactElement {
                         disabled={isLoading}
                       />
                     </TableCell>
-                    <TableCell sx={{ width: '55%' }}>San pham</TableCell>
-                    <TableCell align="center">So luong</TableCell>
-                    <TableCell align="right">Don gia</TableCell>
-                    <TableCell align="right">Thanh tien</TableCell>
+                    <TableCell sx={{ width: '50%' }}>Sản phẩm</TableCell>
+                    <TableCell align="center">Số lượng</TableCell>
+                    <TableCell align="right">Đơn giá</TableCell>
+                    <TableCell align="right">Thành tiền</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -1415,7 +1412,7 @@ export function OrdersCreatePage(): ReactElement {
                             <Box
                               component="img"
                               src={item.image_url ?? 'https://placehold.co/80x80?text=SP'}
-                              alt={item.product_name || item.sku || 'San pham'}
+                              alt={item.product_name || item.sku || 'Sản phẩm'}
                               sx={{
                                 width: 48,
                                 height: 48,
@@ -1435,7 +1432,7 @@ export function OrdersCreatePage(): ReactElement {
                                 {item.product_name}
                               </Typography>
                               <Typography variant="body2" color="text.secondary" sx={{ mt: 0.35 }}>
-                                Bien the: {item.variant_sku || item.sku || 'Chua chon bien the'}
+                                Phiên bản: {item.variant_sku || item.sku || 'Chưa chọn phiên bản'}
                               </Typography>
                               <Typography variant="body2" color="text.secondary" sx={{ mt: 0.35, fontVariantNumeric: 'tabular-nums' }}>
                                 Có sẵn: {formatStockNumber(item.stock_available)}
@@ -1446,7 +1443,7 @@ export function OrdersCreatePage(): ReactElement {
                                 sx={{ mt: 0.75, px: 0, minWidth: 0 }}
                                 onClick={() => updateItem(index, { noteOpen: !item.noteOpen })}
                               >
-                                {item.noteOpen || item.notes ? 'Sua ghi chu' : 'Them ghi chu'}
+                                {item.noteOpen || item.notes ? 'Sửa ghi chú' : 'Thêm ghi chú'}
                               </Button>
 
                               {item.noteOpen ? (
@@ -1455,22 +1452,12 @@ export function OrdersCreatePage(): ReactElement {
                                   multiline
                                   minRows={2}
                                   sx={{ mt: 1 }}
-                                  placeholder="Nhap ghi chu cho san pham nay"
+                                  placeholder="Nhập ghi chú cho sản phẩm này"
                                   value={item.notes}
                                   onChange={(event) => updateItem(index, { notes: event.target.value })}
                                   disabled={isLoading}
                                 />
                               ) : null}
-
-                              <Button
-                                variant="text"
-                                color="error"
-                                startIcon={<DeleteOutlineOutlinedIcon />}
-                                sx={{ mt: 0.5, px: 0 }}
-                                onClick={() => removeItem(index)}
-                              >
-                                Xoa dong
-                              </Button>
                             </Box>
                           </Stack>
                         </TableCell>
@@ -1501,7 +1488,7 @@ export function OrdersCreatePage(): ReactElement {
                             }}
                             slotProps={{
                               input: {
-                                endAdornment: <InputAdornment position="end">â‚«</InputAdornment>,
+                                endAdornment: <InputAdornment position="end">đ</InputAdornment>,
                               },
                             }}
                           />
@@ -1523,93 +1510,93 @@ export function OrdersCreatePage(): ReactElement {
             )}
             </Stack>
           </Paper>
+
+          <Paper sx={borderedCardSx}>
+            <Stack spacing={1.5}>
+              <SummaryPaperHeader title="Thanh toán" onEdit={() => setActiveDialog('payment')} />
+              <SummaryRow label="Trạng thái" value={paymentStatusLabel} />
+              <SummaryRow label="Tạm tính" value={formatCurrency(subTotal)} />
+              <SummaryRow label="Thuế" value={formatCurrency(taxAmount)} />
+              <SummaryRow label="Phí vận chuyển" value={formatCurrency(shippingFee)} />
+              <SummaryRow label="Tổng đơn" value={formatCurrency(totalAmount)} />
+              {paymentStatus === 'deposit' ? <SummaryRow label="Tiền cọc" value={formatCurrency(normalizedDepositAmount)} /> : null}
+              <SummaryRow
+                label={paymentStatus === 'paid' ? 'Đã thu' : 'Còn phải thu'}
+                value={formatCurrency(paymentStatus === 'paid' ? totalAmount : paymentStatus === 'deposit' ? outstandingAmount : totalAmount)}
+              />
+              <SummaryRow label="Ghi chú thanh toán" value={paymentNotes || 'Chưa có ghi chú'} multiline />
+              {visibleErrors.deposit_amount ? <Typography color="error">{visibleErrors.deposit_amount}</Typography> : null}
+            </Stack>
+          </Paper>
         </Stack>
 
         <Stack spacing={2.5}>
           <Paper sx={borderedCardSx}>
             <Stack spacing={1.5}>
-              <SummaryPaperHeader title="Thanh toan" onEdit={() => setActiveDialog('payment')} />
-              <SummaryRow label="Trang thai" value={paymentStatusLabel} />
-              <SummaryRow label="Tam tinh" value={formatCurrency(subTotal)} />
-              <SummaryRow label="Thue" value={formatCurrency(taxAmount)} />
-              <SummaryRow label="Phi van chuyen" value={formatCurrency(shippingFee)} />
-              <SummaryRow label="Tong don" value={formatCurrency(totalAmount)} />
-              {paymentStatus === 'deposit' ? <SummaryRow label="Tien coc" value={formatCurrency(normalizedDepositAmount)} /> : null}
+              <SummaryPaperHeader title="Thông tin đơn hàng" onEdit={() => setActiveDialog('order')} />
+              <SummaryRow label="Mã đơn hàng" value={orderCode || 'Đang được hệ thống tự tạo'} />
+              <SummaryRow label="Ngày tạo đơn" value={formatDateOnly(orderDate)} />
+              <SummaryRow label="Loại đơn" value={orderType === 'sale' ? 'Bán hàng' : 'Trả hàng'} />
               <SummaryRow
-                label={paymentStatus === 'paid' ? 'Da thu' : 'Con phai thu'}
-                value={formatCurrency(paymentStatus === 'paid' ? totalAmount : paymentStatus === 'deposit' ? outstandingAmount : totalAmount)}
-              />
-              <SummaryRow label="Ghi chu thanh toan" value={paymentNotes || 'Chua co ghi chu'} multiline />
-              {visibleErrors.deposit_amount ? <Typography color="error">{visibleErrors.deposit_amount}</Typography> : null}
-            </Stack>
-          </Paper>
-
-          <Paper sx={borderedCardSx}>
-            <Stack spacing={1.5}>
-              <SummaryPaperHeader title="Thong tin don" onEdit={() => setActiveDialog('order')} />
-              <SummaryRow label="Ma don hang" value={orderCode || 'De trong de he thong tu tao'} />
-              <SummaryRow label="Ngay tao don" value={formatDateOnly(orderDate)} />
-              <SummaryRow label="Loai don" value={orderType === 'sale' ? 'Ban hang' : 'Tra hang'} />
-              <SummaryRow
-                label="Trang thai xu ly"
+                label="Trạng thái xử lý"
                 value={options?.processing_statuses.find((status) => status.value === processingStatus)?.label ?? processingStatus}
               />
-              <SummaryRow label="Kenh ban hang" value={salesChannel || 'Chua chon kenh'} />
+              <SummaryRow label="Kênh bán hàng" value={salesChannel || 'Chưa chọn kênh'} />
               {visibleErrors.processing_status ? <Typography color="error">{visibleErrors.processing_status}</Typography> : null}
             </Stack>
           </Paper>
 
           <Paper sx={borderedCardSx}>
             <Stack spacing={1.5}>
-              <SummaryPaperHeader title="Van chuyen" onEdit={() => setActiveDialog('shipping')} />
-              <SummaryRow label="Don vi van chuyen" value={shippingService || 'Chua chon don vi'} />
-              <SummaryRow label="Trang thai giao hang" value={shippingStatus || 'Chua co trang thai'} />
-              <SummaryRow label="Ma tracking" value={trackingCode || 'Chua co tracking'} />
-              <SummaryRow label="Trang thai kho" value={warehouseStatus || 'Chua co trang thai kho'} />
+              <SummaryPaperHeader title="Vận chuyển" onEdit={() => setActiveDialog('shipping')} />
+              <SummaryRow label="Đơn vị vận chuyển" value={shippingService || 'Chưa chọn đơn vị'} />
+              <SummaryRow label="Trạng thái giao hàng" value={shippingStatus || 'Chưa có trạng thái'} />
+              <SummaryRow label="Mã tracking" value={trackingCode || 'Chưa có tracking'} />
+              <SummaryRow label="Trạng thái kho" value={warehouseStatus || 'Chưa có trạng thái kho'} />
             </Stack>
           </Paper>
 
           <Paper sx={borderedCardSx}>
             <Stack spacing={1.5}>
-              <SummaryPaperHeader title="Ghi chu va metadata" onEdit={() => setActiveDialog('meta')} />
-              <SummaryRow label="Ghi chu don hang" value={orderNotes || 'Chua co ghi chu'} multiline />
-              <SummaryRow label="Nguoi tao" value={createdBy || 'Chua co nguoi tao'} />
-              <SummaryRow label="Nguoi xu ly" value={confirmedBy || 'Chua co nguoi xu ly'} />
-              <SummaryRow label="Ma hoa don" value={invoiceCode || 'Chua co ma hoa don'} />
+              <SummaryPaperHeader title="Ghi chú và metadata" onEdit={() => setActiveDialog('meta')} />
+              <SummaryRow label="Ghi chú đơn hàng" value={orderNotes || 'Chưa có ghi chú'} multiline />
+              <SummaryRow label="Người tạo" value={createdBy || 'Chưa có người tạo'} />
+              <SummaryRow label="Người xử lý" value={confirmedBy || 'Chưa có người xử lý'} />
+              <SummaryRow label="Mã hóa đơn" value={invoiceCode || 'Chưa có mã hóa đơn'} />
             </Stack>
           </Paper>
         </Stack>
       </Box>
 
       <Dialog open={customerModalOpen} onClose={handleCloseCustomerModal} fullWidth maxWidth="md">
-        <DialogTitle>{customerModalMode === 'create' ? 'Táº¡o khÃ¡ch hÃ ng má»›i' : 'Chá»‰nh sá»­a khÃ¡ch hÃ ng'}</DialogTitle>
+        <DialogTitle>{customerModalMode === 'create' ? 'Tạo khách hàng mới' : 'Chỉnh sửa khách hàng'}</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ pt: 1 }}>
             <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
               <StackedTextField
                 fullWidth
-                label="Ho va ten"
+                label="Họ và tên"
                 value={customerModalForm.fullName}
                 onChange={(event) => handleCustomerModalFieldChange('fullName', event.target.value)}
               />
               <StackedTextField
                 fullWidth
-                label="So dien thoai"
+                label="Số điện thoại"
                 value={customerModalForm.phone}
                 onChange={(event) => handleCustomerModalFieldChange('phone', event.target.value)}
               />
             </Stack>
             <StackedTextField
               fullWidth
-              label="Dia chi"
-              placeholder="So nha, ten duong"
+              label="Địa chỉ"
+              placeholder="Số nhà, tên đường"
               value={customerModalForm.addressLine}
               onChange={(event) => handleCustomerModalFieldChange('addressLine', event.target.value)}
             />
             <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
               <Box sx={{ flex: 1 }}>
                 <Typography variant="body2" sx={{ mb: 1, color: '#344054', fontWeight: 500 }}>
-                  Tinh/Thanh pho
+                  Tỉnh/Thành phố
                 </Typography>
                 <Autocomplete
                   options={states}
@@ -1622,14 +1609,14 @@ export function OrdersCreatePage(): ReactElement {
                     <TextField
                       {...params}
                       size="small"
-                      placeholder="Chon Tinh/Thanh pho"
+                      placeholder="Chọn tỉnh/thành phố"
                     />
                   )}
                 />
               </Box>
               <Box sx={{ flex: 1 }}>
                 <Typography variant="body2" sx={{ mb: 1, color: '#344054', fontWeight: 500 }}>
-                  Huyen/Quan
+                  Huyện/Quận
                 </Typography>
                 <Autocomplete
                   options={cities}
@@ -1643,14 +1630,14 @@ export function OrdersCreatePage(): ReactElement {
                     <TextField
                       {...params}
                       size="small"
-                      placeholder="Chon Huyen/Quan"
+                      placeholder="Chọn Huyện/Quận"
                     />
                   )}
                 />
               </Box>
               <Box sx={{ flex: 1 }}>
                 <Typography variant="body2" sx={{ mb: 1, color: '#344054', fontWeight: 500 }}>
-                  Xa/Phuong
+                  Xã/Phường
                 </Typography>
                 <Autocomplete
                   options={districts}
@@ -1664,13 +1651,12 @@ export function OrdersCreatePage(): ReactElement {
                     <TextField
                       {...params}
                       size="small"
-                      placeholder="Chon Xa/Phuong"
+                      placeholder="Chọn Xã/Phường"
                     />
                   )}
                 />
               </Box>
             </Stack>
-            <StackedTextField fullWidth label="Dia chi day du" value={buildCustomerAddress(customerModalForm)} slotProps={{ input: { readOnly: true } }} />
             <FormControlLabel
               control={
                 <Checkbox
@@ -1678,13 +1664,13 @@ export function OrdersCreatePage(): ReactElement {
                   onChange={(event) => handleCustomerModalDefaultAddressChange(event.target.checked)}
                 />
               }
-              label="Äáº·t Ä‘á»‹a chá»‰ nÃ y lÃ m máº·c Ä‘á»‹nh"
+              label="Đặt địa chỉ này làm mặc định"
             />
           </Stack>
         </DialogContent>
         <DialogActions>
           <Button onClick={handleCloseCustomerModal} disabled={isCustomerModalSaving}>
-            Dong
+            Đóng
           </Button>
           <Button
             variant="contained"
@@ -1692,47 +1678,47 @@ export function OrdersCreatePage(): ReactElement {
             disabled={isCustomerModalSaving}
             startIcon={isCustomerModalSaving ? <CircularProgress size={16} color="inherit" /> : <SaveOutlinedIcon />}
           >
-            {isCustomerModalSaving ? 'Äang lÆ°u...' : customerModalMode === 'create' ? 'Táº¡o khÃ¡ch hÃ ng' : 'Cáº­p nháº­t'}
+            {isCustomerModalSaving ? 'Đang lưu...' : customerModalMode === 'create' ? 'Tạo khách hàng' : 'Cập nhật'}
           </Button>
         </DialogActions>
       </Dialog>
 
       <Dialog open={activeDialog === 'payment'} onClose={() => setActiveDialog(null)} fullWidth maxWidth="sm">
-        <DialogTitle>Chinh sua thanh toan</DialogTitle>
+        <DialogTitle>Chỉnh sửa thanh toán</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ pt: 1 }}>
-            <StackedDropdown fullWidth label="Trang thai thanh toan" value={paymentStatus} onChange={(event) => setPaymentStatus(event.target.value as 'unpaid' | 'paid' | 'deposit')}>
-              <MenuItem value="unpaid">Chua thanh toan</MenuItem>
-              <MenuItem value="paid">Thanh toan du</MenuItem>
-              <MenuItem value="deposit">Dat coc</MenuItem>
+            <StackedDropdown fullWidth label="Trạng thái thanh toán" value={paymentStatus} onChange={(event) => setPaymentStatus(event.target.value as 'unpaid' | 'paid' | 'deposit')}>
+              <MenuItem value="unpaid">Chưa thanh toán</MenuItem>
+              <MenuItem value="paid">Thanh toán đủ</MenuItem>
+              <MenuItem value="deposit">Đặt cọc</MenuItem>
             </StackedDropdown>
-            <StackedTextField fullWidth label="Thue" type="number" value={taxAmount} onChange={(event) => setTaxAmount(event.target.value)} />
-            <StackedTextField fullWidth label="Phi van chuyen" type="number" value={shippingFee} onChange={(event) => setShippingFee(event.target.value)} />
+            <StackedTextField fullWidth label="Thuế" type="number" value={taxAmount} onChange={(event) => setTaxAmount(event.target.value)} />
+            <StackedTextField fullWidth label="Phí vận chuyển" type="number" value={shippingFee} onChange={(event) => setShippingFee(event.target.value)} />
             {paymentStatus === 'deposit' ? (
-              <StackedTextField fullWidth label="Tien coc" type="number" value={depositAmount} onChange={(event) => setDepositAmount(event.target.value)} />
+              <StackedTextField fullWidth label="Tiền cọc" type="number" value={depositAmount} onChange={(event) => setDepositAmount(event.target.value)} />
             ) : null}
-            <StackedTextField fullWidth multiline minRows={2} label="Ghi chu thanh toan" value={paymentNotes} onChange={(event) => setPaymentNotes(event.target.value)} />
+            <StackedTextField fullWidth multiline minRows={2} label="Ghi chú thanh toán" value={paymentNotes} onChange={(event) => setPaymentNotes(event.target.value)} />
           </Stack>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setActiveDialog(null)}>Dong</Button>
-          <Button variant="contained" onClick={() => setActiveDialog(null)}>Luu</Button>
+          <Button onClick={() => setActiveDialog(null)}>Đóng</Button>
+          <Button variant="contained" onClick={() => setActiveDialog(null)}>Lưu</Button>
         </DialogActions>
       </Dialog>
 
       <Dialog open={activeDialog === 'order'} onClose={() => setActiveDialog(null)} fullWidth maxWidth="sm">
-        <DialogTitle>Chinh sua thong tin don</DialogTitle>
+        <DialogTitle>Chỉnh sửa thông tin đơn</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ pt: 1 }}>
-            <StackedTextField fullWidth label="Ma don hang" value={orderCode} onChange={(event) => setOrderCode(event.target.value)} />
-            <StackedTextField fullWidth label="Ngay tao don" type="date" value={orderDate} onChange={(event) => setOrderDate(event.target.value)} />
-            <StackedDropdown fullWidth label="Loai don" value={orderType} onChange={(event) => setOrderType(event.target.value as 'sale' | 'return')}>
-              <MenuItem value="sale">Ban hang</MenuItem>
-              <MenuItem value="return">Tra hang</MenuItem>
+            <StackedTextField fullWidth label="Mã đơn hàng" value={orderCode} onChange={(event) => setOrderCode(event.target.value)} />
+            <StackedTextField fullWidth label="Ngày tạo đơn" type="date" value={orderDate} onChange={(event) => setOrderDate(event.target.value)} />
+            <StackedDropdown fullWidth label="Loại đơn" value={orderType} onChange={(event) => setOrderType(event.target.value as 'sale' | 'return')}>
+              <MenuItem value="sale">Bán hàng</MenuItem>
+              <MenuItem value="return">Trả hàng</MenuItem>
             </StackedDropdown>
             <StackedDropdown
               fullWidth
-              label="Trang thai xu ly"
+              label="Trạng thái xử lý"
               value={processingStatus}
               onChange={(event) =>
                 setProcessingStatus(
@@ -1746,58 +1732,47 @@ export function OrdersCreatePage(): ReactElement {
                 </MenuItem>
               ))}
             </StackedDropdown>
-            <StackedTextField fullWidth label="Kenh ban hang" value={salesChannel} onChange={(event) => setSalesChannel(event.target.value)} />
+            <StackedTextField fullWidth label="Kênh bán hàng" value={salesChannel} onChange={(event) => setSalesChannel(event.target.value)} />
           </Stack>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setActiveDialog(null)}>Dong</Button>
-          <Button variant="contained" onClick={() => setActiveDialog(null)}>Luu</Button>
+          <Button onClick={() => setActiveDialog(null)}>Đóng</Button>
+          <Button variant="contained" onClick={() => setActiveDialog(null)}>Lưu</Button>
         </DialogActions>
       </Dialog>
 
       <Dialog open={activeDialog === 'shipping'} onClose={() => setActiveDialog(null)} fullWidth maxWidth="sm">
-        <DialogTitle>Chinh sua van chuyen</DialogTitle>
+        <DialogTitle>Chỉnh sửa vận chuyển</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ pt: 1 }}>
-            <StackedTextField fullWidth label="Don vi van chuyen" value={shippingService} onChange={(event) => setShippingService(event.target.value)} />
-            <StackedTextField fullWidth label="Trang thai giao hang" value={shippingStatus} onChange={(event) => setShippingStatus(event.target.value)} />
-            <StackedTextField fullWidth label="Ma tracking" value={trackingCode} onChange={(event) => setTrackingCode(event.target.value)} />
-            <StackedTextField fullWidth label="Trang thai kho" value={warehouseStatus} onChange={(event) => setWarehouseStatus(event.target.value)} />
+            <StackedTextField fullWidth label="Đơn vị vận chuyển" value={shippingService} onChange={(event) => setShippingService(event.target.value)} />
+            <StackedTextField fullWidth label="Trạng thái giao hàng" value={shippingStatus} onChange={(event) => setShippingStatus(event.target.value)} />
+            <StackedTextField fullWidth label="Mã tracking" value={trackingCode} onChange={(event) => setTrackingCode(event.target.value)} />
+            <StackedTextField fullWidth label="Trạng thái kho" value={warehouseStatus} onChange={(event) => setWarehouseStatus(event.target.value)} />
           </Stack>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setActiveDialog(null)}>Dong</Button>
-          <Button variant="contained" onClick={() => setActiveDialog(null)}>Luu</Button>
+          <Button onClick={() => setActiveDialog(null)}>Đóng</Button>
+          <Button variant="contained" onClick={() => setActiveDialog(null)}>Lưu</Button>
         </DialogActions>
       </Dialog>
 
       <Dialog open={activeDialog === 'meta'} onClose={() => setActiveDialog(null)} fullWidth maxWidth="sm">
-        <DialogTitle>Chinh sua ghi chu va metadata</DialogTitle>
+        <DialogTitle>Chỉnh sửa ghi chú và metadata</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ pt: 1 }}>
-            <StackedTextField fullWidth multiline minRows={3} label="Ghi chu don hang" value={orderNotes} onChange={(event) => setOrderNotes(event.target.value)} />
-            <StackedTextField fullWidth label="Nguoi tao" value={createdBy} onChange={(event) => setCreatedBy(event.target.value)} />
-            <StackedTextField fullWidth label="Nguoi xu ly" value={confirmedBy} onChange={(event) => setConfirmedBy(event.target.value)} />
-            <StackedTextField fullWidth label="Ma hoa don" value={invoiceCode} onChange={(event) => setInvoiceCode(event.target.value)} />
+            <StackedTextField fullWidth multiline minRows={3} label="Ghi chú đơn hàng" value={orderNotes} onChange={(event) => setOrderNotes(event.target.value)} />
+            <StackedTextField fullWidth label="Người tạo" value={createdBy} onChange={(event) => setCreatedBy(event.target.value)} />
+            <StackedTextField fullWidth label="Người xử lý" value={confirmedBy} onChange={(event) => setConfirmedBy(event.target.value)} />
+            <StackedTextField fullWidth label="Mã hóa đơn" value={invoiceCode} onChange={(event) => setInvoiceCode(event.target.value)} />
           </Stack>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setActiveDialog(null)}>Dong</Button>
-          <Button variant="contained" onClick={() => setActiveDialog(null)}>Luu</Button>
+          <Button onClick={() => setActiveDialog(null)}>Đóng</Button>
+          <Button variant="contained" onClick={() => setActiveDialog(null)}>Lưu</Button>
         </DialogActions>
       </Dialog>
     </Box>
-  )
-}
-
-function SummaryPaperHeader({ title, onEdit }: { title: string; onEdit: () => void }): ReactElement {
-  return (
-    <Stack direction="row" spacing={1} sx={{ justifyContent: 'space-between', alignItems: 'flex-end' }}>
-      <Typography sx={{ fontWeight: 800, color: '#0f172a' }}>{title}</Typography>
-      <IconButton size="small" onClick={onEdit} sx={{ color: '#98a2b3' }}>
-        <EditOutlinedIcon fontSize="small" />
-      </IconButton>
-    </Stack>
   )
 }
 

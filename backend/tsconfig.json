@@ -14,5 +14,5 @@
     "esModuleInterop": true,
     "ignoreDeprecations": "6.0"
   },
-  "include": ["src", "script.ts", "lib", "prisma.config.ts"]
+  "include": ["src", "script.ts", "scripts", "lib", "prisma.config.ts"]
 }

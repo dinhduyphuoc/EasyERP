@@ -12,6 +12,10 @@ import type {
 type PrismaTransaction = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
 
 const CATEGORY_CACHE_TTL_MS = 5 * 60 * 1000;
+const PRISMA_INTERACTIVE_TRANSACTION_OPTIONS = {
+  maxWait: 10_000,
+  timeout: 20_000,
+} as const;
 
 let categoryCache:
   | {
@@ -610,7 +614,7 @@ export const ProductService = {
 
       clearCategoryCache();
       return category;
-    });
+    }, PRISMA_INTERACTIVE_TRANSACTION_OPTIONS);
   },
 
   createProduct: async (payload: ProductRequestInput) => {
@@ -715,7 +719,7 @@ export const ProductService = {
         product,
         oldImageUrlToDelete: null,
       };
-    });
+    }, PRISMA_INTERACTIVE_TRANSACTION_OPTIONS);
 
     await deleteManagedProductImageFromS3(oldImageUrlToDelete);
     return product;
@@ -762,7 +766,7 @@ export const ProductService = {
 
       clearCategoryCache();
       return category;
-    });
+    }, PRISMA_INTERACTIVE_TRANSACTION_OPTIONS);
   },
 
   deleteCategories: async (ids: number[]) => {
@@ -806,7 +810,7 @@ export const ProductService = {
       });
 
       clearCategoryCache();
-    });
+    }, PRISMA_INTERACTIVE_TRANSACTION_OPTIONS);
   },
 
   editProduct: async (id: number, payload: ProductRequestInput) => {
@@ -872,7 +876,7 @@ export const ProductService = {
         product,
         oldImageUrlToDelete,
       };
-    });
+    }, PRISMA_INTERACTIVE_TRANSACTION_OPTIONS);
 
     await deleteManagedProductImageFromS3(oldImageUrlToDelete);
     return product;
@@ -915,6 +919,6 @@ export const ProductService = {
       return {
         deleted_ids: productIdsToDelete,
       };
-    });
+    }, PRISMA_INTERACTIVE_TRANSACTION_OPTIONS);
   },
 };
