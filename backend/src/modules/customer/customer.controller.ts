@@ -1,5 +1,5 @@
 import type { Request, Response } from "express";
-import { BadRequestError } from "@/common";
+import { BadRequestError, UnauthorizedError } from "@/common";
 import { CustomerService } from "./customer.service";
 import type {
   BulkDeleteRequestInput,
@@ -49,7 +49,11 @@ export const CustomerController = {
     req: Request<{}, {}, CustomerRequestInput>,
     res: Response,
   ) => {
+    if (!req.store) {
+      throw new UnauthorizedError("Store context is required");
+    }
     const customer = await CustomerService.createCustomer(
+      req.store.id,
       parsePayload<CustomerRequestInput>(req.body),
     );
     return res.status(201).json(customer);
@@ -59,12 +63,18 @@ export const CustomerController = {
     req: Request<{}, {}, {}, CustomerListQuery>,
     res: Response,
   ) => {
-    const customers = await CustomerService.getCustomers(req.query);
+    if (!req.store) {
+      throw new UnauthorizedError("Store context is required");
+    }
+    const customers = await CustomerService.getCustomers(req.store.id, req.query);
     return res.status(200).json(customers);
   },
 
   getCustomerById: async (req: Request<CustomerParams>, res: Response) => {
-    const customer = await CustomerService.getCustomerById(parseId(req.params.id));
+    if (!req.store) {
+      throw new UnauthorizedError("Store context is required");
+    }
+    const customer = await CustomerService.getCustomerById(req.store.id, parseId(req.params.id));
     return res.status(200).json(customer);
   },
 
@@ -72,7 +82,11 @@ export const CustomerController = {
     req: Request<CustomerParams, {}, UpdateCustomerRequestInput>,
     res: Response,
   ) => {
+    if (!req.store) {
+      throw new UnauthorizedError("Store context is required");
+    }
     const customer = await CustomerService.updateCustomer(
+      req.store.id,
       parseId(req.params.id),
       parsePayload<UpdateCustomerRequestInput>(req.body),
     );
@@ -80,7 +94,10 @@ export const CustomerController = {
   },
 
   getCustomerCategories: async (_req: Request, res: Response) => {
-    const categories = await CustomerService.getCustomerCategories();
+    if (!_req.store) {
+      throw new UnauthorizedError("Store context is required");
+    }
+    const categories = await CustomerService.getCustomerCategories(_req.store.id);
     return res.status(200).json(categories);
   },
 
@@ -88,17 +105,26 @@ export const CustomerController = {
     req: Request<CustomerParams, {}, BulkDeleteRequestInput>,
     res: Response,
   ) => {
-    const result = await CustomerService.deleteCustomers(parseIds(req.body));
+    if (!req.store) {
+      throw new UnauthorizedError("Store context is required");
+    }
+    const result = await CustomerService.deleteCustomers(req.store.id, parseIds(req.body));
     return res.status(200).json(result);
   },
 
   deleteCustomer: async (req: Request<CustomerParams>, res: Response) => {
-    const result = await CustomerService.deleteCustomers([parseId(req.params.id)]);
+    if (!req.store) {
+      throw new UnauthorizedError("Store context is required");
+    }
+    const result = await CustomerService.deleteCustomers(req.store.id, [parseId(req.params.id)]);
     return res.status(200).json(result);
   },
 
   restoreCustomer: async (req: Request<CustomerParams>, res: Response) => {
-    const customer = await CustomerService.restoreCustomer(parseId(req.params.id));
+    if (!req.store) {
+      throw new UnauthorizedError("Store context is required");
+    }
+    const customer = await CustomerService.restoreCustomer(req.store.id, parseId(req.params.id));
     return res.status(200).json(customer);
   },
 

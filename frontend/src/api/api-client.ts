@@ -10,6 +10,8 @@ export const apiClient = axios.create({
   },
 })
 
+export const ACTIVE_STORE_STORAGE_KEY = 'active_store_id'
+
 // Request Interceptor: Được gọi trước khi một request được gửi đi
 apiClient.interceptors.request.use(
   (config) => {
@@ -17,6 +19,10 @@ apiClient.interceptors.request.use(
     const token = localStorage.getItem('access_token') 
     if (token && config.headers) {
       config.headers.Authorization = `Bearer ${token}`
+    }
+    const activeStoreId = localStorage.getItem(ACTIVE_STORE_STORAGE_KEY)
+    if (activeStoreId && config.headers) {
+      config.headers['X-Store-Id'] = activeStoreId
     }
     return config
   },

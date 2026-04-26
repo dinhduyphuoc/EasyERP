@@ -14,6 +14,7 @@ import ReceiptLongOutlinedIcon from '@mui/icons-material/ReceiptLongOutlined'
 import SellOutlinedIcon from '@mui/icons-material/SellOutlined'
 import WalletOutlinedIcon from '@mui/icons-material/WalletOutlined'
 import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined';
+import type { AuthUser } from '@/modules/auth/auth.types'
 
 export const sidebarMenu: SidebarItem[] = [
   {
@@ -161,6 +162,67 @@ export const sidebarMenu: SidebarItem[] = [
   }
 ]
 
+const sidebarPermissionMap: Record<string, string[]> = {
+  '/': ['reports.read', 'orders.read', 'products.read', 'inventory.read', 'customers.read'],
+  '/orders': ['orders.read'],
+  '/orders/drafts': ['orders.read'],
+  '/orders/returns': ['orders.read'],
+  '/orders/incomplete': ['orders.read'],
+  '/orders/cancelled': ['orders.read'],
+  '/shipping': ['orders.read', 'orders.create', 'settings.read'],
+  '/shipping/bills': ['orders.read'],
+  '/products': ['products.read'],
+  '/products/create': ['products.create'],
+  '/products/categories': ['products.read'],
+  '/products/pricing': ['products.read'],
+  '/inventory/stock': ['inventory.read'],
+  '/inventory/audit': ['inventory.read'],
+  '/inventory/receipts': ['inventory.read'],
+  '/inventory/returns': ['warehouse.return'],
+  '/inventory/transfers': ['inventory.read'],
+  '/inventory/suppliers': ['inventory.read'],
+  '/customers': ['customers.read'],
+  '/promotions': ['reports.read'],
+  '/cashbook': ['payments.read'],
+  '/reports': ['reports.read'],
+  '/settings': ['settings.read'],
+}
+
+const hasAnyPermission = (user: AuthUser | null, permissions: string[]) => {
+  if (!user) {
+    return false
+  }
+
+  return permissions.some((permission) => user.permissions.includes(permission))
+}
+
+export function filterSidebarMenuByPermission(user: AuthUser | null): SidebarItem[] {
+  return sidebarMenu.reduce<SidebarItem[]>((accumulator, item) => {
+    if (item.kind === 'item') {
+      const permissions = sidebarPermissionMap[item.to]
+      if (!permissions || hasAnyPermission(user, permissions)) {
+        accumulator.push(item)
+      }
+
+      return accumulator
+    }
+
+    const children = item.children.filter((child) => {
+      const permissions = sidebarPermissionMap[child.to]
+      return !permissions || hasAnyPermission(user, permissions)
+    })
+
+    if (children.length > 0) {
+      accumulator.push({
+        ...item,
+        children,
+      })
+    }
+
+    return accumulator
+  }, [])
+}
+
 export function isSidebarLinkActive(item: SidebarLinkItem, pathname: string): boolean {
   if (item.to === '/') {
     return pathname === '/'
@@ -173,8 +235,8 @@ export function isSidebarLinkActive(item: SidebarLinkItem, pathname: string): bo
   return pathname === item.to || pathname.startsWith(`${item.to}/`)
 }
 
-export function findActiveGroup(pathname: string): SidebarGroupItem | null {
-  for (const item of sidebarMenu) {
+export function findActiveGroup(pathname: string, items: SidebarItem[] = sidebarMenu): SidebarGroupItem | null {
+  for (const item of items) {
     if (item.kind === 'group' && item.children.some((child) => isSidebarLinkActive(child, pathname))) {
       return item
     }

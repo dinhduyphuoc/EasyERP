@@ -45,6 +45,11 @@ const LOOKUP_LINKS: Record<string, string> = {
   ghtk: 'https://i.ghtk.vn/',
 }
 
+const PROVIDER_LOGOS: Record<string, string> = {
+  ghn: 'https://symmie-837501718307-ap-southeast-2-an.s3.ap-southeast-2.amazonaws.com/Logo/ghn.jpg',
+  ghtk: 'https://symmie-837501718307-ap-southeast-2-an.s3.ap-southeast-2.amazonaws.com/Logo/ghtk.png',
+}
+
 function formatDateTime(value: string | null) {
   if (!value) {
     return 'Chưa có'
@@ -55,6 +60,10 @@ function formatDateTime(value: string | null) {
 
 function getProviderMonogram(code: string) {
   return code.toUpperCase().slice(0, 4)
+}
+
+function getProviderLogo(code: string) {
+  return PROVIDER_LOGOS[code.toLowerCase()] ?? null
 }
 
 function getStatusTone(status: ShippingProviderCardItem['status']['code']) {
@@ -448,23 +457,42 @@ export function ShippingManagementView({
 
                 <Stack spacing={2.5} sx={{ position: 'relative', height: '100%' }}>
                   <Stack direction="row" spacing={1.5} sx={{ alignItems: 'flex-start', justifyContent: 'space-between' }}>
-                    <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
+                    <Stack direction="row" spacing={1.5}>
                       <Box
                         sx={{
-                          width: 60,
+                          width: 70,
                           height: 60,
                           borderRadius: 3.5,
                           display: 'grid',
                           placeItems: 'center',
                           bgcolor: '#ffffff',
                           border: '1px solid #eaecf0',
-                          color: '#175cd3',
-                          fontWeight: 800,
-                          letterSpacing: 0.8,
                           boxShadow: '0 10px 30px rgba(15, 23, 42, 0.08)',
+                          overflow: 'hidden',
                         }}
                       >
-                        {getProviderMonogram(provider.code)}
+                        {getProviderLogo(provider.code) ? (
+                          <Box
+                            component="img"
+                            src={getProviderLogo(provider.code) ?? undefined}
+                            alt={provider.display_name}
+                            sx={{
+                              width: '100%',
+                              height: '100%',
+                              objectFit: 'cover',
+                            }}
+                          />
+                        ) : (
+                          <Box
+                            sx={{
+                              color: '#175cd3',
+                              fontWeight: 800,
+                              letterSpacing: 0.8,
+                            }}
+                          >
+                            {getProviderMonogram(provider.code)}
+                          </Box>
+                        )}
                       </Box>
                       <Box>
                         <Typography variant="h6" sx={{ fontWeight: 700, color: '#101828' }}>
@@ -554,12 +582,31 @@ export function ShippingManagementView({
                   display: 'grid',
                   placeItems: 'center',
                   bgcolor: '#eff8ff',
-                  color: '#175cd3',
-                  fontWeight: 800,
-                  letterSpacing: 0.8,
+                  overflow: 'hidden',
                 }}
               >
-                {selectedProvider ? getProviderMonogram(selectedProvider.code) : 'VC'}
+                {selectedProvider && getProviderLogo(selectedProvider.code) ? (
+                  <Box
+                    component="img"
+                    src={getProviderLogo(selectedProvider.code) ?? undefined}
+                    alt={selectedProvider.display_name}
+                    sx={{
+                      width: '100%',
+                      height: '100%',
+                      objectFit: 'cover',
+                    }}
+                  />
+                ) : (
+                  <Box
+                    sx={{
+                      color: '#175cd3',
+                      fontWeight: 800,
+                      letterSpacing: 0.8,
+                    }}
+                  >
+                    {selectedProvider ? getProviderMonogram(selectedProvider.code) : 'VC'}
+                  </Box>
+                )}
               </Box>
               <Box>
                 <Typography variant="h6" sx={{ fontWeight: 700, color: '#101828' }}>

@@ -6,7 +6,6 @@ import GroupWorkOutlinedIcon from '@mui/icons-material/GroupWorkOutlined'
 import Inventory2OutlinedIcon from '@mui/icons-material/Inventory2Outlined'
 import LocalShippingOutlinedIcon from '@mui/icons-material/LocalShippingOutlined'
 import NotificationsOutlinedIcon from '@mui/icons-material/NotificationsOutlined'
-import PaymentsOutlinedIcon from '@mui/icons-material/PaymentsOutlined'
 import PersonOutlineOutlinedIcon from '@mui/icons-material/PersonOutlineOutlined'
 import ReceiptLongOutlinedIcon from '@mui/icons-material/ReceiptLongOutlined'
 import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined'
@@ -17,6 +16,7 @@ export type SettingsCardItem = {
   description: string
   path: string
   icon: SvgIconComponent
+  permissions?: string[]
 }
 
 export type SettingsCardSection = {
@@ -29,104 +29,113 @@ export type SettingsCardSection = {
 export const settingsSections: SettingsCardSection[] = [
   {
     id: 'general',
-    title: 'Nhóm 1 - Cấu hình chung',
-    description: 'Thiết lập nền tảng để vận hành hệ thống đồng nhất và dễ mở rộng.',
+    title: 'Platform setup',
+    description: 'Core configuration for store operations, shipping, and business defaults.',
     items: [
       {
-        title: 'Cấu hình chung',
-        description: 'Quản lý cấu hình chung của hệ thống, thông tin doanh nghiệp và tùy chọn mặc định.',
+        title: 'General',
+        description: 'Configure store identity, legal details, contact information, and store defaults.',
         path: '/settings/general',
         icon: SettingsOutlinedIcon,
+        permissions: ['settings.read'],
       },
       {
         title: 'Address Management',
-        description: 'Tổ chức danh sách địa chỉ, khu vực giao nhận và dữ liệu vị trí dùng trong vận hành.',
+        description: 'Manage the default shipping address and reusable location information.',
         path: '/settings/address-management',
         icon: ApartmentOutlinedIcon,
+        permissions: ['settings.read'],
       },
       {
-        title: 'Vận chuyển',
-        description: 'Cấu hình, liên kết đơn vị vận chuyển.',
+        title: 'Shipping',
+        description: 'Set up carrier integrations and shipping-related operational rules.',
         path: '/settings/shipping-settings',
         icon: LocalShippingOutlinedIcon,
+        permissions: ['settings.read'],
       },
     ],
   },
   {
     id: 'accounts',
-    title: 'Nhóm 2 - Tài khoản & phân quyền',
-    description: 'Quản lý người dùng, vai trò và cách phân phối công việc giữa các nhóm vận hành.',
+    title: 'Team and access',
+    description: 'Control users, roles, permissions, and how work is assigned across the OMS.',
     items: [
       {
-        title: 'Accounts',
-        description: 'Tạo và quản lý tài khoản người dùng, trạng thái hoạt động và thông tin đăng nhập.',
+        title: 'Users',
+        description: 'Create and manage user accounts, statuses, and login-related details.',
         path: '/settings/accounts',
         icon: PersonOutlineOutlinedIcon,
+        permissions: ['users.read'],
       },
       {
-        title: 'Role / Permission Groups',
-        description: 'Thiết lập nhóm quyền truy cập để kiểm soát phạm vi thao tác theo chức năng.',
+        title: 'Permissions',
+        description: 'Define role groups and control what each team can access and edit.',
         path: '/settings/role-permission-groups',
         icon: GroupWorkOutlinedIcon,
+        permissions: ['users.read'],
       },
       {
         title: 'Assignment Groups',
-        description: 'Phân nhóm nhân sự theo vai trò xử lý để dễ giao việc và theo dõi hiệu suất.',
+        description: 'Group staff by responsibility for smoother routing and accountability.',
         path: '/settings/assignment-groups',
         icon: Inventory2OutlinedIcon,
+        permissions: ['users.read'],
       },
     ],
   },
   {
     id: 'payments',
-    title: 'Nhóm 3 - Thanh toán & tài chính',
-    description: 'Quản lý phương thức thanh toán, cấu hình cổng thu tiền và chứng từ tài chính.',
+    title: 'Billing and payments',
+    description: 'Configure payment methods, billing behavior, and finance-facing settings.',
     items: [
       {
         title: 'Payment Methods',
-        description: 'Khai báo các phương thức thanh toán áp dụng trong bán hàng và đối soát.',
+        description: 'Manage the default bank account and finance-facing payment details.',
         path: '/settings/payment-methods',
         icon: CreditCardOutlinedIcon,
+        permissions: ['payments.read'],
       },
       {
-        title: 'Payment Configuration',
-        description: 'Cấu hình thanh toán, cổng kết nối và quy tắc xử lý trạng thái giao dịch.',
-        path: '/settings/payment-configuration',
-        icon: PaymentsOutlinedIcon,
-      },
-      {
-        title: 'Billing / Invoices',
-        description: 'Quản lý hóa đơn, mẫu chứng từ và thiết lập dữ liệu phục vụ xuất billing.',
+        title: 'Billing',
+        description: 'Maintain invoice templates, billing data, and finance document preferences.',
         path: '/settings/billing-invoices',
         icon: ReceiptLongOutlinedIcon,
+        permissions: ['payments.read'],
       },
     ],
   },
   {
     id: 'system',
-    title: 'Nhóm 4 - Hệ thống & tích hợp',
-    description: 'Điều phối các cấu hình mở rộng, tích hợp ngoài hệ thống và tài nguyên dùng chung.',
+    title: 'Extensions and operations',
+    description: 'Manage operational channels, integrations, notifications, and shared resources.',
     items: [
       {
-        title: 'Sales Channels',
-        description: 'Quản lý các kênh bán hàng kết nối với hệ thống và cấu hình đồng bộ dữ liệu.',
+        title: 'Markets',
+        description: 'Coordinate sales channels and how OMS data syncs across them.',
         path: '/settings/sales-channels',
         icon: StorefrontOutlinedIcon,
+        permissions: ['settings.read'],
       },
       {
-        title: 'Notifications',
-        description: 'Thiết lập thông báo nội bộ, nhắc việc và quy tắc gửi cảnh báo theo sự kiện.',
+        title: 'Apps',
+        description: 'Configure internal alerts, automation notifications, and connected tooling.',
         path: '/settings/notifications',
         icon: NotificationsOutlinedIcon,
+        permissions: ['settings.read'],
       },
       {
-        title: 'File Management',
-        description: 'Quản lý kho tệp, quyền truy cập file và các quy tắc lưu trữ tài nguyên số.',
+        title: 'Files',
+        description: 'Manage shared files, storage rules, and operational assets.',
         path: '/settings/file-management',
         icon: FolderOpenOutlinedIcon,
+        permissions: ['settings.read'],
       },
     ],
   },
 ]
 
 export const settingsDetailPages = settingsSections.flatMap((section) => section.items)
+
+export const settingsItemsByPath = Object.fromEntries(
+  settingsDetailPages.map((item) => [item.path, item]),
+) as Record<string, SettingsCardItem>

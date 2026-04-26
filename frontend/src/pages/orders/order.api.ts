@@ -42,6 +42,58 @@ export type OrderListItem = {
   order_type: OrderType
   order_date: string
   customer_id: number | null
+  payment_type_id: number | null
+  from_address_id?: number | null
+  to_address_id?: number | null
+  return_address_id?: number | null
+  from_address_detail?: {
+    id: number
+    state_id: number
+    city_id: number
+    district_id: number | null
+    address_line: string
+    address_line2: string | null
+    state_name: string
+    city_name: string
+    district_name: string | null
+    postal_code: string | null
+    country_code: string
+    latitude: string | null
+    longitude: string | null
+    note: string | null
+  } | null
+  to_address_detail?: {
+    id: number
+    state_id: number
+    city_id: number
+    district_id: number | null
+    address_line: string
+    address_line2: string | null
+    state_name: string
+    city_name: string
+    district_name: string | null
+    postal_code: string | null
+    country_code: string
+    latitude: string | null
+    longitude: string | null
+    note: string | null
+  } | null
+  return_address_detail?: {
+    id: number
+    state_id: number
+    city_id: number
+    district_id: number | null
+    address_line: string
+    address_line2: string | null
+    state_name: string
+    city_name: string
+    district_name: string | null
+    postal_code: string | null
+    country_code: string
+    latitude: string | null
+    longitude: string | null
+    note: string | null
+  } | null
   customer_info: {
     customer_code: string | null
     name: string
@@ -49,6 +101,31 @@ export type OrderListItem = {
     email: string | null
     address: string | null
   }
+  from_name?: string | null
+  from_phone?: string | null
+  from_address?: string | null
+  from_ward_name?: string | null
+  from_district_name?: string | null
+  from_province_name?: string | null
+  return_phone?: string | null
+  return_address?: string | null
+  return_district_id?: number | null
+  return_ward_code?: string | null
+  to_ward_code?: string | null
+  to_district_id?: number | null
+  cod_amount?: string
+  content?: string | null
+  weight?: number | null
+  length?: number | null
+  width?: number | null
+  height?: number | null
+  insurance_value?: string
+  service_id?: number | null
+  service_type_id?: number | null
+  pick_station_id?: number | null
+  deliver_station_id?: number | null
+  coupon?: string | null
+  pick_shift?: number[]
   sub_total: string
   tax_amount: string
   shipping_fee: string
@@ -136,8 +213,54 @@ export type OrderCreatePayload = {
     address?: string | null
     customer_code?: string | null
   }
+  from_address_id?: number | null
+  to_address_id?: number | null
+  return_address_id?: number | null
+  from_address_detail?: {
+    state_id?: number | null
+    city_id?: number | null
+    district_id?: number | null
+    address_line?: string | null
+    address_line2?: string | null
+    postal_code?: string | null
+    country_code?: string | null
+    latitude?: number | string | null
+    longitude?: number | string | null
+    note?: string | null
+  } | null
+  to_address_detail?: {
+    state_id?: number | null
+    city_id?: number | null
+    district_id?: number | null
+    address_line?: string | null
+    address_line2?: string | null
+    postal_code?: string | null
+    country_code?: string | null
+    latitude?: number | string | null
+    longitude?: number | string | null
+    note?: string | null
+  } | null
+  from_name?: string | null
+  from_phone?: string | null
+  from_address?: string | null
+  from_ward_name?: string | null
+  from_district_name?: string | null
+  from_province_name?: string | null
+  to_ward_code?: string | null
+  to_district_id?: number | null
+  cod_amount?: number | string | null
+  content?: string | null
+  weight?: number | null
+  length?: number | null
+  width?: number | null
+  height?: number | null
+  insurance_value?: number | string | null
+  service_id?: number | null
+  service_type_id?: number | null
+  coupon?: string | null
   tax_amount?: number | string | null
   shipping_fee?: number | string | null
+  payment_type_id?: number | null
   deposit_amount?: number | string | null
   paid_amount?: number | string | null
   payment_status?: OrderPaymentStatus

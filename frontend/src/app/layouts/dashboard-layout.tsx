@@ -1,17 +1,10 @@
-﻿import { useEffect, useRef, useState } from 'react'
-import {
-  Avatar,
-  Box,
-  Drawer,
-  IconButton,
-  OutlinedInput,
-  Paper,
-  Stack,
-  Typography,
-  alpha,
-} from '@mui/material'
+import { useEffect, useRef, useState } from 'react'
+import { Box, Drawer, OutlinedInput, Paper, Stack, alpha } from '@mui/material'
 import MenuIcon from '@mui/icons-material/Menu'
 import { Outlet } from 'react-router'
+import { CreateStoreModal } from '@/modules/store/create-store-modal'
+import { ConnectedStoreSwitcherDropdown } from '@/modules/store/connected-store-switcher-dropdown'
+import { useStore } from '@/modules/store/use-store'
 import { AppSidebar } from '@/shared/ui/sidebar/app-sidebar'
 
 const SIDEBAR_WIDTH = 304
@@ -20,11 +13,19 @@ const SIDEBAR_ANIMATION_MS = 200
 const SIDEBAR_COLLAPSE_CONTENT_DELAY_MS = 60
 
 export function DashboardLayout() {
+  const { isReady, stores } = useStore()
   const [mobileOpen, setMobileOpen] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [showExpandedContent, setShowExpandedContent] = useState(true)
+  const [isCreateStoreOpen, setIsCreateStoreOpen] = useState(false)
   const sidebarAnimationTimeoutRef = useRef<number | null>(null)
   const desktopSidebarWidth = sidebarCollapsed ? SIDEBAR_COLLAPSED_WIDTH : SIDEBAR_WIDTH
+
+  useEffect(() => {
+    if (isReady && stores.length === 0) {
+      setIsCreateStoreOpen(true)
+    }
+  }, [isReady, stores.length])
 
   useEffect(() => {
     return () => {
@@ -73,8 +74,10 @@ export function DashboardLayout() {
           display: { xs: 'block', lg: 'none' },
           '& .MuiDrawer-paper': {
             width: SIDEBAR_WIDTH,
-            bgcolor: '#0f172a',
-            color: 'common.white',
+            bgcolor: '#fcfcfd',
+            color: '#101828',
+            borderRight: '1px solid rgba(15, 23, 42, 0.08)',
+            boxShadow: '16px 0 40px rgba(15, 23, 42, 0.08)',
           },
         }}
       >
@@ -92,8 +95,10 @@ export function DashboardLayout() {
             transition: 'width 0.2s ease',
             '& .MuiDrawer-paper': {
               width: desktopSidebarWidth,
-              bgcolor: '#0f172a',
-              color: 'common.white',
+              bgcolor: '#fcfcfd',
+              color: '#101828',
+              borderRight: '1px solid rgba(15, 23, 42, 0.08)',
+              boxShadow: '8px 0 28px rgba(15, 23, 42, 0.04)',
               transition: 'width 0.2s ease',
               overflowX: 'hidden',
             },
@@ -130,16 +135,21 @@ export function DashboardLayout() {
                   alignItems: 'center',
                 }}
               >
-                <IconButton
-                  edge="start"
+                <Box
                   onClick={() => setMobileOpen(true)}
                   sx={{
-                    flexShrink: 0,
+                    width: 40,
+                    height: 40,
+                    display: 'grid',
+                    placeItems: 'center',
+                    borderRadius: 2.5,
                     color: '#132238',
+                    cursor: 'pointer',
+                    bgcolor: 'transparent',
                   }}
                 >
                   <MenuIcon fontSize="small" />
-                </IconButton>
+                </Box>
                 <OutlinedInput
                   size="small"
                   placeholder="Tìm kiếm nhanh"
@@ -148,7 +158,7 @@ export function DashboardLayout() {
                     bgcolor: 'common.white',
                   }}
                 />
-                <Avatar sx={{ bgcolor: 'primary.main', flexShrink: 0 }}>A</Avatar>
+                <ConnectedStoreSwitcherDropdown onCreateStore={() => setIsCreateStoreOpen(true)} />
               </Stack>
 
               <Stack
@@ -174,16 +184,8 @@ export function DashboardLayout() {
                     }}
                   />
                 </Stack>
-                <Stack direction="row" spacing={2} sx={{ alignItems: 'center' }}>
-                  <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
-                    <Avatar sx={{ bgcolor: 'primary.main' }}>A</Avatar>
-                    <Box>
-                      <Typography sx={{ fontWeight: 700 }}>Admin</Typography>
-                      <Typography variant="body2" color="text.secondary">
-                        Quản trị viên
-                      </Typography>
-                    </Box>
-                  </Stack>
+                <Stack direction="row" spacing={2} sx={{ alignItems: 'center', justifyContent: 'flex-end' }}>
+                  <ConnectedStoreSwitcherDropdown onCreateStore={() => setIsCreateStoreOpen(true)} />
                 </Stack>
               </Stack>
             </Paper>
@@ -194,6 +196,7 @@ export function DashboardLayout() {
           </Box>
         </Box>
       </Box>
+      <CreateStoreModal open={isCreateStoreOpen} onClose={() => setIsCreateStoreOpen(false)} />
     </Box>
   )
 }

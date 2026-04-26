@@ -36,11 +36,11 @@ export function getProcessingStatusMeta(status: OrderProcessingStatus): {
     case 'draft':
       return { label: 'Nháp', color: 'default' }
     case 'placed':
-      return { label: 'Đặt hàng', color: 'info' }
+      return { label: 'Chờ xác nhận', color: 'info' }
     case 'confirmed':
-      return { label: 'Xác nhận', color: 'info' }
+      return { label: 'Đã xác nhận', color: 'info' }
     case 'picked_up':
-      return { label: 'DVVC lấy hàng', color: 'warning' }
+      return { label: 'Đóng gói', color: 'warning' }
     case 'delivering':
       return { label: 'Đang giao', color: 'warning' }
     case 'completed':

@@ -42,6 +42,20 @@ import { borderedCardSx } from '@/shared/ui/paper'
 import { StackedTextField } from '@/shared/ui/form/stacked-text-field'
 import { orderApi, type OrderActionName, type OrderListItem, type OrderProcessingStatus } from './order.api'
 import {
+  buildPaymentNoteContent,
+  getNextPaymentStatus,
+  getNormalizedDepositAmount,
+  getNormalizedPaidAmount,
+  getPaymentMethodFromTypeId,
+  getPaymentValidationErrors,
+  parsePaymentNoteContent,
+  PaymentInformationCard,
+  PAYMENT_METHOD_LABELS,
+  PAYMENT_METHOD_TYPE_IDS,
+  type DepositInputMode,
+  type PaymentMethod,
+} from './order-payment'
+import {
   formatCurrency,
   formatDateTime,
   getPaymentStatusMeta,
@@ -69,8 +83,8 @@ const stepperStages: Array<{
   label: string
   matches: OrderProcessingStatus[]
 }> = [
-  { key: 'placed', timelineKey: 'placed', label: 'Đặt hàng', matches: ['placed'] },
-  { key: 'confirmed', timelineKey: 'confirmed', label: 'Xác nhận', matches: ['confirmed'] },
+  { key: 'placed', timelineKey: 'placed', label: 'Chờ xác nhận', matches: ['placed'] },
+  { key: 'confirmed', timelineKey: 'confirmed', label: 'Đã xác nhận', matches: ['confirmed'] },
   { key: 'picking', timelineKey: 'picked_up', label: 'Đóng gói', matches: ['picked_up'] },
   { key: 'shipping', timelineKey: 'delivering', label: 'Giao hàng', matches: ['delivering'] },
   { key: 'completed', timelineKey: 'completed', label: 'Hoàn thành', matches: ['completed'] },
@@ -220,6 +234,21 @@ export function OrdersDetailPage(): ReactElement {
   const [invoiceCodeDraft, setInvoiceCodeDraft] = useState('')
   const [isInvoiceDialogOpen, setIsInvoiceDialogOpen] = useState(false)
   const [isQrDialogOpen, setIsQrDialogOpen] = useState(false)
+  const [isPaymentDialogOpen, setIsPaymentDialogOpen] = useState(false)
+  const [isSavingPayment, setIsSavingPayment] = useState(false)
+  const [hasAttemptedPaymentSave, setHasAttemptedPaymentSave] = useState(false)
+  const [paymentMethodDraft, setPaymentMethodDraft] = useState<PaymentMethod>('unpaid')
+  const [paymentStatusDraft, setPaymentStatusDraft] = useState<'unpaid' | 'paid' | 'deposit'>('unpaid')
+  const [paymentNotesDraft, setPaymentNotesDraft] = useState('')
+  const [paymentDueDateDraft, setPaymentDueDateDraft] = useState('')
+  const [depositInputModeDraft, setDepositInputModeDraft] = useState<DepositInputMode>('amount')
+  const [depositPercentDraft, setDepositPercentDraft] = useState('')
+  const [depositAmountDraft, setDepositAmountDraft] = useState('0')
+  const [bankNameDraft, setBankNameDraft] = useState('')
+  const [bankAccountNumberDraft, setBankAccountNumberDraft] = useState('')
+  const [bankAccountHolderDraft, setBankAccountHolderDraft] = useState('')
+  const [transferReferenceDraft, setTransferReferenceDraft] = useState('')
+  const [taxAmountDraft, setTaxAmountDraft] = useState('0')
 
   const fetchOrder = useCallback(async () => {
     if (!params.id) {
@@ -243,16 +272,57 @@ export function OrdersDetailPage(): ReactElement {
     void fetchOrder()
   }, [fetchOrder])
 
+  const syncPaymentDraftFromOrder = useCallback((nextOrder: OrderListItem) => {
+    const parsedPaymentDetails = parsePaymentNoteContent(nextOrder.payment_notes)
+    const inferredPaymentMethod =
+      parsedPaymentDetails.method ?? getPaymentMethodFromTypeId(nextOrder.payment_type_id, nextOrder.payment_status)
+
+    setPaymentMethodDraft(inferredPaymentMethod)
+    setPaymentStatusDraft(nextOrder.payment_status)
+    setPaymentNotesDraft(parsedPaymentDetails.note)
+    setPaymentDueDateDraft(parsedPaymentDetails.dueDate)
+    setDepositInputModeDraft(parsedPaymentDetails.depositMode)
+    setDepositPercentDraft(parsedPaymentDetails.depositPercent)
+    setDepositAmountDraft(String(Number(nextOrder.deposit_amount || 0)))
+    setBankNameDraft(parsedPaymentDetails.bankName)
+    setBankAccountNumberDraft(parsedPaymentDetails.accountNumber)
+    setBankAccountHolderDraft(parsedPaymentDetails.accountHolder)
+    setTransferReferenceDraft(parsedPaymentDetails.transferReference)
+    setTaxAmountDraft(String(Number(nextOrder.tax_amount || 0)))
+    setHasAttemptedPaymentSave(false)
+  }, [])
+
+  const openPaymentDialog = useCallback(() => {
+    if (!order) {
+      return
+    }
+
+    syncPaymentDraftFromOrder(order)
+    setIsPaymentDialogOpen(true)
+  }, [order, syncPaymentDraftFromOrder])
+
+  const closePaymentDialog = useCallback(() => {
+    if (isSavingPayment) {
+      return
+    }
+
+    setIsPaymentDialogOpen(false)
+    setHasAttemptedPaymentSave(false)
+  }, [isSavingPayment])
+
   const nextAction = useMemo(() => {
     if (!order) {
       return null
     }
 
-    if (order.processing_status === 'placed') {
+    if (['draft', 'placed'].includes(order.processing_status)) {
       return {
         action: 'confirm' as OrderActionName,
         label: 'Xác nhận đơn hàng',
-        helper: 'Kiểm tra thông tin và chuyển đơn sang xác nhận để kho bắt đầu xử lý.',
+        helper:
+          order.processing_status === 'draft'
+            ? 'Đơn đang ở trạng thái nháp. Xác nhận để chuyển sang bước xử lý kho.'
+            : 'Kiểm tra thông tin và xác nhận đơn để kho bắt đầu xử lý.',
         icon: <CheckCircleOutlinedIcon fontSize="small" />,
       }
     }
@@ -260,8 +330,8 @@ export function OrdersDetailPage(): ReactElement {
     if (order.processing_status === 'confirmed') {
       return {
         action: 'confirm_shipping' as OrderActionName,
-        label: 'Xác nhận giao kho',
-        helper: 'Đơn đã sẵn sàng cho kho đóng gói và tạo lệnh giao.',
+        label: 'Xác nhận đóng gói',
+        helper: 'Đơn đã được xác nhận. Kho có thể đóng gói và chuẩn bị bàn giao vận chuyển.',
         icon: <Inventory2OutlinedIcon fontSize="small" />,
       }
     }
@@ -270,7 +340,7 @@ export function OrdersDetailPage(): ReactElement {
       return {
         action: 'push_to_delivery' as OrderActionName,
         label: 'Đẩy sang vận chuyển',
-        helper: 'Đẩy đơn sang đơn vị vận chuyển và cập nhật tracking ngay.',
+        helper: 'Chuyển đơn sang trạng thái đang giao và cập nhật tracking vận chuyển.',
         icon: <LocalShippingOutlinedIcon fontSize="small" />,
       }
     }
@@ -428,6 +498,9 @@ export function OrdersDetailPage(): ReactElement {
 
   const paymentMeta = getPaymentStatusMeta(order.payment_status)
   const processingMeta = getProcessingStatusMeta(order.processing_status)
+  const parsedOrderPaymentDetails = parsePaymentNoteContent(order.payment_notes)
+  const currentPaymentMethod =
+    parsedOrderPaymentDetails.method ?? getPaymentMethodFromTypeId(order.payment_type_id, order.payment_status)
   const progressIndex = stepperStages.findIndex((stage) => stage.matches.includes(order.processing_status))
   const orderTypeLabel = order.order_type === 'return' ? 'Đơn trả hàng' : 'Đơn bán hàng'
   const invoiceStatusLabel = order.invoice_code ? 'Đã tạo e-invoice' : 'Chưa xuất hóa đơn'
@@ -438,6 +511,90 @@ export function OrdersDetailPage(): ReactElement {
   const canCancelOrder =
     ['draft', 'placed', 'confirmed', 'picked_up'].includes(order.processing_status) && order.payment_status !== 'paid'
   const canReturnOrder = order.processing_status === 'completed'
+  const paymentSubTotal = Number(order.sub_total || 0)
+  const paymentShippingFee = Number(order.shipping_fee || 0)
+  const paymentTotalAmount = paymentSubTotal + Number(taxAmountDraft || 0) + paymentShippingFee
+  const normalizedDepositAmount = getNormalizedDepositAmount({
+    paymentMethod: paymentMethodDraft,
+    depositInputMode: depositInputModeDraft,
+    depositPercent: depositPercentDraft,
+    depositAmount: depositAmountDraft,
+    totalAmount: paymentTotalAmount,
+  })
+  const normalizedPaidAmount = getNormalizedPaidAmount({
+    paymentStatus: paymentStatusDraft,
+    paymentMethod: paymentMethodDraft,
+    totalAmount: paymentTotalAmount,
+    depositAmount: normalizedDepositAmount,
+  })
+  const paymentRemainingAmount = Math.max(paymentTotalAmount - normalizedPaidAmount, 0)
+  const paymentErrors = getPaymentValidationErrors({
+    paymentMethod: paymentMethodDraft,
+    paymentStatus: paymentStatusDraft,
+    paymentDueDate: paymentDueDateDraft,
+    depositInputMode: depositInputModeDraft,
+    depositPercent: depositPercentDraft,
+    normalizedDepositAmount,
+    totalAmount: paymentTotalAmount,
+    bankName: bankNameDraft,
+    bankAccountNumber: bankAccountNumberDraft,
+    bankAccountHolder: bankAccountHolderDraft,
+    processingStatus: order.processing_status,
+  })
+  const visiblePaymentErrors = hasAttemptedPaymentSave ? paymentErrors : {}
+  const canSavePayment = !isSavingPayment && Object.keys(paymentErrors).length === 0
+
+  const handlePaymentMethodChange = (method: PaymentMethod) => {
+    setPaymentMethodDraft(method)
+    setPaymentStatusDraft((current) => getNextPaymentStatus(method, current))
+  }
+
+  const handleSavePayment = async () => {
+    if (!params.id) {
+      return
+    }
+
+    setHasAttemptedPaymentSave(true)
+
+    if (!canSavePayment) {
+      appToast.warning('Vui long kiem tra lai thong tin thanh toan truoc khi luu.')
+      return
+    }
+
+    try {
+      setIsSavingPayment(true)
+
+      const updatedOrder = await orderApi.updateOrder(params.id, {
+        payment_type_id: paymentMethodDraft === 'unpaid' ? null : PAYMENT_METHOD_TYPE_IDS[paymentMethodDraft],
+        payment_status: paymentStatusDraft,
+        payment_notes: buildPaymentNoteContent({
+          method: paymentMethodDraft,
+          note: paymentNotesDraft,
+          dueDate: paymentDueDateDraft,
+          depositMode: depositInputModeDraft,
+          depositPercent: depositPercentDraft,
+          depositAmount: normalizedDepositAmount,
+          bankName: bankNameDraft,
+          accountNumber: bankAccountNumberDraft,
+          accountHolder: bankAccountHolderDraft,
+          transferReference: transferReferenceDraft,
+        }),
+        deposit_amount: normalizedDepositAmount,
+        paid_amount: normalizedPaidAmount,
+        tax_amount: Number(taxAmountDraft || 0),
+      })
+
+      setOrder(updatedOrder)
+      syncPaymentDraftFromOrder(updatedOrder)
+      setIsPaymentDialogOpen(false)
+      appToast.success(`Da cap nhat phuong thuc thanh toan cho don ${updatedOrder.order_code}.`)
+    } catch (error) {
+      console.error('Loi khi cap nhat phuong thuc thanh toan:', error)
+      appToast.error(getErrorMessage(error, 'Khong the cap nhat phuong thuc thanh toan.'))
+    } finally {
+      setIsSavingPayment(false)
+    }
+  }
 
   return (
     <Box sx={{ px: { xs: 2, md: 3, xl: 4 }, pb: 8 }}>
@@ -459,14 +616,14 @@ export function OrdersDetailPage(): ReactElement {
             sx={{ justifyContent: 'space-between', alignItems: { lg: 'center' } }}
           >
             <Stack spacing={1}>
-              <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', alignItems: 'center' }}>
+              <Stack direction="row" spacing={1} sx={{ display: 'none', flexWrap: 'wrap', alignItems: 'center' }}>
                 <Typography variant="h5" sx={{ fontWeight: 800, color: '#0f172a' }}>
                   {order.order_code}
                 </Typography>
                 <Chip label={processingMeta.label} color={processingMeta.color} />
                 <Chip label={orderTypeLabel} variant="outlined" />
               </Stack>
-              <Typography color="text.secondary">
+              <Typography color="text.secondary" sx={{ display: 'none' }}>
                 Tạo lúc {formatDateTime(order.order_date)} • Cập nhật cuối {formatDateTime(order.updated_at)}
               </Typography>
             </Stack>
@@ -591,14 +748,24 @@ export function OrdersDetailPage(): ReactElement {
               <Typography color="text.secondary">
                 {order.order_items.length} item • Kho status: {order.warehouse_status ?? 'Đang chờ xử lý'}
               </Typography>
+
               <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.25}>
+                <Button
+                  variant="contained"
+                  color="secondary"
+                  startIcon={<CheckCircleOutlinedIcon />}
+                  onClick={() => void runAction('confirm')}
+                  disabled={isActing || !['draft', 'placed'].includes(order.processing_status)}
+                >
+                  Xác nhận đơn hàng
+                </Button>
                 <Button
                   variant="contained"
                   startIcon={<Inventory2OutlinedIcon />}
                   onClick={() => openShippingActionDialog('confirm_shipping')}
                   disabled={isActing || order.processing_status !== 'confirmed'}
                 >
-                  Xác nhận giao kho
+                  Xác nhận đóng gói
                 </Button>
                 <Button
                   variant="outlined"
@@ -615,13 +782,14 @@ export function OrdersDetailPage(): ReactElement {
           <Paper sx={borderedCardSx}>
             <CardHeader
               eyebrow="Thanh toán"
-              title="Kiểm soát thanh toán"
+              title="Quản lý thanh toán"
               description="Nhân viên có thể scan nhanh trạng thái thanh toán, tổng tiền và thao tác tiếp theo."
             />
 
             <Stack spacing={2} sx={{ mt: 2 }}>
-              <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', alignItems: 'center' }}>
+              <Stack direction="row" spacing={1} sx={{ display: 'none', flexWrap: 'wrap', alignItems: 'center' }}>
                 <Chip label={paymentMeta.label} color={paymentMeta.color} />
+                <Chip label={PAYMENT_METHOD_LABELS[currentPaymentMethod]} variant="outlined" />
                 <Chip label={`Đã thanh toán ${formatCurrency(order.paid_amount)}`} variant="outlined" />
                 <Chip label={`Nợ còn ${formatCurrency(order.outstanding_amount)}`} variant="outlined" />
               </Stack>
@@ -629,6 +797,46 @@ export function OrdersDetailPage(): ReactElement {
               <Box
                 sx={{
                   display: 'grid',
+                  gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' },
+                  gap: 1.5,
+                }}
+              >
+                <Paper variant="outlined" sx={{ p: 2 }}>
+                  <Stack spacing={1.4}>
+                    <Typography sx={{ fontWeight: 700, color: '#0f172a' }}>{paymentMeta.label}</Typography>
+                    <SidebarLine label="Phuong thuc thanh toan" value={PAYMENT_METHOD_LABELS[currentPaymentMethod]} />
+                    <SidebarLine label="Tong tien hang" value={formatCurrency(order.sub_total)} />
+                    <SidebarLine label="San pham" value={`${order.order_items.length} san pham`} />
+                    <SidebarLine label="Thanh tien" value={formatCurrency(order.total_amount)} />
+                  </Stack>
+                </Paper>
+              </Box>
+
+              <Box
+                sx={{
+                  display: 'none',
+                  gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' },
+                  gap: 1.5,
+                }}
+              >
+                <Paper variant="outlined" sx={{ p: 1.75 }}>
+                  <Stack spacing={1.1}>
+                    <Typography variant="body2" color="text.secondary">
+                      Phuong thuc thanh toan
+                    </Typography>
+                    <Typography sx={{ fontWeight: 800, color: '#0f172a' }}>
+                      {PAYMENT_METHOD_LABELS[currentPaymentMethod]}
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      Trang thai: {paymentMeta.label}
+                    </Typography>
+                  </Stack>
+                </Paper>
+              </Box>
+
+              <Box
+                sx={{
+                  display: 'none',
                   gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' },
                   gap: 1.5,
                 }}
@@ -642,6 +850,14 @@ export function OrdersDetailPage(): ReactElement {
               <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.25}>
                 <Button variant="outlined" startIcon={<QrCode2OutlinedIcon />} onClick={() => setIsQrDialogOpen(true)}>
                   Tạo QR
+                </Button>
+                <Button
+                  variant="outlined"
+                  startIcon={<EditOutlinedIcon />}
+                  onClick={openPaymentDialog}
+                  disabled={isActing || !canEditOrder}
+                >
+                  Chinh sua thanh toan
                 </Button>
                 <Button
                   variant="contained"
@@ -811,7 +1027,7 @@ export function OrdersDetailPage(): ReactElement {
       </Menu>
 
       <Dialog open={Boolean(shippingDialog)} onClose={() => setShippingDialog(null)} fullWidth maxWidth="sm">
-        <DialogTitle>{shippingDialog?.action === 'confirm_shipping' ? 'Xác nhận giao kho' : 'Đẩy sang vận chuyển'}</DialogTitle>
+        <DialogTitle>{shippingDialog?.action === 'confirm_shipping' ? 'Xác nhận đóng gói' : 'Đẩy sang vận chuyển'}</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ pt: 1 }}>
             <StackedTextField
@@ -837,14 +1053,62 @@ export function OrdersDetailPage(): ReactElement {
                 setShippingDialog((current) => (current ? { ...current, shippingStatus: event.target.value } : current))
               }
               fullWidth
-              placeholder={shippingDialog?.action === 'push_to_delivery' ? 'delivering' : 'ready_to_ship'}
+              placeholder={shippingDialog?.action === 'push_to_delivery' ? 'delivering' : 'packed'}
             />
           </Stack>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setShippingDialog(null)}>Đóng</Button>
           <Button variant="contained" onClick={() => void submitShippingAction()} disabled={isActing}>
-            {shippingDialog?.action === 'confirm_shipping' ? 'Xác nhận giao kho' : 'Đẩy sang vận chuyển'}
+            {shippingDialog?.action === 'confirm_shipping' ? 'Xác nhận đóng gói' : 'Đẩy sang vận chuyển'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={isPaymentDialogOpen} onClose={closePaymentDialog} fullWidth maxWidth="md">
+        <DialogTitle>Chinh sua phuong thuc thanh toan</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ pt: 1 }}>
+            <PaymentInformationCard
+              canEdit={canEditOrder}
+              paymentMethod={paymentMethodDraft}
+              paymentStatus={paymentStatusDraft}
+              paymentNotes={paymentNotesDraft}
+              paymentDueDate={paymentDueDateDraft}
+              depositInputMode={depositInputModeDraft}
+              depositPercent={depositPercentDraft}
+              bankName={bankNameDraft}
+              bankAccountNumber={bankAccountNumberDraft}
+              bankAccountHolder={bankAccountHolderDraft}
+              transferReference={transferReferenceDraft}
+              taxAmount={taxAmountDraft}
+              subTotal={paymentSubTotal}
+              totalAmount={paymentTotalAmount}
+              paidAmount={normalizedPaidAmount}
+              remainingAmount={paymentRemainingAmount}
+              depositAmount={normalizedDepositAmount}
+              errors={visiblePaymentErrors}
+              onPaymentMethodChange={handlePaymentMethodChange}
+              onTaxAmountChange={setTaxAmountDraft}
+              onPaymentNotesChange={setPaymentNotesDraft}
+              onPaymentDueDateChange={setPaymentDueDateDraft}
+              onDepositInputModeChange={setDepositInputModeDraft}
+              onDepositPercentChange={setDepositPercentDraft}
+              onDepositAmountChange={setDepositAmountDraft}
+              onBankNameChange={setBankNameDraft}
+              onBankAccountNumberChange={setBankAccountNumberDraft}
+              onBankAccountHolderChange={setBankAccountHolderDraft}
+              onTransferReferenceChange={setTransferReferenceDraft}
+            />
+            {visiblePaymentErrors.processing_status ? (
+              <Typography color="error">{visiblePaymentErrors.processing_status}</Typography>
+            ) : null}
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={closePaymentDialog}>Dong</Button>
+          <Button variant="contained" onClick={() => void handleSavePayment()} disabled={!canEditOrder || isSavingPayment}>
+            {isSavingPayment ? 'Dang luu...' : 'Luu thanh toan'}
           </Button>
         </DialogActions>
       </Dialog>

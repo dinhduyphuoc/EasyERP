@@ -397,9 +397,9 @@ const customerInclude = {
   },
 } satisfies Prisma.CustomerInclude;
 
-const getCustomerByIdOrThrow = async (id: number) => {
-  const customer = await prisma.customer.findUnique({
-    where: { id },
+const getCustomerByIdOrThrow = async (storeId: string, id: number) => {
+  const customer = await prisma.customer.findFirst({
+    where: { id, store_id: storeId },
     include: customerInclude,
   });
 
@@ -412,11 +412,13 @@ const getCustomerByIdOrThrow = async (id: number) => {
 
 const ensurePhoneIsAvailable = async (
   tx: Prisma.TransactionClient,
+  storeId: string,
   phone: string,
   currentCustomerId?: number,
 ) => {
   const existingPhone = await tx.customer.findFirst({
     where: {
+      store_id: storeId,
       phone,
       status: { in: LIVE_CUSTOMER_STATUSES },
       ...(currentCustomerId ? { id: { not: currentCustomerId } } : {}),
@@ -446,7 +448,7 @@ const replaceCustomerAddresses = async (
 };
 
 export const CustomerService = {
-  createCustomer: async (input: CustomerRequestInput) => {
+  createCustomer: async (storeId: string, input: CustomerRequestInput) => {
     const clientCode = toOptionalTrimmedString(input.client_code);
     const fullName = toOptionalTrimmedString(input.full_name);
     const phone = normalizePhone(input.phone);
@@ -479,19 +481,20 @@ export const CustomerService = {
 
           const [existingClientCode, existingPhone, category] = await Promise.all([
             tx.customer.findFirst({
-              where: { client_code: resolvedClientCode },
+              where: { client_code: resolvedClientCode, store_id: storeId },
               select: { id: true },
             }),
             tx.customer.findFirst({
               where: {
+                store_id: storeId,
                 phone,
                 status: { in: LIVE_CUSTOMER_STATUSES },
               },
               select: { id: true },
             }),
             customerCategoryId
-              ? tx.customerCategory.findUnique({
-                  where: { id: customerCategoryId },
+              ? tx.customerCategory.findFirst({
+                  where: { id: customerCategoryId, store_id: storeId },
                   select: { id: true },
                 })
               : Promise.resolve(null),
@@ -520,14 +523,15 @@ export const CustomerService = {
               tax_code: taxCode,
               status,
               customer_category_id: customerCategoryId,
+              store_id: storeId,
             },
             include: customerInclude,
           });
 
           await normalizeCustomerAddresses(tx, customer.id, input.addresses);
 
-          const customerWithAddresses = await tx.customer.findUniqueOrThrow({
-            where: { id: customer.id },
+          const customerWithAddresses = await tx.customer.findFirstOrThrow({
+            where: { id: customer.id, store_id: storeId },
             include: customerInclude,
           });
 
@@ -543,7 +547,7 @@ export const CustomerService = {
     throw new BadRequestError("Unable to generate a unique customer code");
   },
 
-  getCustomers: async (query: CustomerListQuery) => {
+  getCustomers: async (storeId: string, query: CustomerListQuery) => {
     const search = toOptionalTrimmedString(query.search)?.toLowerCase();
     const status = parseCustomerStatus(query.status);
     const customerCategoryId = parseOptionalPositiveInt(
@@ -553,6 +557,7 @@ export const CustomerService = {
 
     const customers = await prisma.customer.findMany({
       where: {
+        store_id: storeId,
         ...(status ? { status } : { status: { notIn: DELETED_CUSTOMER_STATUSES } }),
         ...(customerCategoryId ? { customer_category_id: customerCategoryId } : {}),
         ...(search
@@ -574,12 +579,12 @@ export const CustomerService = {
     return customers.map(mapCustomer);
   },
 
-  getCustomerById: async (id: number) => {
-    return mapCustomer(await getCustomerByIdOrThrow(id));
+  getCustomerById: async (storeId: string, id: number) => {
+    return mapCustomer(await getCustomerByIdOrThrow(storeId, id));
   },
 
-  updateCustomer: async (id: number, input: UpdateCustomerRequestInput) => {
-    const existingCustomer = await getCustomerByIdOrThrow(id);
+  updateCustomer: async (storeId: string, id: number, input: UpdateCustomerRequestInput) => {
+    const existingCustomer = await getCustomerByIdOrThrow(storeId, id);
 
     if (DELETED_CUSTOMER_STATUSES.includes(existingCustomer.status)) {
       throw new BadRequestError("Soft deleted customers must be restored before editing");
@@ -635,14 +640,15 @@ export const CustomerService = {
           ? tx.customer.findFirst({
               where: {
                 client_code: input.client_code,
+                store_id: storeId,
                 id: { not: id },
               },
               select: { id: true },
             })
           : Promise.resolve(null),
         customerCategoryId
-          ? tx.customerCategory.findUnique({
-              where: { id: customerCategoryId },
+          ? tx.customerCategory.findFirst({
+              where: { id: customerCategoryId, store_id: storeId },
               select: { id: true },
             })
           : Promise.resolve(null),
@@ -657,7 +663,7 @@ export const CustomerService = {
       }
 
       if (phone !== existingCustomer.phone) {
-        await ensurePhoneIsAvailable(tx, phone, id);
+        await ensurePhoneIsAvailable(tx, storeId, phone, id);
       }
 
       await replaceCustomerAddresses(tx, id, input.addresses);
@@ -682,9 +688,9 @@ export const CustomerService = {
     return mapCustomer(updatedCustomer);
   },
 
-  getCustomerCategories: async () => {
+  getCustomerCategories: async (storeId: string) => {
     const categories = await prisma.customerCategory.findMany({
-      where: { is_active: true },
+      where: { is_active: true, store_id: storeId },
       orderBy: [{ category_name: "asc" }],
     });
 
@@ -699,12 +705,12 @@ export const CustomerService = {
     }));
   },
 
-  deleteCustomers: async (ids: number[]) => {
+  deleteCustomers: async (storeId: string, ids: number[]) => {
     const uniqueIds = [...new Set(ids)];
 
     return prisma.$transaction(async (tx) => {
       const existingCustomers = await tx.customer.findMany({
-        where: { id: { in: uniqueIds } },
+        where: { id: { in: uniqueIds }, store_id: storeId },
         select: { id: true },
       });
 
@@ -725,8 +731,8 @@ export const CustomerService = {
     });
   },
 
-  restoreCustomer: async (id: number) => {
-    const existingCustomer = await getCustomerByIdOrThrow(id);
+  restoreCustomer: async (storeId: string, id: number) => {
+    const existingCustomer = await getCustomerByIdOrThrow(storeId, id);
 
     if (!DELETED_CUSTOMER_STATUSES.includes(existingCustomer.status)) {
       return mapCustomer(existingCustomer);
@@ -738,6 +744,7 @@ export const CustomerService = {
       if (restoredPhone) {
         const conflictingCustomer = await tx.customer.findFirst({
           where: {
+            store_id: storeId,
             phone: restoredPhone,
             status: { in: LIVE_CUSTOMER_STATUSES },
             id: { not: id },

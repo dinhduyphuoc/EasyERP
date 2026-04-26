@@ -4,8 +4,15 @@ import { ShippingService } from "./shipping.service";
 import type {
   GHNOrderStatusCallbackPayload,
   GHNTicketCallbackPayload,
+  ShippingAddressDistrictQuery,
+  ShippingAddressWardQuery,
+  ShippingAvailableServicesInput,
+  ShippingAvailableServicesByLocationInput,
   ShippingConnectInput,
   ShippingDisconnectInput,
+  ShippingFeeQuoteInput,
+  ShippingFeeQuoteByLocationInput,
+  ShippingLocationResolveInput,
   ShippingProviderParams,
   ShippingStoreScopedQuery,
   ShippingVerifyInput,
@@ -35,6 +42,94 @@ export const ShippingController = {
     const data = await ShippingService.getConnectionDetail(
       req.params.code,
       req.query.store_id,
+    );
+    return res.status(200).json(data);
+  },
+
+  listProviderProvinces: async (
+    req: Request<ShippingProviderParams, {}, {}, ShippingStoreScopedQuery>,
+    res: Response,
+  ) => {
+    const data = await ShippingService.listProviderProvinces(
+      req.params.code,
+      req.query.store_id,
+    );
+    return res.status(200).json(data);
+  },
+
+  listProviderDistricts: async (
+    req: Request<ShippingProviderParams, {}, {}, ShippingAddressDistrictQuery>,
+    res: Response,
+  ) => {
+    const data = await ShippingService.listProviderDistricts(
+      req.params.code,
+      req.query,
+    );
+    return res.status(200).json(data);
+  },
+
+  listProviderWards: async (
+    req: Request<ShippingProviderParams, {}, {}, ShippingAddressWardQuery>,
+    res: Response,
+  ) => {
+    const data = await ShippingService.listProviderWards(
+      req.params.code,
+      req.query,
+    );
+    return res.status(200).json(data);
+  },
+
+  listAvailableServices: async (
+    req: Request<ShippingProviderParams, {}, ShippingAvailableServicesInput>,
+    res: Response,
+  ) => {
+    const data = await ShippingService.listAvailableServices(
+      req.params.code,
+      parseBody<ShippingAvailableServicesInput>(req.body),
+    );
+    return res.status(200).json(data);
+  },
+
+  resolveProviderLocation: async (
+    req: Request<ShippingProviderParams, {}, ShippingLocationResolveInput>,
+    res: Response,
+  ) => {
+    const data = await ShippingService.resolveProviderLocation(
+      req.params.code,
+      parseBody<ShippingLocationResolveInput>(req.body),
+    );
+    return res.status(200).json(data);
+  },
+
+  listAvailableServicesByLocation: async (
+    req: Request<ShippingProviderParams, {}, ShippingAvailableServicesByLocationInput>,
+    res: Response,
+  ) => {
+    const data = await ShippingService.listAvailableServicesByLocation(
+      req.params.code,
+      parseBody<ShippingAvailableServicesByLocationInput>(req.body),
+    );
+    return res.status(200).json(data);
+  },
+
+  calculateFee: async (
+    req: Request<ShippingProviderParams, {}, ShippingFeeQuoteInput>,
+    res: Response,
+  ) => {
+    const data = await ShippingService.calculateFee(
+      req.params.code,
+      parseBody<ShippingFeeQuoteInput>(req.body),
+    );
+    return res.status(200).json(data);
+  },
+
+  calculateFeeByLocation: async (
+    req: Request<ShippingProviderParams, {}, ShippingFeeQuoteByLocationInput>,
+    res: Response,
+  ) => {
+    const data = await ShippingService.calculateFeeByLocation(
+      req.params.code,
+      parseBody<ShippingFeeQuoteByLocationInput>(req.body),
     );
     return res.status(200).json(data);
   },

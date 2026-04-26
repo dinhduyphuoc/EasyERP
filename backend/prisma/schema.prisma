@@ -21,8 +21,12 @@ datasource db {
 model Category {
   id            Int    @id @default(autoincrement())
   category_name String
+  store_id      String
   products      Product[]
+  store         Store  @relation(fields: [store_id], references: [id], onDelete: Cascade)
 
+  @@unique([store_id, category_name])
+  @@index([store_id])
 }
 
 model SalesChannel {
@@ -55,6 +59,12 @@ model ShippingProvider {
   updated_at        DateTime             @default(now()) @updatedAt
 
   connections       ShippingConnection[]
+  province_catalogs ShippingProviderProvince[]
+  district_catalogs ShippingProviderDistrict[]
+  ward_catalogs     ShippingProviderWard[]
+  state_mappings    ShippingProviderStateMapping[]
+  city_mappings     ShippingProviderCityMapping[]
+  district_mappings ShippingProviderDistrictMapping[]
 
   @@index([is_active])
 }
@@ -75,11 +85,27 @@ model ShippingConnection {
   updated_at       DateTime                 @default(now()) @updatedAt
 
   provider         ShippingProvider         @relation(fields: [provider_id], references: [id])
+  store            Store                    @relation("StoreShippingConnections", fields: [store_id], references: [id], onDelete: Cascade)
   history_items    ShippingConnectionHistory[]
+  secret_record    ShippingConnectionSecret?
 
   @@unique([provider_id, store_id])
   @@index([store_id])
   @@index([status])
+}
+
+model ShippingConnectionSecret {
+  id                     String             @id @default(cuid())
+  shipping_connection_id Int                @unique
+  secret_provider        String
+  secret_ref             String?
+  encrypted_payload      Bytes?
+  dek_wrapped            Bytes?
+  key_version            Int                @default(1)
+  created_at             DateTime           @default(now())
+  updated_at             DateTime           @default(now()) @updatedAt
+
+  shipping_connection    ShippingConnection @relation(fields: [shipping_connection_id], references: [id], onDelete: Cascade)
 }
 
 model ShippingConnectionHistory {
@@ -99,6 +125,131 @@ model ShippingConnectionHistory {
 
   @@index([connection_id, created_at])
   @@index([store_id, provider_code])
+}
+
+model ShippingProviderProvince {
+  id              Int       @id @default(autoincrement())
+  provider_id     Int
+  external_id     String
+  code            String?
+  name            String
+  normalized_name String
+  raw_payload     Json      @default("{}")
+  is_active       Boolean   @default(true)
+  created_at      DateTime  @default(now())
+  updated_at      DateTime  @default(now()) @updatedAt
+
+  provider        ShippingProvider              @relation(fields: [provider_id], references: [id], onDelete: Cascade)
+  districts       ShippingProviderDistrict[]
+  state_mappings  ShippingProviderStateMapping[]
+
+  @@unique([provider_id, external_id])
+  @@index([provider_id])
+  @@index([provider_id, normalized_name])
+}
+
+model ShippingProviderDistrict {
+  id              Int       @id @default(autoincrement())
+  provider_id     Int
+  province_id     Int
+  external_id     String
+  code            String?
+  name            String
+  normalized_name String
+  raw_payload     Json      @default("{}")
+  is_active       Boolean   @default(true)
+  created_at      DateTime  @default(now())
+  updated_at      DateTime  @default(now()) @updatedAt
+
+  provider        ShippingProvider            @relation(fields: [provider_id], references: [id], onDelete: Cascade)
+  province        ShippingProviderProvince    @relation(fields: [province_id], references: [id], onDelete: Cascade)
+  wards           ShippingProviderWard[]
+  city_mappings   ShippingProviderCityMapping[]
+
+  @@unique([provider_id, external_id])
+  @@index([provider_id])
+  @@index([province_id])
+  @@index([provider_id, normalized_name])
+}
+
+model ShippingProviderWard {
+  id                Int       @id @default(autoincrement())
+  provider_id       Int
+  provider_district_id Int
+  external_id       String
+  code              String?
+  name              String
+  normalized_name   String
+  raw_payload       Json      @default("{}")
+  is_active         Boolean   @default(true)
+  created_at        DateTime  @default(now())
+  updated_at        DateTime  @default(now()) @updatedAt
+
+  provider          ShippingProvider               @relation(fields: [provider_id], references: [id], onDelete: Cascade)
+  district          ShippingProviderDistrict       @relation(fields: [provider_district_id], references: [id], onDelete: Cascade)
+  district_mappings ShippingProviderDistrictMapping[]
+
+  @@unique([provider_id, external_id])
+  @@index([provider_id])
+  @@index([provider_district_id])
+  @@index([provider_id, normalized_name])
+}
+
+model ShippingProviderStateMapping {
+  id                  Int       @id @default(autoincrement())
+  provider_id         Int
+  state_id            Int
+  provider_province_id Int
+  source              String    @default("auto")
+  confidence_score    Int?
+  created_at          DateTime  @default(now())
+  updated_at          DateTime  @default(now()) @updatedAt
+
+  provider            ShippingProvider          @relation(fields: [provider_id], references: [id], onDelete: Cascade)
+  state               State                     @relation(fields: [state_id], references: [id], onDelete: Cascade)
+  provider_province   ShippingProviderProvince  @relation(fields: [provider_province_id], references: [id], onDelete: Cascade)
+
+  @@unique([provider_id, state_id])
+  @@unique([provider_id, provider_province_id])
+  @@index([state_id])
+}
+
+model ShippingProviderCityMapping {
+  id                    Int       @id @default(autoincrement())
+  provider_id           Int
+  city_id               Int
+  provider_district_id  Int
+  source                String    @default("auto")
+  confidence_score      Int?
+  created_at            DateTime  @default(now())
+  updated_at            DateTime  @default(now()) @updatedAt
+
+  provider              ShippingProvider           @relation(fields: [provider_id], references: [id], onDelete: Cascade)
+  city                  City                       @relation(fields: [city_id], references: [id], onDelete: Cascade)
+  provider_district     ShippingProviderDistrict   @relation(fields: [provider_district_id], references: [id], onDelete: Cascade)
+
+  @@unique([provider_id, city_id])
+  @@unique([provider_id, provider_district_id])
+  @@index([city_id])
+}
+
+model ShippingProviderDistrictMapping {
+  id                Int       @id @default(autoincrement())
+  provider_id       Int
+  district_id       Int
+  provider_ward_id  Int
+  source            String    @default("auto")
+  confidence_score  Int?
+  created_at        DateTime  @default(now())
+  updated_at        DateTime  @default(now()) @updatedAt
+
+  provider          ShippingProvider          @relation(fields: [provider_id], references: [id], onDelete: Cascade)
+  district          District                  @relation(fields: [district_id], references: [id], onDelete: Cascade)
+  provider_ward     ShippingProviderWard      @relation(fields: [provider_ward_id], references: [id], onDelete: Cascade)
+
+  @@unique([provider_id, district_id])
+  @@unique([provider_id, provider_ward_id])
+  @@index([district_id])
 }
 
 enum ProductStatus {
@@ -163,14 +314,40 @@ enum CustomerAddressType {
   other
 }
 
+enum UserStatus {
+  active
+  inactive
+  blocked
+}
+
+enum SessionStatus {
+  active
+  revoked
+  expired
+}
+
+enum TokenType {
+  password_reset
+  email_verification
+}
+
+enum ScopeType {
+  tenant
+  branch
+  warehouse
+  sales_channel
+  customer_segment
+}
+
 // ---------------------------------------------------------
 // 2. Nhóm Sản phẩm
 // ---------------------------------------------------------
 
 model Product {
   id           Int      @id @default(autoincrement())
+  store_id     String
   product_name String
-  sku          String?   @unique
+  sku          String?
   unit         String?   
   base_price   Decimal?  @db.Decimal(12, 2)
   cogs         Decimal?  @db.Decimal(12, 2)
@@ -181,11 +358,14 @@ model Product {
   updated_at   DateTime @default(now()) @updatedAt
   category_id  Int?
   category     Category? @relation(fields: [category_id], references: [id])
+  store        Store     @relation(fields: [store_id], references: [id], onDelete: Cascade)
 
   attributes Attribute[]
   variants   ProductVariant[]
   order_items OrderItem[]
 
+  @@unique([store_id, sku])
+  @@index([store_id])
 }
 
 model Attribute {
@@ -287,7 +467,8 @@ model VariantAttributeValue {
 
 model CustomerCategory {
   id              Int        @id @default(autoincrement())
-  category_code   String?    @unique
+  store_id        String
+  category_code   String?
   category_name   String
   normalized_name String
   is_active       Boolean    @default(true)
@@ -295,13 +476,17 @@ model CustomerCategory {
   updated_at      DateTime   @default(now()) @updatedAt
 
   customers       Customer[]
+  store           Store      @relation(fields: [store_id], references: [id], onDelete: Cascade)
 
-  @@unique([normalized_name])
+  @@unique([store_id, category_code])
+  @@unique([store_id, normalized_name])
+  @@index([store_id])
 }
 
 model Customer {
   id                   Int               @id @default(autoincrement())
-  client_code          String            @unique
+  store_id             String
+  client_code          String
   full_name            String
   phone                String?
   email                String?
@@ -314,10 +499,13 @@ model Customer {
   updated_at           DateTime          @default(now()) @updatedAt
 
   customer_category    CustomerCategory? @relation(fields: [customer_category_id], references: [id])
+  store                Store             @relation(fields: [store_id], references: [id], onDelete: Cascade)
   orders               Order[]
   addresses            CustomerAddress[]
 
+  @@unique([store_id, client_code])
   @@index([full_name])
+  @@index([store_id])
   @@index([client_code])
   @@index([phone])
   @@index([status])
@@ -348,6 +536,7 @@ model State {
 
   cities          City[]
   addresses       Address[]
+  provider_state_mappings ShippingProviderStateMapping[]
 }
 
 model City {
@@ -363,6 +552,7 @@ model City {
   state           State      @relation(fields: [state_id], references: [id])
   districts       District[]
   addresses       Address[]
+  provider_city_mappings ShippingProviderCityMapping[]
 
   @@unique([state_id, code])
   @@unique([state_id, normalized_name])
@@ -381,6 +571,7 @@ model District {
 
   city            City      @relation(fields: [city_id], references: [id])
   addresses       Address[]
+  provider_district_mappings ShippingProviderDistrictMapping[]
 
   @@unique([city_id, code])
   @@unique([city_id, normalized_name])
@@ -443,11 +634,13 @@ model CustomerAddress {
 
 model Order {
   id                        Int                   @id @default(autoincrement())
-  order_code                String                @unique
+  store_id                  String
+  order_code                String
   order_type                OrderType             @default(sale)
   order_date                DateTime              @default(now())
   customer_id               Int?
   customer                  Customer?             @relation(fields: [customer_id], references: [id])
+  store                     Store                 @relation(fields: [store_id], references: [id], onDelete: Cascade)
   customer_code             String?
   customer_name             String
   customer_phone            String
@@ -514,6 +707,8 @@ model Order {
   to_address_detail         Address?              @relation("OrderToAddress", fields: [to_address_id], references: [id])
   return_address_detail     Address?              @relation("OrderReturnAddress", fields: [return_address_id], references: [id])
 
+  @@unique([store_id, order_code])
+  @@index([store_id])
   @@index([order_code])
   @@index([order_date])
   @@index([payment_status])
@@ -661,4 +856,228 @@ model InventoryTransactionLine {
   @@unique([transaction_id, field_name])
   @@index([transaction_id])
   @@map("InventoryTransactionLine")
+}
+
+model Tenant {
+  id          String      @id @default(cuid())
+  name        String
+  slug        String      @unique
+  status      String      @default("active")
+  default_shipping_address_json Json @default("{}")
+  default_bank_account_json     Json @default("{}")
+  created_at  DateTime    @default(now())
+  updated_at  DateTime    @default(now()) @updatedAt
+
+  users       User[]
+  roles       Role[]
+  stores      Store[]
+}
+
+enum StoreRole {
+  owner
+  admin
+  staff
+}
+
+model Store {
+  id                    String         @id @default(uuid())
+  tenant_id             String?
+  name                  String
+  slug                  String         @unique
+  owner_user_id         String
+  default_currency      String         @default("USD")
+  default_timezone      String         @default("UTC")
+  profile_json          Json           @default("{}")
+  default_address_json  Json           @default("{}")
+  billing_address_json  Json           @default("{}")
+  return_address_json   Json           @default("{}")
+  deleted_at            DateTime?
+  created_at            DateTime       @default(now())
+  updated_at            DateTime       @default(now()) @updatedAt
+
+  tenant                Tenant?        @relation(fields: [tenant_id], references: [id])
+  owner_user            User           @relation("StoreOwner", fields: [owner_user_id], references: [id])
+  active_users          User[]         @relation("UserActiveStore")
+  user_stores           UserStore[]
+  categories            Category[]
+  customer_categories   CustomerCategory[]
+  customers             Customer[]
+  orders                Order[]
+  products              Product[]
+  shipping_connections  ShippingConnection[] @relation("StoreShippingConnections")
+
+  @@index([owner_user_id])
+  @@index([tenant_id])
+}
+
+model UserStore {
+  id         String    @id @default(cuid())
+  user_id    String
+  store_id   String
+  role       StoreRole
+  created_at DateTime  @default(now())
+  updated_at DateTime  @default(now()) @updatedAt
+
+  user       User      @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  store      Store     @relation(fields: [store_id], references: [id], onDelete: Cascade)
+
+  @@unique([user_id, store_id])
+  @@index([store_id])
+}
+
+model User {
+  id                     String      @id @default(cuid())
+  tenant_id              String?
+  active_store_id        String?
+  full_name              String
+  email                  String      @unique
+  email_normalized       String      @unique
+  password_hash          String
+  status                 UserStatus  @default(active)
+  is_email_verified      Boolean     @default(false)
+  last_login_at          DateTime?
+  failed_login_attempts  Int         @default(0)
+  last_failed_login_at   DateTime?
+  locked_until           DateTime?
+  token_version          Int         @default(0)
+  created_at             DateTime    @default(now())
+  updated_at             DateTime    @default(now()) @updatedAt
+
+  tenant                 Tenant?     @relation(fields: [tenant_id], references: [id])
+  active_store           Store?      @relation("UserActiveStore", fields: [active_store_id], references: [id])
+  owned_stores           Store[]     @relation("StoreOwner")
+  stores                 UserStore[]
+  roles                  UserRole[]
+  scopes                 UserScope[]
+  sessions               Session[]
+  tokens                 UserToken[]
+  audit_logs             AuditLog[]  @relation("AuditActor")
+  targeted_audit_logs    AuditLog[]  @relation("AuditTarget")
+
+  @@index([tenant_id])
+  @@index([active_store_id])
+  @@index([status])
+}
+
+model Role {
+  id          String            @id @default(cuid())
+  tenant_id   String?
+  slug        String
+  name        String
+  description String?
+  is_system   Boolean           @default(true)
+  created_at  DateTime          @default(now())
+  updated_at  DateTime          @default(now()) @updatedAt
+
+  tenant      Tenant?           @relation(fields: [tenant_id], references: [id])
+  permissions RolePermission[]
+  users       UserRole[]
+
+  @@unique([tenant_id, slug])
+}
+
+model Permission {
+  id          String            @id @default(cuid())
+  code        String            @unique
+  description String?
+  created_at  DateTime          @default(now())
+
+  roles       RolePermission[]
+}
+
+model RolePermission {
+  role_id        String
+  permission_id  String
+
+  role           Role        @relation(fields: [role_id], references: [id], onDelete: Cascade)
+  permission     Permission  @relation(fields: [permission_id], references: [id], onDelete: Cascade)
+
+  @@id([role_id, permission_id])
+}
+
+model UserRole {
+  user_id      String
+  role_id      String
+  assigned_by  String?
+  assigned_at  DateTime   @default(now())
+
+  user         User       @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  role         Role       @relation(fields: [role_id], references: [id], onDelete: Cascade)
+
+  @@id([user_id, role_id])
+}
+
+model UserScope {
+  id           String     @id @default(cuid())
+  user_id       String
+  tenant_id     String
+  scope_type    ScopeType
+  scope_value   String
+  created_at    DateTime   @default(now())
+
+  user          User       @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([user_id, tenant_id, scope_type, scope_value])
+  @@index([tenant_id, scope_type, scope_value])
+}
+
+model Session {
+  id                  String         @id @default(cuid())
+  user_id             String
+  tenant_id           String?
+  session_token_hash  String         @unique
+  status              SessionStatus  @default(active)
+  user_agent          String?
+  ip_address          String?
+  device_name         String?
+  expires_at          DateTime
+  idle_expires_at     DateTime?
+  last_used_at        DateTime?
+  revoked_at          DateTime?
+  revoke_reason       String?
+  created_at          DateTime       @default(now())
+  updated_at          DateTime       @default(now()) @updatedAt
+
+  user                User           @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id, expires_at])
+  @@index([tenant_id])
+  @@index([status])
+}
+
+model UserToken {
+  id           String      @id @default(cuid())
+  user_id       String
+  token_type    TokenType
+  token_hash    String
+  expires_at    DateTime
+  consumed_at   DateTime?
+  created_at    DateTime   @default(now())
+
+  user          User       @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id, token_type])
+}
+
+model AuditLog {
+  id               String     @id @default(cuid())
+  tenant_id        String?
+  actor_user_id    String?
+  target_user_id   String?
+  action           String
+  resource_type    String
+  resource_id      String?
+  status           String
+  ip_address       String?
+  user_agent       String?
+  request_id       String?
+  metadata_json    Json       @default("{}")
+  created_at       DateTime   @default(now())
+
+  actor            User?      @relation("AuditActor", fields: [actor_user_id], references: [id])
+  target           User?      @relation("AuditTarget", fields: [target_user_id], references: [id])
+
+  @@index([tenant_id, action, created_at(sort: Desc)])
+  @@index([actor_user_id, created_at(sort: Desc)])
+  @@index([resource_type, resource_id])
 }

@@ -1,6 +1,10 @@
 import { prisma } from "@lib/prisma";
 import { BadRequestError, NotFoundError } from "@/common";
+import { createGHNClient } from "@/lib/ghn";
 import { Prisma, type ShippingConnectionStatus } from "../../../generated/prisma/client";
+import {
+  resolveProviderLocationFromCanonical,
+} from "./shipping.location.service";
 import {
   resolveShippingAdapter,
   shippingProviderAdapters,
@@ -8,8 +12,15 @@ import {
 import type {
   GHNOrderStatusCallbackPayload,
   GHNTicketCallbackPayload,
+  ShippingAddressDistrictQuery,
+  ShippingAddressWardQuery,
+  ShippingAvailableServicesInput,
+  ShippingAvailableServicesByLocationInput,
   ShippingConnectInput,
   ShippingDisconnectInput,
+  ShippingFeeQuoteInput,
+  ShippingFeeQuoteByLocationInput,
+  ShippingLocationResolveInput,
   ShippingVerifyInput,
 } from "./shipping.types";
 
@@ -28,6 +39,94 @@ const normalizeStoreId = (value: unknown) => {
 
   const trimmed = value.trim();
   return trimmed.length ? trimmed : DEFAULT_STORE_ID;
+};
+
+const parseRequiredPositiveInt = (value: unknown, fieldName: string) => {
+  const parsed = Number(value);
+
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new BadRequestError(`${fieldName} must be a positive integer`);
+  }
+
+  return parsed;
+};
+
+const parseOptionalNonNegativeInt = (value: unknown, fieldName: string) => {
+  if (value === undefined || value === null || value === "") {
+    return undefined;
+  }
+
+  const parsed = Number(value);
+
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    throw new BadRequestError(`${fieldName} must be a non-negative integer`);
+  }
+
+  return parsed;
+};
+
+const getConnectedProviderClient = async (
+  providerCode: string,
+  storeIdInput?: string,
+) => {
+  const storeId = normalizeStoreId(storeIdInput);
+  const provider = await prisma.shippingProvider.findUnique({
+    where: { code: providerCode.toLowerCase() },
+    select: { id: true, code: true, display_name: true },
+  });
+
+  if (!provider) {
+    throw new NotFoundError("Shipping provider not found");
+  }
+
+  const connection = await prisma.shippingConnection.findUnique({
+    where: {
+      provider_id_store_id: {
+        provider_id: provider.id,
+        store_id: storeId,
+      },
+    },
+    select: {
+      status: true,
+      credentials_json: true,
+    },
+  });
+
+  if (!connection || connection.status !== "connected") {
+    throw new BadRequestError(
+      `${provider.display_name} connection is not available for store ${storeId}`,
+    );
+  }
+
+  if (
+    !connection.credentials_json ||
+    typeof connection.credentials_json !== "object" ||
+    Array.isArray(connection.credentials_json)
+  ) {
+    throw new BadRequestError(`${provider.display_name} credentials are missing`);
+  }
+
+  const adapter = resolveShippingAdapter(provider.code);
+  const credentials = adapter.validateCredentials(
+    connection.credentials_json as Record<string, unknown>,
+  );
+
+  switch (provider.code) {
+    case "ghn":
+      return {
+        store_id: storeId,
+        provider,
+        client: createGHNClient({
+          token: credentials.token,
+          shopId: credentials.shop_id,
+        }),
+        credentials,
+      };
+    default:
+      throw new BadRequestError(
+        `Connected provider ${provider.display_name} does not support address or fee integration yet`,
+      );
+  }
 };
 
 const ensurePlainObject = (value: unknown): Record<string, unknown> => {
@@ -358,6 +457,496 @@ export const ShippingService = {
     }
 
     return serializeConnectionDetail(provider, storeId, provider.connections[0] ?? null);
+  },
+
+  listProviderProvinces: async (providerCode: string, storeIdInput?: string) => {
+    const { client, provider, store_id } = await getConnectedProviderClient(
+      providerCode,
+      storeIdInput,
+    );
+
+    switch (provider.code) {
+      case "ghn": {
+        const response = await client.address.getProvince();
+        return {
+          store_id,
+          provider_code: provider.code,
+          items:
+            response.data?.map((item: any) => ({
+              id: item.ProvinceID,
+              code: item.Code,
+              name: item.ProvinceName,
+            })) ?? [],
+        };
+      }
+      default:
+        throw new BadRequestError(
+          `Provider ${provider.display_name} does not support province lookup`,
+        );
+    }
+  },
+
+  listProviderDistricts: async (
+    providerCode: string,
+    query: ShippingAddressDistrictQuery,
+  ) => {
+    const { client, provider, store_id } = await getConnectedProviderClient(
+      providerCode,
+      query.store_id,
+    );
+    const provinceId = parseRequiredPositiveInt(query.province_id, "province_id");
+
+    switch (provider.code) {
+      case "ghn": {
+        const response = await client.address.getDistrict({
+          province_id: provinceId,
+        });
+        return {
+          store_id,
+          provider_code: provider.code,
+          province_id: provinceId,
+          items:
+            response.data?.map((item: any) => ({
+              id: item.DistrictID,
+              province_id: item.ProvinceID,
+              code: item.Code,
+              name: item.DistrictName,
+            })) ?? [],
+        };
+      }
+      default:
+        throw new BadRequestError(
+          `Provider ${provider.display_name} does not support district lookup`,
+        );
+    }
+  },
+
+  listProviderWards: async (
+    providerCode: string,
+    query: ShippingAddressWardQuery,
+  ) => {
+    const { client, provider, store_id } = await getConnectedProviderClient(
+      providerCode,
+      query.store_id,
+    );
+    const districtId = parseRequiredPositiveInt(query.district_id, "district_id");
+
+    switch (provider.code) {
+      case "ghn": {
+        const response = await client.address.getWard({
+          district_id: districtId,
+        });
+        return {
+          store_id,
+          provider_code: provider.code,
+          district_id: districtId,
+          items:
+            response.data?.map((item: any) => ({
+              code: item.WardCode,
+              district_id: item.DistrictID,
+              name: item.WardName,
+            })) ?? [],
+        };
+      }
+      default:
+        throw new BadRequestError(
+          `Provider ${provider.display_name} does not support ward lookup`,
+        );
+    }
+  },
+
+  resolveProviderLocation: async (
+    providerCode: string,
+    input: ShippingLocationResolveInput,
+  ) => {
+    const { client, provider, store_id } = await getConnectedProviderClient(
+      providerCode,
+      input.store_id,
+    );
+
+    switch (provider.code) {
+      case "ghn": {
+        const resolved = await resolveProviderLocationFromCanonical(
+          {
+            client,
+            provider,
+            store_id,
+          },
+          input.location,
+        );
+
+        return {
+          store_id,
+          provider_code: provider.code,
+          location: resolved,
+        };
+      }
+      default:
+        throw new BadRequestError(
+          `Provider ${provider.display_name} does not support canonical location mapping yet`,
+        );
+    }
+  },
+
+  listAvailableServices: async (
+    providerCode: string,
+    input: ShippingAvailableServicesInput,
+  ) => {
+    const { client, provider, store_id, credentials } = await getConnectedProviderClient(
+      providerCode,
+      input.store_id,
+    );
+    const fromDistrictId = parseRequiredPositiveInt(
+      input.from_district_id,
+      "from_district_id",
+    );
+    const toDistrictId = parseRequiredPositiveInt(
+      input.to_district_id,
+      "to_district_id",
+    );
+
+    switch (provider.code) {
+      case "ghn": {
+        const response = await client.fee.getAvailableService({
+          shop_id: Number(credentials.shop_id),
+          from_district: fromDistrictId,
+          to_district: toDistrictId,
+        });
+
+        return {
+          store_id,
+          provider_code: provider.code,
+          items:
+            response.data?.map((item: any) => ({
+              service_id: item.service_id,
+              service_type_id: item.service_type_id,
+              short_name: item.short_name,
+            })) ?? [],
+        };
+      }
+      default:
+        throw new BadRequestError(
+          `Provider ${provider.display_name} does not support service lookup`,
+        );
+    }
+  },
+
+  listAvailableServicesByLocation: async (
+    providerCode: string,
+    input: ShippingAvailableServicesByLocationInput,
+  ) => {
+    const { client, provider, store_id, credentials } = await getConnectedProviderClient(
+      providerCode,
+      input.store_id,
+    );
+
+    switch (provider.code) {
+      case "ghn": {
+        if (!input.from_location) {
+          throw new BadRequestError("from_location is required");
+        }
+
+        if (!input.to_location) {
+          throw new BadRequestError("to_location is required");
+        }
+
+        const [resolvedFrom, resolvedTo] = await Promise.all([
+          resolveProviderLocationFromCanonical(
+            {
+              client,
+              provider,
+              store_id,
+            },
+            input.from_location,
+          ),
+          resolveProviderLocationFromCanonical(
+            {
+              client,
+              provider,
+              store_id,
+            },
+            input.to_location,
+          ),
+        ]);
+
+        const response = await client.fee.getAvailableService({
+          shop_id: Number(credentials.shop_id),
+          from_district: parseRequiredPositiveInt(
+            resolvedFrom.provider_district.external_id,
+            "from provider district external_id",
+          ),
+          to_district: parseRequiredPositiveInt(
+            resolvedTo.provider_district.external_id,
+            "to provider district external_id",
+          ),
+        });
+
+        return {
+          store_id,
+          provider_code: provider.code,
+          resolved_from: resolvedFrom,
+          resolved_to: resolvedTo,
+          items:
+            response.data?.map((item: any) => ({
+              service_id: item.service_id,
+              service_type_id: item.service_type_id,
+              short_name: item.short_name,
+            })) ?? [],
+        };
+      }
+      default:
+        throw new BadRequestError(
+          `Provider ${provider.display_name} does not support canonical service lookup yet`,
+        );
+    }
+  },
+
+  calculateFee: async (providerCode: string, input: ShippingFeeQuoteInput) => {
+    const { client, provider, store_id } = await getConnectedProviderClient(
+      providerCode,
+      input.store_id,
+    );
+
+    switch (provider.code) {
+      case "ghn": {
+        const toDistrictId = parseRequiredPositiveInt(
+          input.to_district_id,
+          "to_district_id",
+        );
+        const toWardCode =
+          typeof input.to_ward_code === "string" ? input.to_ward_code.trim() : "";
+
+        if (!toWardCode) {
+          throw new BadRequestError("to_ward_code is required");
+        }
+
+        const response = await client.fee.calculateFee({
+          from_district_id: parseOptionalNonNegativeInt(
+            input.from_district_id,
+            "from_district_id",
+          ),
+          from_ward_code:
+            typeof input.from_ward_code === "string" && input.from_ward_code.trim()
+              ? input.from_ward_code.trim()
+              : undefined,
+          service_id: parseOptionalNonNegativeInt(input.service_id, "service_id"),
+          service_type_id: parseOptionalNonNegativeInt(
+            input.service_type_id,
+            "service_type_id",
+          ),
+          to_district_id: toDistrictId,
+          to_ward_code: toWardCode,
+          height: parseOptionalNonNegativeInt(input.height, "height"),
+          length: parseOptionalNonNegativeInt(input.length, "length"),
+          weight: parseOptionalNonNegativeInt(input.weight, "weight"),
+          width: parseOptionalNonNegativeInt(input.width, "width"),
+          insurance_value: parseOptionalNonNegativeInt(
+            input.insurance_value,
+            "insurance_value",
+          ),
+          cod_value: parseOptionalNonNegativeInt(input.cod_value, "cod_value"),
+          coupon:
+            typeof input.coupon === "string" && input.coupon.trim()
+              ? input.coupon.trim()
+              : undefined,
+          items: Array.isArray(input.items)
+            ? input.items.map((item, index) => ({
+                name: typeof item.name === "string" && item.name.trim()
+                  ? item.name.trim()
+                  : `Item ${index + 1}`,
+                quantity: parseRequiredPositiveInt(item.quantity ?? 1, `items[${index}].quantity`),
+                height: parseOptionalNonNegativeInt(item.height, `items[${index}].height`),
+                weight: parseOptionalNonNegativeInt(item.weight, `items[${index}].weight`),
+                length: parseOptionalNonNegativeInt(item.length, `items[${index}].length`),
+                width: parseOptionalNonNegativeInt(item.width, `items[${index}].width`),
+              }))
+            : undefined,
+        });
+
+        return {
+          store_id,
+          provider_code: provider.code,
+          quote: response.data,
+        };
+      }
+      default:
+        throw new BadRequestError(
+          `Provider ${provider.display_name} does not support fee calculation`,
+        );
+    }
+  },
+
+  calculateFeeByLocation: async (
+    providerCode: string,
+    input: ShippingFeeQuoteByLocationInput,
+  ) => {
+    const { client, provider, store_id, credentials } = await getConnectedProviderClient(
+      providerCode,
+      input.store_id,
+    );
+
+    switch (provider.code) {
+      case "ghn": {
+        if (!input.from_location) {
+          throw new BadRequestError("from_location is required");
+        }
+
+        if (!input.to_location) {
+          throw new BadRequestError("to_location is required");
+        }
+
+        const [resolvedFrom, resolvedTo] = await Promise.all([
+          resolveProviderLocationFromCanonical(
+            {
+              client,
+              provider,
+              store_id,
+            },
+            input.from_location,
+            { require_district: true },
+          ),
+          resolveProviderLocationFromCanonical(
+            {
+              client,
+              provider,
+              store_id,
+            },
+            input.to_location,
+            { require_district: true },
+          ),
+        ]);
+
+        const fromWardCode =
+          resolvedFrom.provider_ward?.code?.trim() ??
+          resolvedFrom.provider_ward?.external_id ??
+          null;
+        const toWardCode =
+          resolvedTo.provider_ward?.code?.trim() ??
+          resolvedTo.provider_ward?.external_id ??
+          null;
+
+        if (!fromWardCode || !toWardCode) {
+          throw new BadRequestError(
+            "Both from_location and to_location must resolve to a provider ward",
+          );
+        }
+
+        let resolvedServiceId = parseOptionalNonNegativeInt(
+          input.service_id,
+          "service_id",
+        );
+        let resolvedServiceTypeId = parseOptionalNonNegativeInt(
+          input.service_type_id,
+          "service_type_id",
+        );
+        let appliedService:
+          | {
+              service_id: number;
+              service_type_id: number;
+              short_name: string;
+            }
+          | null = null;
+
+        if (resolvedServiceId === undefined && resolvedServiceTypeId === undefined) {
+          const availableServicesResponse = await client.fee.getAvailableService({
+            shop_id: Number(credentials.shop_id),
+            from_district: parseRequiredPositiveInt(
+              resolvedFrom.provider_district.external_id,
+              "from provider district external_id",
+            ),
+            to_district: parseRequiredPositiveInt(
+              resolvedTo.provider_district.external_id,
+              "to provider district external_id",
+            ),
+          });
+
+          const firstAvailableService = availableServicesResponse.data?.[0];
+
+          if (!firstAvailableService) {
+            throw new BadRequestError(
+              `No available shipping service was returned by ${provider.display_name} for the selected route`,
+            );
+          }
+
+          resolvedServiceId = firstAvailableService.service_id;
+          resolvedServiceTypeId = firstAvailableService.service_type_id;
+          appliedService = {
+            service_id: firstAvailableService.service_id,
+            service_type_id: firstAvailableService.service_type_id,
+            short_name: firstAvailableService.short_name,
+          };
+        }
+
+        const response = await client.fee.calculateFee({
+          from_district_id: parseRequiredPositiveInt(
+            resolvedFrom.provider_district.external_id,
+            "from provider district external_id",
+          ),
+          from_ward_code: fromWardCode,
+          service_id: resolvedServiceId,
+          service_type_id: resolvedServiceTypeId,
+          to_district_id: parseRequiredPositiveInt(
+            resolvedTo.provider_district.external_id,
+            "to provider district external_id",
+          ),
+          to_ward_code: toWardCode,
+          height: parseOptionalNonNegativeInt(input.height, "height"),
+          length: parseOptionalNonNegativeInt(input.length, "length"),
+          weight: parseOptionalNonNegativeInt(input.weight, "weight"),
+          width: parseOptionalNonNegativeInt(input.width, "width"),
+          insurance_value: parseOptionalNonNegativeInt(
+            input.insurance_value,
+            "insurance_value",
+          ),
+          cod_value: parseOptionalNonNegativeInt(input.cod_value, "cod_value"),
+          coupon:
+            typeof input.coupon === "string" && input.coupon.trim()
+              ? input.coupon.trim()
+              : undefined,
+          items: Array.isArray(input.items)
+            ? input.items.map((item, index) => ({
+                name:
+                  typeof item.name === "string" && item.name.trim()
+                    ? item.name.trim()
+                    : `Item ${index + 1}`,
+                quantity: parseRequiredPositiveInt(
+                  item.quantity ?? 1,
+                  `items[${index}].quantity`,
+                ),
+                height: parseOptionalNonNegativeInt(
+                  item.height,
+                  `items[${index}].height`,
+                ),
+                weight: parseOptionalNonNegativeInt(
+                  item.weight,
+                  `items[${index}].weight`,
+                ),
+                length: parseOptionalNonNegativeInt(
+                  item.length,
+                  `items[${index}].length`,
+                ),
+                width: parseOptionalNonNegativeInt(
+                  item.width,
+                  `items[${index}].width`,
+                ),
+              }))
+            : undefined,
+        });
+
+        return {
+          store_id,
+          provider_code: provider.code,
+          resolved_from: resolvedFrom,
+          resolved_to: resolvedTo,
+          applied_service: appliedService,
+          quote: response.data,
+        };
+      }
+      default:
+        throw new BadRequestError(
+          `Provider ${provider.display_name} does not support canonical fee calculation yet`,
+        );
+    }
   },
 
   connectProvider: async (providerCode: string, input: ShippingConnectInput) => {

@@ -17,15 +17,21 @@ const PRISMA_INTERACTIVE_TRANSACTION_OPTIONS = {
   timeout: 20_000,
 } as const;
 
-let categoryCache:
-  | {
-      data: ProductCategoryItem[];
-      expiresAt: number;
-    }
-  | null = null;
+const categoryCache = new Map<
+  string,
+  {
+    data: ProductCategoryItem[];
+    expiresAt: number;
+  }
+>();
 
-const clearCategoryCache = () => {
-  categoryCache = null;
+const clearCategoryCache = (storeId?: string) => {
+  if (storeId) {
+    categoryCache.delete(storeId);
+    return;
+  }
+
+  categoryCache.clear();
 };
 
 const getUniqueIds = (ids: number[]) => [...new Set(ids)];
@@ -42,11 +48,13 @@ const normalizeCategoryName = (value: unknown) => {
 
 const ensureCategoryNameIsUnique = async (
   tx: PrismaTransaction | typeof prisma,
+  storeId: string,
   categoryName: string,
   ignoreCategoryId?: number,
 ) => {
   const existingCategory = await tx.category.findFirst({
     where: {
+      store_id: storeId,
       category_name: categoryName,
       ...(ignoreCategoryId ? { id: { not: ignoreCategoryId } } : {}),
     },
@@ -105,6 +113,16 @@ const toOptionalTrimmedStringOrNull = (value: unknown) => {
   }
 
   return toOptionalTrimmedString(value);
+};
+
+const normalizePersistedImageUrl = (value: unknown) => {
+  const imageUrl = toOptionalTrimmedStringOrNull(value);
+
+  if (typeof imageUrl === "string" && imageUrl.startsWith("blob:")) {
+    throw new BadRequestError("image_url must be an uploaded URL, not a local blob preview");
+  }
+
+  return imageUrl;
 };
 
 const toOptionalNumber = (value: unknown) => {
@@ -252,6 +270,7 @@ const createVariantAttributeValues = (attributeValueIds: number[]) =>
 
 const ensureNoCrossProductSkuConflict = async (
   tx: PrismaTransaction,
+  storeId: string,
   productId: number,
   variantSkus: string[],
 ) => {
@@ -263,6 +282,9 @@ const ensureNoCrossProductSkuConflict = async (
     where: {
       sku: { in: variantSkus },
       product_id: { not: productId },
+      product: {
+        store_id: storeId,
+      },
     },
   });
 
@@ -405,6 +427,7 @@ const syncVariants = async (
 
 const resolveCategoryId = async (
   tx: PrismaTransaction,
+  storeId: string,
   payload: ProductRequestInput,
 ) => {
   if (payload.category_id !== undefined) {
@@ -412,8 +435,8 @@ const resolveCategoryId = async (
       return null;
     }
 
-    const category = await tx.category.findUnique({
-      where: { id: payload.category_id },
+    const category = await tx.category.findFirst({
+      where: { id: payload.category_id, store_id: storeId },
       select: { id: true },
     });
 
@@ -431,7 +454,7 @@ const resolveCategoryId = async (
   }
 
   const category = await tx.category.findFirst({
-    where: { category_name: categoryName },
+    where: { category_name: categoryName, store_id: storeId },
     select: { id: true },
   });
 
@@ -444,6 +467,7 @@ const resolveCategoryId = async (
 
 const normalizeProductInput = async (
   tx: PrismaTransaction,
+  storeId: string,
   payload: ProductRequestInput,
 ) => {
   const productName = toOptionalTrimmedString(payload.product_name);
@@ -454,7 +478,7 @@ const normalizeProductInput = async (
 
   const sku = toOptionalTrimmedString(payload.sku);
   const attributes = normalizeAttributeInputs(payload.attributes);
-  const categoryId = await resolveCategoryId(tx, payload);
+  const categoryId = await resolveCategoryId(tx, storeId, payload);
 
   const variants =
     attributes.length === 0
@@ -470,8 +494,8 @@ const normalizeProductInput = async (
           }
 
           const singleVariantImage =
-            toNullableTrimmedString(payload.variants?.[0]?.image_url) ??
-            toOptionalTrimmedStringOrNull(payload.image_url);
+            normalizePersistedImageUrl(payload.variants?.[0]?.image_url) ??
+            normalizePersistedImageUrl(payload.image_url);
 
           return [
             {
@@ -510,7 +534,7 @@ const normalizeProductInput = async (
               toOptionalNumber(variant.cogs) ??
               toOptionalNumber(payload.cogs) ??
               sellingPrice,
-            image_url: toOptionalTrimmedStringOrNull(variant.image_url),
+            image_url: normalizePersistedImageUrl(variant.image_url),
             combinations,
           };
         });
@@ -533,7 +557,7 @@ const normalizeProductInput = async (
       attributes.length === 0
         ? variants[0]?.cogs ?? toOptionalNumber(payload.cogs) ?? null
         : toOptionalNumber(payload.cogs) ?? null,
-    image_url: toOptionalTrimmedStringOrNull(payload.image_url),
+    image_url: normalizePersistedImageUrl(payload.image_url),
     status: normalizeProductStatus(payload.status),
     description: toNullableTrimmedString(payload.description),
     created_at: payload.created_at,
@@ -543,9 +567,9 @@ const normalizeProductInput = async (
   } satisfies ProductInput;
 };
 
-const getProductOrThrow = async (id: number) => {
-  const product = await prisma.product.findUnique({
-    where: { id },
+const getProductOrThrow = async (storeId: string, id: number) => {
+  const product = await prisma.product.findFirst({
+    where: { id, store_id: storeId },
     include: productInclude,
   });
 
@@ -557,9 +581,11 @@ const getProductOrThrow = async (id: number) => {
 };
 
 export const ProductService = {
-  getCategories: async () => {
-    if (categoryCache && categoryCache.expiresAt > Date.now()) {
-      return categoryCache.data;
+  getCategories: async (storeId: string) => {
+    const cached = categoryCache.get(storeId);
+
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.data;
     }
 
     const categories = await prisma.category.findMany({
@@ -567,22 +593,25 @@ export const ProductService = {
         id: true,
         category_name: true,
       },
+      where: {
+        store_id: storeId,
+      },
       orderBy: {
         category_name: "asc",
       },
     });
 
-    categoryCache = {
+    categoryCache.set(storeId, {
       data: categories,
       expiresAt: Date.now() + CATEGORY_CACHE_TTL_MS,
-    };
+    });
 
     return categories;
   },
 
-  getCategoryById: async (id: number) => {
-    const category = await prisma.category.findUnique({
-      where: { id },
+  getCategoryById: async (storeId: string, id: number) => {
+    const category = await prisma.category.findFirst({
+      where: { id, store_id: storeId },
       select: {
         id: true,
         category_name: true,
@@ -596,15 +625,16 @@ export const ProductService = {
     return category;
   },
 
-  createCategory: async (payload: ProductCategoryRequestInput) => {
+  createCategory: async (storeId: string, payload: ProductCategoryRequestInput) => {
     const categoryName = normalizeCategoryName(payload.category_name);
 
     return prisma.$transaction(async (tx) => {
-      await ensureCategoryNameIsUnique(tx, categoryName);
+      await ensureCategoryNameIsUnique(tx, storeId, categoryName);
 
       const category = await tx.category.create({
         data: {
           category_name: categoryName,
+          store_id: storeId,
         },
         select: {
           id: true,
@@ -612,14 +642,14 @@ export const ProductService = {
         },
       });
 
-      clearCategoryCache();
+      clearCategoryCache(storeId);
       return category;
     }, PRISMA_INTERACTIVE_TRANSACTION_OPTIONS);
   },
 
-  createProduct: async (payload: ProductRequestInput) => {
+  createProduct: async (storeId: string, payload: ProductRequestInput) => {
     const { product, oldImageUrlToDelete } = await prisma.$transaction(async (tx) => {
-      const data = await normalizeProductInput(tx, payload);
+      const data = await normalizeProductInput(tx, storeId, payload);
 
       // Restore soft-deleted product when the root SKU matches.
       let existingProduct = null;
@@ -628,6 +658,7 @@ export const ProductService = {
           where: {
             sku: data.sku,
             status: "deleted",
+            store_id: storeId,
           },
           include: productInclude,
         });
@@ -647,6 +678,7 @@ export const ProductService = {
           data: {
             ...toProductData(data),
             status: "active",
+            store_id: storeId,
           },
         });
 
@@ -695,6 +727,7 @@ export const ProductService = {
 
       await ensureNoCrossProductSkuConflict(
         tx,
+        storeId,
         -1,
         data.variants.map((variant) => variant.sku),
       );
@@ -702,6 +735,7 @@ export const ProductService = {
       const createdProduct = await tx.product.create({
         data: {
           ...toProductData(data),
+          store_id: storeId,
           attributes: toAttributeCreateData(data.attributes),
         },
         include: { attributes: { include: { values: true } } },
@@ -725,9 +759,10 @@ export const ProductService = {
     return product;
   },
 
-  getProducts: async () => {
+  getProducts: async (storeId: string) => {
     return prisma.product.findMany({
       where: {
+        store_id: storeId,
         status: {
           not: "deleted",
         },
@@ -736,14 +771,14 @@ export const ProductService = {
     });
   },
 
-  getProductById: async (id: number) => getProductOrThrow(id),
+  getProductById: async (storeId: string, id: number) => getProductOrThrow(storeId, id),
 
-  editCategory: async (id: number, payload: ProductCategoryRequestInput) => {
+  editCategory: async (storeId: string, id: number, payload: ProductCategoryRequestInput) => {
     const categoryName = normalizeCategoryName(payload.category_name);
 
     return prisma.$transaction(async (tx) => {
-      const existingCategory = await tx.category.findUnique({
-        where: { id },
+      const existingCategory = await tx.category.findFirst({
+        where: { id, store_id: storeId },
         select: { id: true },
       });
 
@@ -751,7 +786,7 @@ export const ProductService = {
         throw new NotFoundError("Category not found");
       }
 
-      await ensureCategoryNameIsUnique(tx, categoryName, id);
+      await ensureCategoryNameIsUnique(tx, storeId, categoryName, id);
 
       const category = await tx.category.update({
         where: { id },
@@ -764,17 +799,17 @@ export const ProductService = {
         },
       });
 
-      clearCategoryCache();
+      clearCategoryCache(storeId);
       return category;
     }, PRISMA_INTERACTIVE_TRANSACTION_OPTIONS);
   },
 
-  deleteCategories: async (ids: number[]) => {
+  deleteCategories: async (storeId: string, ids: number[]) => {
     const uniqueIds = getUniqueIds(ids);
 
     return prisma.$transaction(async (tx) => {
       const existingCategories = await tx.category.findMany({
-        where: { id: { in: uniqueIds } },
+        where: { id: { in: uniqueIds }, store_id: storeId },
         select: { id: true, category_name: true },
       });
 
@@ -783,7 +818,7 @@ export const ProductService = {
       }
 
       const linkedProducts = await tx.product.findMany({
-        where: { category_id: { in: uniqueIds } },
+        where: { category_id: { in: uniqueIds }, store_id: storeId },
         select: { product_name: true, category_id: true },
         take: 5,
       });
@@ -806,17 +841,17 @@ export const ProductService = {
       }
 
       await tx.category.deleteMany({
-        where: { id: { in: uniqueIds } },
+        where: { id: { in: uniqueIds }, store_id: storeId },
       });
 
-      clearCategoryCache();
+      clearCategoryCache(storeId);
     }, PRISMA_INTERACTIVE_TRANSACTION_OPTIONS);
   },
 
-  editProduct: async (id: number, payload: ProductRequestInput) => {
+  editProduct: async (storeId: string, id: number, payload: ProductRequestInput) => {
     const { product, oldImageUrlToDelete } = await prisma.$transaction(async (tx) => {
-      const existingProduct = await tx.product.findUnique({
-        where: { id },
+      const existingProduct = await tx.product.findFirst({
+        where: { id, store_id: storeId },
         include: {
           variants: {
             select: { sku: true },
@@ -828,7 +863,7 @@ export const ProductService = {
         throw new NotFoundError("Product not found");
       }
 
-      const data = await normalizeProductInput(tx, payload);
+      const data = await normalizeProductInput(tx, storeId, payload);
       const oldImageUrlToDelete =
         existingProduct.image_url &&
         data.image_url !== undefined &&
@@ -839,6 +874,7 @@ export const ProductService = {
 
       await ensureNoCrossProductSkuConflict(
         tx,
+        storeId,
         id,
         data.variants.map((variant) => variant.sku),
       );
@@ -882,12 +918,12 @@ export const ProductService = {
     return product;
   },
 
-  deleteProducts: async (ids: number[]) => {
+  deleteProducts: async (storeId: string, ids: number[]) => {
     const uniqueIds = getUniqueIds(ids);
 
     return prisma.$transaction(async (tx) => {
       const existingProducts = await tx.product.findMany({
-        where: { id: { in: uniqueIds } },
+        where: { id: { in: uniqueIds }, store_id: storeId },
         select: {
           id: true,
           status: true,
@@ -900,19 +936,19 @@ export const ProductService = {
 
       const productIdsToDelete = existingProducts.map((product) => product.id);
       const variantSkusToDelete = await tx.productVariant.findMany({
-        where: { product_id: { in: productIdsToDelete } },
+        where: { product: { store_id: storeId }, product_id: { in: productIdsToDelete } },
         select: { sku: true },
       });
       const variantSkuList = variantSkusToDelete.map((variant) => variant.sku);
 
       await resetInventoryStocks(tx, variantSkuList);
       await tx.productVariant.updateMany({
-        where: { product_id: { in: productIdsToDelete } },
+        where: { product: { store_id: storeId }, product_id: { in: productIdsToDelete } },
         data: { status: "deleted" },
       });
 
       await tx.product.updateMany({
-        where: { id: { in: productIdsToDelete } },
+        where: { id: { in: productIdsToDelete }, store_id: storeId },
         data: { status: "deleted" },
       });
 

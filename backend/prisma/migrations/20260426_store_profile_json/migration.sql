@@ -1,0 +1,2 @@
+ALTER TABLE "Store"
+ADD COLUMN "profile_json" JSONB NOT NULL DEFAULT '{}';

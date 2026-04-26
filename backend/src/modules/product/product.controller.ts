@@ -1,6 +1,6 @@
 import type { Request, Response } from "express";
 import type { UploadedFile } from "express-fileupload";
-import { BadRequestError } from "@/common";
+import { BadRequestError, UnauthorizedError } from "@/common";
 import { uploadProductImageToS3 } from "@lib/s3";
 import { ProductService } from "./product.service";
 import type {
@@ -85,7 +85,10 @@ export const ProductController = {
   },
 
   getCategories: async (_req: Request, res: Response) => {
-    const categories = await ProductService.getCategories();
+    if (!_req.store) {
+      throw new UnauthorizedError("Store context is required");
+    }
+    const categories = await ProductService.getCategories(_req.store.id);
     return res.status(200).json(categories);
   },
 
@@ -93,18 +96,27 @@ export const ProductController = {
     req: Request<ProductCategoryParams>,
     res: Response,
   ) => {
-    const category = await ProductService.getCategoryById(parseId(req.params.id));
+    if (!req.store) {
+      throw new UnauthorizedError("Store context is required");
+    }
+    const category = await ProductService.getCategoryById(req.store.id, parseId(req.params.id));
 
     return res.status(200).json(category);
   },
 
   getProducts: async (_req: Request, res: Response) => {
-    const products = await ProductService.getProducts();
+    if (!_req.store) {
+      throw new UnauthorizedError("Store context is required");
+    }
+    const products = await ProductService.getProducts(_req.store.id);
     return res.status(200).json(products);
   },
 
   getProductById: async (req: Request<ProductParams>, res: Response) => {
-    const product = await ProductService.getProductById(parseId(req.params.id));
+    if (!req.store) {
+      throw new UnauthorizedError("Store context is required");
+    }
+    const product = await ProductService.getProductById(req.store.id, parseId(req.params.id));
 
     return res.status(200).json(product);
   },
@@ -113,7 +125,11 @@ export const ProductController = {
     req: Request<{}, {}, ProductRequestInput>,
     res: Response,
   ) => {
+    if (!req.store) {
+      throw new UnauthorizedError("Store context is required");
+    }
     const product = await ProductService.createProduct(
+      req.store.id,
       parsePayload<ProductRequestInput>(req.body),
     );
     return res.status(201).json(product);
@@ -123,7 +139,11 @@ export const ProductController = {
     req: Request<{}, {}, ProductCategoryRequestInput>,
     res: Response,
   ) => {
+    if (!req.store) {
+      throw new UnauthorizedError("Store context is required");
+    }
     const category = await ProductService.createCategory(
+      req.store.id,
       parsePayload<ProductCategoryRequestInput>(req.body),
     );
 
@@ -134,7 +154,11 @@ export const ProductController = {
     req: Request<ProductParams, {}, ProductRequestInput>,
     res: Response,
   ) => {
+    if (!req.store) {
+      throw new UnauthorizedError("Store context is required");
+    }
     const updatedProduct = await ProductService.editProduct(
+      req.store.id,
       parseId(req.params.id),
       parsePayload<ProductRequestInput>(req.body),
     );
@@ -146,7 +170,11 @@ export const ProductController = {
     req: Request<ProductCategoryParams, {}, ProductCategoryRequestInput>,
     res: Response,
   ) => {
+    if (!req.store) {
+      throw new UnauthorizedError("Store context is required");
+    }
     const category = await ProductService.editCategory(
+      req.store.id,
       parseId(req.params.id),
       parsePayload<ProductCategoryRequestInput>(req.body),
     );
@@ -155,12 +183,18 @@ export const ProductController = {
   },
 
   deleteCategories: async (req: Request<{}, {}, BulkDeleteRequestInput>, res: Response) => {
-    await ProductService.deleteCategories(parseIds(req.body));
+    if (!req.store) {
+      throw new UnauthorizedError("Store context is required");
+    }
+    await ProductService.deleteCategories(req.store.id, parseIds(req.body));
     return res.status(204).send();
   },
 
   deleteProducts: async (req: Request<{}, {}, BulkDeleteRequestInput>, res: Response) => {
-    const result = await ProductService.deleteProducts(parseIds(req.body));
+    if (!req.store) {
+      throw new UnauthorizedError("Store context is required");
+    }
+    const result = await ProductService.deleteProducts(req.store.id, parseIds(req.body));
     return res.status(200).json(result);
   },
 };

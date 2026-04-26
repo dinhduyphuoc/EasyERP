@@ -34,7 +34,6 @@ const ORDER_PROCESSING_STATUSES: OrderProcessingStatusInput[] = [
   "returned",
 ];
 const ORDER_TYPES: OrderTypeInput[] = ["sale", "return"];
-const DEFAULT_SHIPPING_STORE_ID = "default-store";
 
 const orderProcessingStatusLabels = {
   draft: "Nháp",
@@ -46,6 +45,44 @@ const orderProcessingStatusLabels = {
   cancelled: "Đã hủy",
   returned: "Trả hàng",
 } satisfies Record<OrderProcessingStatusInput, string>;
+
+const processingStatusPresentation: Record<
+  OrderProcessingStatusInput,
+  { label: string; description: string }
+> = {
+  draft: {
+    label: "Nháp",
+    description: "Đơn nháp chờ xác nhận và bổ sung thông tin.",
+  },
+  placed: {
+    label: "Cho xác nhận",
+    description: "Đơn đã tạo và đang chờ sales/ops xác nhận trước khi xử lý kho.",
+  },
+  confirmed: {
+    label: "Đã xác nhận",
+    description: "Đơn đã được xác nhận và sẵn sàng đưa sang kho xử lý.",
+  },
+  picked_up: {
+    label: "Đóng gói",
+    description: "Kho đã đóng gói xong và sẵn sàng bàn giao vận chuyển hoặc giao nội bộ.",
+  },
+  delivering: {
+    label: "Đang giao",
+    description: "Đơn đang trong quá trình giao đến khách hàng.",
+  },
+  completed: {
+    label: "Hoàn thành",
+    description: "Đơn đã hoàn tất và đối soát thanh toán.",
+  },
+  cancelled: {
+    label: "Đã hủy",
+    description: "Đơn đã bị hủy trước khi hoàn tất.",
+  },
+  returned: {
+    label: "Trả hàng",
+    description: "Đơn đã hoàn tất nhưng phát sinh trả hàng.",
+  },
+};
 
 const defaultPaymentStatusDescriptions = {
   unpaid:
@@ -107,6 +144,25 @@ const defaultTimelineTemplate = {
     total_amount: null,
     paid_amount: null,
     outstanding_amount: null,
+  },
+  cancelled: {
+    stage: "Cancelled",
+    cancelled_date: null,
+    reason: null,
+    actor: null,
+  },
+  returned: {
+    stage: "Returned",
+    returned_date: null,
+    reason: null,
+    actor: null,
+  },
+  payment: {
+    stage: "Payment",
+    paid_amount: null,
+    outstanding_amount: null,
+    payment_status: null,
+    actor: null,
   },
 } satisfies Record<string, Record<string, unknown>>;
 
@@ -321,9 +377,9 @@ const orderInclude = {
   return_address_detail: true,
 } satisfies Prisma.OrderInclude;
 
-const getOrderForMutation = async (id: number) => {
-  const order = await prisma.order.findUnique({
-    where: { id },
+const getOrderForMutation = async (storeId: string, id: number) => {
+  const order = await prisma.order.findFirst({
+    where: { id, store_id: storeId },
     include: orderInclude,
   });
 
@@ -334,7 +390,7 @@ const getOrderForMutation = async (id: number) => {
   return order;
 };
 
-const getConnectedGHNCredentials = async () => {
+const getConnectedGHNCredentials = async (storeId: string) => {
   const provider = await prisma.shippingProvider.findUnique({
     where: { code: "ghn" },
     select: { id: true },
@@ -348,7 +404,7 @@ const getConnectedGHNCredentials = async () => {
     where: {
       provider_id_store_id: {
         provider_id: provider.id,
-        store_id: DEFAULT_SHIPPING_STORE_ID,
+        store_id: storeId,
       },
     },
     select: {
@@ -358,7 +414,7 @@ const getConnectedGHNCredentials = async () => {
   });
 
   if (!connection || connection.status !== "connected") {
-    throw new BadRequestError("GHN connection is not available for the default store");
+    throw new BadRequestError("GHN connection is not available for this store");
   }
 
   if (
@@ -450,13 +506,14 @@ const persistOrderMutation = async ({
   });
 };
 
-const generateNextOrderCode = async (tx: Prisma.TransactionClient) => {
+const generateNextOrderCode = async (tx: Prisma.TransactionClient, storeId: string) => {
   const codeRegex = `${ORDER_CODE_PREFIX}([0-9]+)$`;
   const matchingPattern = `^${ORDER_CODE_PREFIX}[0-9]+$`;
   const rows = await tx.$queryRaw<Array<{ max_sequence: number | null }>>(Prisma.sql`
     SELECT MAX(SUBSTRING(order_code FROM ${codeRegex})::integer) AS max_sequence
     FROM "Order"
     WHERE order_code ~ ${matchingPattern}
+      AND store_id = ${storeId}
   `);
   const nextSequence = (rows[0]?.max_sequence ?? 0) + 1;
 
@@ -841,7 +898,7 @@ const mapOrder = (order: {
   order_history: order.history?.map(mapOrderHistory) ?? [],
 });
 
-const buildWhereClause = (query: OrderListQuery): Prisma.OrderWhereInput => {
+const buildWhereClause = (storeId: string, query: OrderListQuery): Prisma.OrderWhereInput => {
   const search = toOptionalTrimmedString(query.search)?.toLowerCase();
   const paymentStatus =
     query.payment_status === undefined ? undefined : parseOrderPaymentStatus(query.payment_status);
@@ -855,6 +912,7 @@ const buildWhereClause = (query: OrderListQuery): Prisma.OrderWhereInput => {
   const view = toOptionalTrimmedString(query.view) as OrderListQuery["view"] | undefined;
 
   const where: Prisma.OrderWhereInput = {
+    store_id: storeId,
     ...(paymentStatus ? { payment_status: paymentStatus } : {}),
     ...(processingStatus ? { processing_status: processingStatus } : {}),
     ...(orderType ? { order_type: orderType } : {}),
@@ -1028,7 +1086,7 @@ const buildHistoryEntries = (input: {
   return [...baseEntries, ...input.requestedHistory];
 };
 
-const buildNormalizedItems = async (items: OrderItemRequestInput[]) => {
+const buildNormalizedItems = async (storeId: string, items: OrderItemRequestInput[]) => {
   const requestedVariantSkus = items
     .map((item) => toOptionalTrimmedString(item.variant_sku))
     .filter((value): value is string => Boolean(value));
@@ -1039,7 +1097,7 @@ const buildNormalizedItems = async (items: OrderItemRequestInput[]) => {
   const [variants, products] = await Promise.all([
     requestedVariantSkus.length > 0
       ? prisma.productVariant.findMany({
-          where: { sku: { in: requestedVariantSkus } },
+          where: { sku: { in: requestedVariantSkus }, product: { store_id: storeId } },
           include: {
             product: {
               select: {
@@ -1052,7 +1110,7 @@ const buildNormalizedItems = async (items: OrderItemRequestInput[]) => {
       : Promise.resolve([]),
     requestedProductIds.length > 0
       ? prisma.product.findMany({
-          where: { id: { in: requestedProductIds } },
+          where: { id: { in: requestedProductIds }, store_id: storeId },
           select: {
             id: true,
             product_name: true,
@@ -1124,10 +1182,11 @@ const buildNormalizedItems = async (items: OrderItemRequestInput[]) => {
 };
 
 export const OrderService = {
-  getOrderOptions: async () => {
+  getOrderOptions: async (storeId: string) => {
     const [customers, variants, historicalShippingServices, connectedShippingProviders, salesChannels] = await Promise.all([
       prisma.customer.findMany({
         where: {
+          store_id: storeId,
           status: "active",
           phone: { not: null },
         },
@@ -1145,7 +1204,7 @@ export const OrderService = {
         orderBy: [{ full_name: "asc" }],
       }),
       prisma.productVariant.findMany({
-        where: { status: "active" },
+        where: { status: "active", product: { store_id: storeId } },
         select: {
           sku: true,
           selling_price: true,
@@ -1167,13 +1226,13 @@ export const OrderService = {
         orderBy: [{ sku: "asc" }],
       }),
       prisma.order.findMany({
-        where: { shipping_service: { not: null } },
+        where: { store_id: storeId, shipping_service: { not: null } },
         distinct: ["shipping_service"],
         select: { shipping_service: true },
         orderBy: [{ shipping_service: "asc" }],
       }),
       prisma.shippingConnection.findMany({
-        where: { status: "connected" },
+        where: { status: "connected", store_id: storeId },
         distinct: ["provider_id"],
         select: {
           provider: {
@@ -1185,7 +1244,7 @@ export const OrderService = {
         orderBy: [{ provider_id: "asc" }],
       }),
       prisma.order.findMany({
-        where: { sales_channel: { not: null } },
+        where: { store_id: storeId, sales_channel: { not: null } },
         distinct: ["sales_channel"],
         select: { sales_channel: true },
         orderBy: [{ sales_channel: "asc" }],
@@ -1200,8 +1259,8 @@ export const OrderService = {
       })),
       processing_statuses: ORDER_PROCESSING_STATUSES.map((value) => ({
         value,
-        label: orderProcessingStatusLabels[value],
-        description: defaultProcessingStatusDescriptions[value],
+        label: processingStatusPresentation[value].label,
+        description: processingStatusPresentation[value].description,
       })),
       order_types: ORDER_TYPES.map((value) => ({
         value,
@@ -1253,9 +1312,9 @@ export const OrderService = {
     };
   },
 
-  getOrders: async (query: OrderListQuery) => {
+  getOrders: async (storeId: string, query: OrderListQuery) => {
     const orders = await prisma.order.findMany({
-      where: buildWhereClause(query),
+      where: buildWhereClause(storeId, query),
       include: {
         items: true,
         from_address_detail: true,
@@ -1268,13 +1327,13 @@ export const OrderService = {
     return orders.map(mapOrder);
   },
 
-  getOrderById: async (id: number) => {
-    const order = await getOrderForMutation(id);
+  getOrderById: async (storeId: string, id: number) => {
+    const order = await getOrderForMutation(storeId, id);
     return mapOrder(order);
   },
 
-  getGHNPrintInfo: async (id: number): Promise<OrderShippingPrintResponse> => {
-    const order = await getOrderForMutation(id);
+  getGHNPrintInfo: async (storeId: string, id: number): Promise<OrderShippingPrintResponse> => {
+    const order = await getOrderForMutation(storeId, id);
 
     if ((order.shipping_service ?? "").trim().toLowerCase() !== "ghn") {
       throw new BadRequestError("Only GHN orders can generate GHN print links");
@@ -1286,7 +1345,7 @@ export const OrderService = {
       throw new BadRequestError("Tracking code is required before printing GHN shipping labels");
     }
 
-    const { token, shopId } = await getConnectedGHNCredentials();
+    const { token, shopId } = await getConnectedGHNCredentials(storeId);
     const ghnClient = createGHNClient({
       token,
       shopId,
@@ -1313,12 +1372,12 @@ export const OrderService = {
     };
   },
 
-  duplicateOrder: async (id: number, input: DuplicateOrderRequestInput = {}) => {
-    const existingOrder = await getOrderForMutation(id);
+  duplicateOrder: async (storeId: string, id: number, input: DuplicateOrderRequestInput = {}) => {
+    const existingOrder = await getOrderForMutation(storeId, id);
     const actorName = toOptionalTrimmedString(input.actor_name) ?? "System";
     const duplicatedOrderDate = parseOptionalDate(input.order_date, "order_date")?.toISOString();
 
-    return OrderService.createOrder({
+    return OrderService.createOrder(storeId, {
       order_date: duplicatedOrderDate,
       order_type: existingOrder.order_type,
       customer_id: existingOrder.customer_id,
@@ -1407,7 +1466,7 @@ export const OrderService = {
     });
   },
 
-  createOrder: async (input: OrderRequestInput) => {
+  createOrder: async (storeId: string, input: OrderRequestInput) => {
     const orderCode = toOptionalTrimmedString(input.order_code);
     const orderDate = parseOptionalDate(input.order_date, "order_date") ?? new Date();
     const orderType = parseOrderType(input.order_type);
@@ -1491,15 +1550,15 @@ export const OrderService = {
     const confirmedBy = toOptionalTrimmedString(input.confirmed_by) ?? null;
     const requestedHistory = validateRequestedHistory(input.order_history);
     const requestedItems = Array.isArray(input.order_items) ? input.order_items : [];
-    const normalizedItems = await buildNormalizedItems(requestedItems);
+    const normalizedItems = await buildNormalizedItems(storeId, requestedItems);
 
     if (normalizedItems.length === 0 && processingStatus !== "draft") {
       throw new BadRequestError("order_items must contain at least one item unless the order is a draft");
     }
 
     const customer = customerId
-      ? await prisma.customer.findUnique({
-          where: { id: customerId },
+      ? await prisma.customer.findFirst({
+          where: { id: customerId, store_id: storeId },
           select: {
             id: true,
             client_code: true,
@@ -1627,7 +1686,7 @@ export const OrderService = {
     for (let attempt = 0; attempt < ORDER_CODE_GENERATION_RETRIES; attempt += 1) {
       try {
         const createdOrder = await prisma.$transaction(async (tx) => {
-          const resolvedOrderCode = orderCode ?? (await generateNextOrderCode(tx));
+          const resolvedOrderCode = orderCode ?? (await generateNextOrderCode(tx, storeId));
 
           const existingOrder = await tx.order.findFirst({
             where: { order_code: resolvedOrderCode },
@@ -1646,6 +1705,7 @@ export const OrderService = {
 
           const order = await tx.order.create({
             data: {
+              store_id: storeId,
               order_code: resolvedOrderCode,
               order_type: orderType,
               order_date: orderDate,
@@ -1797,8 +1857,8 @@ export const OrderService = {
     throw new BadRequestError("Unable to generate a unique order code");
   },
 
-  updateOrder: async (id: number, input: UpdateOrderRequestInput) => {
-    const existingOrder = await getOrderForMutation(id);
+  updateOrder: async (storeId: string, id: number, input: UpdateOrderRequestInput) => {
+    const existingOrder = await getOrderForMutation(storeId, id);
     if (!["draft", "placed"].includes(existingOrder.processing_status)) {
       throw new BadRequestError("Only draft or placed orders can be edited");
     }
@@ -1870,15 +1930,15 @@ export const OrderService = {
           item_height: item.item_height,
           category_level1: item.category_level1 ?? undefined,
         }));
-    const normalizedItems = await buildNormalizedItems(requestedItems);
+    const normalizedItems = await buildNormalizedItems(storeId, requestedItems);
 
     if (normalizedItems.length === 0 && processingStatus !== "draft") {
       throw new BadRequestError("order_items must contain at least one item unless the order is a draft");
     }
 
     const customer = customerId
-      ? await prisma.customer.findUnique({
-          where: { id: customerId },
+      ? await prisma.customer.findFirst({
+          where: { id: customerId, store_id: storeId },
           select: {
             id: true,
             client_code: true,
@@ -2175,7 +2235,7 @@ export const OrderService = {
         data: {
           order_id: id,
           event_type: "order_updated",
-          description: "Cap nhat noi dung don hang",
+          description: "Cập nhật đơn hàng",
           actor_name: createdBy,
           metadata: {
             payment_status: paymentStatus,
@@ -2261,8 +2321,13 @@ export const OrderService = {
     return mapOrder(updatedOrder);
   },
 
-  runAction: async (id: number, action: OrderActionName, input: OrderActionRequestInput) => {
-    const existingOrder = await getOrderForMutation(id);
+  runAction: async (
+    storeId: string,
+    id: number,
+    action: OrderActionName,
+    input: OrderActionRequestInput,
+  ) => {
+    const existingOrder = await getOrderForMutation(storeId, id);
     const actorName = toOptionalTrimmedString(input.actor_name) ?? "System";
     const note = toOptionalTrimmedString(input.note) ?? null;
     const shippingService =
@@ -2387,7 +2452,7 @@ export const OrderService = {
         paid_amount: existingOrder.total_amount,
         outstanding_amount: new Prisma.Decimal(0),
         payment_notes: note ?? existingOrder.payment_notes,
-        status_timeline: updateOrderStageTimeline(existingOrder.status_timeline, "completed", {
+        status_timeline: updateOrderStageTimeline(existingOrder.status_timeline, "payment", {
           actor: actorName,
           paid_amount: existingOrder.total_amount.toString(),
           outstanding_amount: "0",
@@ -2396,7 +2461,7 @@ export const OrderService = {
       };
       historyEntry = {
         event_type: "payment_updated",
-        description: "Danh dau don hang da thanh toan",
+        description: "Đơn hàng đã được thanh toán",
         actor_name: actorName,
         metadata: {
           payment_status: "paid",
@@ -2416,7 +2481,7 @@ export const OrderService = {
       };
       historyEntry = {
         event_type: "invoice_requested",
-        description: "Yeu cau xuat hoa don dien tu",
+        description: "Yêu cầu xuất hóa đơn điện tử",
         actor_name: actorName,
         metadata: {
           invoice_code: invoiceCode,
@@ -2449,7 +2514,7 @@ export const OrderService = {
       };
       historyEntry = {
         event_type: "status_changed",
-        description: "Hoan thanh don hang",
+        description: "Hoàn thành đơn hàng",
         actor_name: actorName,
         metadata: {
           processing_status: "completed",
@@ -2472,7 +2537,7 @@ export const OrderService = {
       nextData = {
         processing_status: "cancelled",
         shipping_status: existingOrder.shipping_status ?? "cancelled",
-        status_timeline: updateOrderStageTimeline(existingOrder.status_timeline, "completed", {
+        status_timeline: updateOrderStageTimeline(existingOrder.status_timeline, "cancelled", {
           actor: actorName,
           shipping_status: "cancelled",
           note: note ?? "Order cancelled",
@@ -2480,7 +2545,7 @@ export const OrderService = {
       };
       historyEntry = {
         event_type: "order_cancelled",
-        description: "Huy don hang",
+        description: "Hủy đơn hàng",
         actor_name: actorName,
         metadata: {
           processing_status: "cancelled",
@@ -2498,7 +2563,7 @@ export const OrderService = {
       nextData = {
         processing_status: "returned",
         shipping_status: "returned",
-        status_timeline: updateOrderStageTimeline(existingOrder.status_timeline, "completed", {
+        status_timeline: updateOrderStageTimeline(existingOrder.status_timeline, "returned", {
           actor: actorName,
           shipping_status: "returned",
           note: note ?? "Order returned",

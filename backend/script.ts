@@ -3,6 +3,8 @@ import { ProductService } from "@/modules/product/product.service";
 import { CustomerService } from "@/modules/customer/customer.service";
 import { InventoryService } from "@/modules/inventory/inventory.service";
 import { OrderService } from "@/modules/order/order.service";
+import { bootstrapRbac } from "@/modules/auth/rbac.bootstrap";
+import { PasswordService } from "@/common/services/password.service";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -31,6 +33,11 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const ADDRESS_SEED_SQL_PATH = path.join(__dirname, "prisma", "seeds", "address_seed.sql");
 const SQL_STATEMENT_MARKER = "-- @@statement@@";
+const DEFAULT_TENANT_NAME = process.env.DEFAULT_TENANT_NAME?.trim() || "Default Tenant";
+const DEFAULT_TENANT_SLUG = process.env.DEFAULT_TENANT_SLUG?.trim() || "default";
+const SUPER_ADMIN_EMAIL = process.env.SUPER_ADMIN_EMAIL?.trim().toLowerCase() || "";
+const SUPER_ADMIN_PASSWORD = process.env.SUPER_ADMIN_PASSWORD?.trim() || "";
+const SUPER_ADMIN_FULL_NAME = process.env.SUPER_ADMIN_FULL_NAME?.trim() || "Super Admin";
 
 function loadSeedStatements(filePath: string) {
   if (!existsSync(filePath)) {
@@ -68,10 +75,171 @@ async function ensureAddressSeed() {
   );
 }
 
-async function ensureDemoCategory() {
+async function ensureDefaultTenant() {
+  const tenant = await prisma.tenant.upsert({
+    where: {
+      slug: DEFAULT_TENANT_SLUG,
+    },
+    update: {
+      name: DEFAULT_TENANT_NAME,
+      status: "active",
+    },
+    create: {
+      name: DEFAULT_TENANT_NAME,
+      slug: DEFAULT_TENANT_SLUG,
+      status: "active",
+    },
+  });
+
+  return tenant;
+}
+
+async function ensureSuperAdmin(tenantId: string) {
+  if (!SUPER_ADMIN_EMAIL || !SUPER_ADMIN_PASSWORD) {
+    console.log(
+      "SUPER_ADMIN_EMAIL or SUPER_ADMIN_PASSWORD is missing. Skip super admin seed.",
+    );
+    return null;
+  }
+
+  if (SUPER_ADMIN_PASSWORD.length < 8) {
+    throw new Error("SUPER_ADMIN_PASSWORD must be at least 8 characters");
+  }
+
+  const superAdminRole = await prisma.role.findFirst({
+    where: {
+      tenant_id: null,
+      slug: "super_admin",
+    },
+    select: {
+      id: true,
+    },
+  });
+
+  if (!superAdminRole) {
+    throw new Error("super_admin role is missing. Run RBAC bootstrap first.");
+  }
+
+  const passwordHash = await PasswordService.hashPassword(SUPER_ADMIN_PASSWORD);
+  const existingUser = await prisma.user.findUnique({
+    where: {
+      email_normalized: SUPER_ADMIN_EMAIL,
+    },
+    select: {
+      id: true,
+    },
+  });
+
+  const user = existingUser
+    ? await prisma.user.update({
+        where: {
+          id: existingUser.id,
+        },
+        data: {
+          tenant_id: tenantId,
+          full_name: SUPER_ADMIN_FULL_NAME,
+          email: SUPER_ADMIN_EMAIL,
+          email_normalized: SUPER_ADMIN_EMAIL,
+          password_hash: passwordHash,
+          status: "active",
+          is_email_verified: true,
+        },
+      })
+    : await prisma.user.create({
+        data: {
+          tenant_id: tenantId,
+          full_name: SUPER_ADMIN_FULL_NAME,
+          email: SUPER_ADMIN_EMAIL,
+          email_normalized: SUPER_ADMIN_EMAIL,
+          password_hash: passwordHash,
+          status: "active",
+          is_email_verified: true,
+        },
+      });
+
+  await prisma.userRole.upsert({
+    where: {
+      user_id_role_id: {
+        user_id: user.id,
+        role_id: superAdminRole.id,
+      },
+    },
+    update: {
+      assigned_by: user.id,
+    },
+    create: {
+      user_id: user.id,
+      role_id: superAdminRole.id,
+      assigned_by: user.id,
+    },
+  });
+
+  await prisma.userScope.upsert({
+    where: {
+      user_id_tenant_id_scope_type_scope_value: {
+        user_id: user.id,
+        tenant_id: tenantId,
+        scope_type: "tenant",
+        scope_value: tenantId,
+      },
+    },
+    update: {},
+    create: {
+      user_id: user.id,
+      tenant_id: tenantId,
+      scope_type: "tenant",
+      scope_value: tenantId,
+    },
+  });
+
+  console.log(`Super admin ready: ${SUPER_ADMIN_EMAIL}`);
+  return user;
+}
+
+async function ensureDefaultStore(userId: string, tenantId: string) {
+  const existing = await prisma.store.findFirst({
+    where: {
+      owner_user_id: userId,
+      deleted_at: null,
+    },
+  });
+
+  if (existing) {
+    return existing;
+  }
+
+  const store = await prisma.store.create({
+    data: {
+      name: "Default Store",
+      slug: "default-store",
+      owner_user_id: userId,
+      tenant_id: tenantId,
+      default_currency: "VND",
+      default_timezone: "Asia/Saigon",
+      user_stores: {
+        create: {
+          user_id: userId,
+          role: "owner",
+        },
+      },
+    },
+  });
+
+  await prisma.user.update({
+    where: { id: userId },
+    data: {
+      active_store_id: store.id,
+    },
+  });
+
+  return store;
+}
+
+async function ensureDemoCategory(storeId: string) {
   const existing = await prisma.category.findFirst({
     where: {
       category_name: DEMO_CATEGORY_NAME,
+      store_id: storeId,
     },
     select: {
       id: true,
@@ -86,6 +254,7 @@ async function ensureDemoCategory() {
   return prisma.category.create({
     data: {
       category_name: DEMO_CATEGORY_NAME,
+      store_id: storeId,
     },
     select: {
       id: true,
@@ -94,14 +263,14 @@ async function ensureDemoCategory() {
   });
 }
 
-async function ensureDemoProducts(categoryId: number) {
+async function ensureDemoProducts(storeId: string, categoryId: number) {
   const mugVariant = await prisma.productVariant.findUnique({
     where: { sku: "MUG-EE" },
     select: { sku: true },
   });
 
   if (!mugVariant) {
-    await ProductService.createProduct({
+    await ProductService.createProduct(storeId, {
       product_name: "Ly su EasyERP",
       sku: "MUG-EE",
       unit: "cai",
@@ -121,7 +290,7 @@ async function ensureDemoProducts(categoryId: number) {
   });
 
   if (!poloVariant) {
-    await ProductService.createProduct({
+    await ProductService.createProduct(storeId, {
       product_name: "Ao polo EasyERP",
       unit: "cai",
       category_id: categoryId,
@@ -168,9 +337,9 @@ async function ensureDemoProducts(categoryId: number) {
   }
 }
 
-async function ensureSeedData() {
-  const demoCategory = await ensureDemoCategory();
-  await ensureDemoProducts(demoCategory.id);
+async function ensureSeedData(storeId: string) {
+  const demoCategory = await ensureDemoCategory(storeId);
+  await ensureDemoProducts(storeId, demoCategory.id);
 
   const variants = await prisma.productVariant.findMany({
     orderBy: [{ sku: "asc" }],
@@ -341,7 +510,7 @@ async function ensureSeedData() {
   };
 }
 
-async function ensureDemoCustomers() {
+async function ensureDemoCustomers(storeId: string) {
   const customers = [];
 
   for (const input of DEMO_CUSTOMERS) {
@@ -360,7 +529,7 @@ async function ensureDemoCustomers() {
       continue;
     }
 
-    const created = await CustomerService.createCustomer({
+    const created = await CustomerService.createCustomer(storeId, {
       full_name: input.full_name,
       phone: input.phone,
       status: "active",
@@ -372,7 +541,7 @@ async function ensureDemoCustomers() {
   return customers;
 }
 
-async function ensureDemoOrders(variantSkus: string[], customerIds: number[]) {
+async function ensureDemoOrders(storeId: string, variantSkus: string[], customerIds: number[]) {
   const [firstSku, secondSku = firstSku] = variantSkus;
   const [firstCustomerId, secondCustomerId = firstCustomerId] = customerIds;
 
@@ -548,7 +717,7 @@ async function ensureDemoOrders(variantSkus: string[], customerIds: number[]) {
       continue;
     }
 
-    const order = await OrderService.createOrder(orderInput);
+    const order = await OrderService.createOrder(storeId, orderInput);
     createdOrderCodes.push(order.order_code);
   }
 
@@ -556,11 +725,19 @@ async function ensureDemoOrders(variantSkus: string[], customerIds: number[]) {
 }
 
 async function main() {
+  await bootstrapRbac();
+  const tenant = await ensureDefaultTenant();
+  const superAdmin = await ensureSuperAdmin(tenant.id);
   await ensureAddressSeed();
-  const { seededSkus, inventorySeedApplied } = await ensureSeedData();
-  const customers = await ensureDemoCustomers();
+  if (!superAdmin) {
+    throw new Error("Super admin user is required for store-aware seed data");
+  }
+  const store = await ensureDefaultStore(superAdmin.id, tenant.id);
+  const { seededSkus, inventorySeedApplied } = await ensureSeedData(store.id);
+  const customers = await ensureDemoCustomers(store.id);
   const seededOrderCodes = inventorySeedApplied
     ? await ensureDemoOrders(
+        store.id,
         seededSkus,
         customers.map((customer) => customer.id),
       )

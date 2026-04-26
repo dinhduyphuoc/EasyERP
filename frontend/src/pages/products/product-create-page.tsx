@@ -87,6 +87,10 @@ function parseCurrency(value: string) {
   return Number(value.replace(/\D/g, '')) || 0
 }
 
+function isObjectUrl(value: string) {
+  return value.startsWith('blob:')
+}
+
 function createAttribute(): AttributeRow {
   return {
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -304,10 +308,26 @@ export function ProductCreatePage(): ReactElement {
     setErrors(hasAttemptedSave ? validationErrors : {})
   }, [hasAttemptedSave, validationErrors])
 
-  const canSave = !isSaving && Object.keys(validationErrors).length === 0 && (!isEditMode || dirty)
+  const hasPendingLocalImage = imagePreview.trim().length > 0 && isObjectUrl(imagePreview.trim())
+  const canSave =
+    !isSaving &&
+    !isUploading &&
+    !hasPendingLocalImage &&
+    Object.keys(validationErrors).length === 0 &&
+    (!isEditMode || dirty)
 
   const handleSave = async () => {
     setHasAttemptedSave(true)
+
+    if (isUploading) {
+      appToast.warning('Ảnh đang được tải lên. Vui lòng đợi hoàn tất rồi lưu lại.')
+      return
+    }
+
+    if (hasPendingLocalImage) {
+      appToast.warning('Ảnh sản phẩm chưa tải lên hoàn tất. Vui lòng chọn lại ảnh hoặc đợi upload xong.')
+      return
+    }
 
     if (!canSave) {
       appToast.warning('Vui lòng nhập đầy đủ các trường bắt buộc trước khi lưu.')
@@ -328,7 +348,7 @@ export function ProductCreatePage(): ReactElement {
         sku: sku.trim() || undefined,
         unit: unit.trim() || undefined,
         status,
-        image_url: imagePreview.trim() ? imagePreview : null,
+        image_url: imagePreview.trim() && !isObjectUrl(imagePreview.trim()) ? imagePreview.trim() : null,
         category,
         description: description.trim() || undefined,
         base_price: variantMode ? null : parseCurrency(basePrice),
@@ -485,6 +505,12 @@ export function ProductCreatePage(): ReactElement {
       {isUploading && (
         <Alert icon={<CircularProgress size={16} color="inherit" />} severity="info" sx={{ mb: 2 }}>
           Ðang xử lý...
+        </Alert>
+      )}
+
+      {hasPendingLocalImage && !isUploading && (
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          Ảnh hiện chỉ là bản xem trước tạm thời. Vui lòng tải ảnh lên hoàn tất trước khi lưu sản phẩm.
         </Alert>
       )}
 

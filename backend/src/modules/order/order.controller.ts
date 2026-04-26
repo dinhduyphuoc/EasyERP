@@ -1,5 +1,5 @@
 import type { Request, Response } from "express";
-import { BadRequestError } from "@/common";
+import { BadRequestError, UnauthorizedError } from "@/common";
 import { OrderService } from "./order.service";
 import type {
   DuplicateOrderRequestInput,
@@ -32,7 +32,10 @@ const parsePayload = <T>(body: unknown) => {
 
 export const OrderController = {
   getOrderOptions: async (_req: Request, res: Response) => {
-    const options = await OrderService.getOrderOptions();
+    if (!_req.store) {
+      throw new UnauthorizedError("Store context is required");
+    }
+    const options = await OrderService.getOrderOptions(_req.store.id);
     return res.status(200).json(options);
   },
 
@@ -40,17 +43,26 @@ export const OrderController = {
     req: Request<{}, {}, {}, OrderListQuery>,
     res: Response,
   ) => {
-    const orders = await OrderService.getOrders(req.query);
+    if (!req.store) {
+      throw new UnauthorizedError("Store context is required");
+    }
+    const orders = await OrderService.getOrders(req.store.id, req.query);
     return res.status(200).json(orders);
   },
 
   getOrderById: async (req: Request<OrderParams>, res: Response) => {
-    const order = await OrderService.getOrderById(parseId(req.params.id));
+    if (!req.store) {
+      throw new UnauthorizedError("Store context is required");
+    }
+    const order = await OrderService.getOrderById(req.store.id, parseId(req.params.id));
     return res.status(200).json(order);
   },
 
   getGHNPrintInfo: async (req: Request<OrderParams>, res: Response) => {
-    const data = await OrderService.getGHNPrintInfo(parseId(req.params.id));
+    if (!req.store) {
+      throw new UnauthorizedError("Store context is required");
+    }
+    const data = await OrderService.getGHNPrintInfo(req.store.id, parseId(req.params.id));
     return res.status(200).json(data satisfies OrderShippingPrintResponse);
   },
 
@@ -58,7 +70,11 @@ export const OrderController = {
     req: Request<{}, {}, OrderRequestInput>,
     res: Response,
   ) => {
+    if (!req.store) {
+      throw new UnauthorizedError("Store context is required");
+    }
     const order = await OrderService.createOrder(
+      req.store.id,
       parsePayload<OrderRequestInput>(req.body),
     );
     return res.status(201).json(order);
@@ -68,7 +84,11 @@ export const OrderController = {
     req: Request<OrderParams, {}, UpdateOrderRequestInput>,
     res: Response,
   ) => {
+    if (!req.store) {
+      throw new UnauthorizedError("Store context is required");
+    }
     const order = await OrderService.updateOrder(
+      req.store.id,
       parseId(req.params.id),
       parsePayload<UpdateOrderRequestInput>(req.body),
     );
@@ -79,7 +99,11 @@ export const OrderController = {
     req: Request<OrderParams, {}, DuplicateOrderRequestInput>,
     res: Response,
   ) => {
+    if (!req.store) {
+      throw new UnauthorizedError("Store context is required");
+    }
     const order = await OrderService.duplicateOrder(
+      req.store.id,
       parseId(req.params.id),
       req.body && typeof req.body === "object"
         ? (req.body as DuplicateOrderRequestInput)
@@ -89,12 +113,20 @@ export const OrderController = {
   },
 
   runAction: async (
-    req: Request<OrderParams & { action: OrderActionName }, {}, OrderActionRequestInput>,
+    req: Request<{ id?: string; action?: string }, {}, OrderActionRequestInput>,
     res: Response,
   ) => {
+    if (!req.params.action) {
+      throw new BadRequestError("Invalid action");
+    }
+    if (!req.store) {
+      throw new UnauthorizedError("Store context is required");
+    }
+
     const order = await OrderService.runAction(
+      req.store.id,
       parseId(req.params.id),
-      req.params.action,
+      req.params.action as OrderActionName,
       parsePayload<OrderActionRequestInput>(req.body),
     );
     return res.status(200).json(order);

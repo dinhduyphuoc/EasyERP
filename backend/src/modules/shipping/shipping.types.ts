@@ -6,6 +6,150 @@ export type ShippingProviderParams = {
   code: string;
 };
 
+export type ShippingProviderAddressProvince = {
+  id: number;
+  code: string;
+  name: string;
+};
+
+export type ShippingProviderAddressDistrict = {
+  id: number;
+  province_id: number;
+  code: string;
+  name: string;
+};
+
+export type ShippingProviderAddressWard = {
+  code: string;
+  district_id: number;
+  name: string;
+};
+
+export type ShippingAddressDistrictQuery = ShippingStoreScopedQuery & {
+  province_id?: string;
+};
+
+export type ShippingAddressWardQuery = ShippingStoreScopedQuery & {
+  district_id?: string;
+};
+
+export type ShippingAvailableServicesInput = {
+  store_id?: string;
+  from_district_id?: number | string | null;
+  to_district_id?: number | string | null;
+};
+
+export type ShippingCanonicalLocationInput = {
+  address_id?: number | string | null;
+  state_id?: number | string | null;
+  city_id?: number | string | null;
+  district_id?: number | string | null;
+};
+
+export type ShippingResolvedLocation = {
+  address_id: number | null;
+  state: {
+    id: number;
+    code: string;
+    name: string;
+    normalized_name: string;
+  };
+  city: {
+    id: number;
+    code: string;
+    name: string;
+    normalized_name: string;
+  };
+  district: {
+    id: number;
+    code: string;
+    name: string;
+    normalized_name: string;
+  } | null;
+  provider_province: {
+    id: number;
+    external_id: string;
+    code: string | null;
+    name: string;
+  };
+  provider_district: {
+    id: number;
+    external_id: string;
+    code: string | null;
+    name: string;
+  };
+  provider_ward: {
+    id: number;
+    external_id: string;
+    code: string | null;
+    name: string;
+  } | null;
+  mapping_source: {
+    state: string;
+    city: string;
+    district: string | null;
+  };
+};
+
+export type ShippingLocationResolveInput = {
+  store_id?: string;
+  location?: ShippingCanonicalLocationInput | null;
+};
+
+export type ShippingAvailableServicesByLocationInput = {
+  store_id?: string;
+  from_location?: ShippingCanonicalLocationInput | null;
+  to_location?: ShippingCanonicalLocationInput | null;
+};
+
+export type ShippingFeeQuoteInput = {
+  store_id?: string;
+  from_district_id?: number | string | null;
+  from_ward_code?: string | null;
+  to_district_id?: number | string | null;
+  to_ward_code?: string | null;
+  service_id?: number | string | null;
+  service_type_id?: number | string | null;
+  weight?: number | string | null;
+  length?: number | string | null;
+  width?: number | string | null;
+  height?: number | string | null;
+  insurance_value?: number | string | null;
+  cod_value?: number | string | null;
+  coupon?: string | null;
+  items?: Array<{
+    name?: string;
+    quantity?: number | string;
+    height?: number | string | null;
+    weight?: number | string | null;
+    length?: number | string | null;
+    width?: number | string | null;
+  }>;
+};
+
+export type ShippingFeeQuoteByLocationInput = {
+  store_id?: string;
+  from_location?: ShippingCanonicalLocationInput | null;
+  to_location?: ShippingCanonicalLocationInput | null;
+  service_id?: number | string | null;
+  service_type_id?: number | string | null;
+  weight?: number | string | null;
+  length?: number | string | null;
+  width?: number | string | null;
+  height?: number | string | null;
+  insurance_value?: number | string | null;
+  cod_value?: number | string | null;
+  coupon?: string | null;
+  items?: Array<{
+    name?: string;
+    quantity?: number | string;
+    height?: number | string | null;
+    weight?: number | string | null;
+    length?: number | string | null;
+    width?: number | string | null;
+  }>;
+};
+
 export type ShippingConnectInput = {
   store_id?: string;
   credentials?: Record<string, unknown>;

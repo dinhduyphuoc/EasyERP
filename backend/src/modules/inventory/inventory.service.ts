@@ -484,6 +484,7 @@ const applyInventoryMutation = async (params: {
   reasonCode: InventoryReasonCode;
   meta: InventoryCommandMetaInput;
   computeNext: (current: StockSnapshot) => { deltas: StockBuckets; next: StockBuckets };
+  skipResultHydration?: boolean;
 }) => {
   const existing = await getIdempotentTransaction(
     params.tx,
@@ -536,6 +537,10 @@ const applyInventoryMutation = async (params: {
       version: { increment: 1 },
     },
   });
+
+  if (params.skipResultHydration) {
+    return null;
+  }
 
   return buildMutationResponse(params.tx, transaction.id, params.productVariantId);
 };
@@ -1240,6 +1245,7 @@ export const InventoryService = {
           productVariantId: line.product_variant_id,
           transactionType: "adjust",
           reasonCode: "actual_count",
+          skipResultHydration: true,
           meta: {
             reference_type: "inventory_audit",
             reference_id: String(audit.id),
@@ -1281,6 +1287,9 @@ export const InventoryService = {
       });
 
       return buildAuditResponse(updatedAudit);
+    }, {
+      timeout: 15000,
+      maxWait: 10000,
     });
   },
 

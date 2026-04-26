@@ -1,4 +1,5 @@
 import { BadRequestError, NotFoundError } from "@/common";
+import { createGHNClient } from "@/lib/ghn";
 
 export type ShippingCredentialField = {
   key: string;
@@ -168,6 +169,63 @@ class GhnShippingAdapter extends BaseTokenShippingAdapter {
       webhook: true,
     },
   };
+
+  override async verifyConnection(input: {
+    credentials: Record<string, string>;
+    metadata: Record<string, unknown>;
+  }): Promise<ShippingVerificationResult> {
+    const credentials = this.validateCredentials(input.credentials);
+    const ghnClient = createGHNClient({
+      token: credentials.token,
+      shopId: credentials.shop_id,
+    });
+
+    try {
+      const response = await ghnClient.store.getStore({
+        limit: 100,
+        offset: 0,
+      });
+
+      const shops = response.data?.shops ?? [];
+      const numericShopId = Number(credentials.shop_id);
+      const matchedShop = shops.find((shop: any) => shop._id === numericShopId);
+
+      if (!matchedShop) {
+        return {
+          success: false,
+          message: `Token GHN hợp lệ nhưng không truy cập được Shop ID ${credentials.shop_id}.`,
+          metadata: {
+            verification_mode: "remote_ghn_store_lookup",
+            token_preview: maskValue(credentials.token),
+            available_shop_ids: shops.slice(0, 10).map((shop: any) => shop._id),
+          },
+        };
+      }
+
+      return {
+        success: true,
+        message: `Kết nối GHN hợp lệ với shop ${matchedShop.name} (#${matchedShop._id}).`,
+        metadata: {
+          verification_mode: "remote_ghn_store_lookup",
+          token_preview: maskValue(credentials.token),
+          shop_id: matchedShop._id,
+          shop_name: matchedShop.name,
+          shop_phone: matchedShop.phone,
+          shop_address: matchedShop.address,
+        },
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Không thể xác minh kết nối GHN.";
+      return {
+        success: false,
+        message,
+        metadata: {
+          verification_mode: "remote_ghn_store_lookup",
+          token_preview: maskValue(credentials.token),
+        },
+      };
+    }
+  }
 }
 
 class GhtkShippingAdapter extends BaseTokenShippingAdapter {

@@ -7,6 +7,11 @@ import { customerRouter, locationRouter } from "@/modules/customer/customer.rout
 import { inventoryRouter } from "@/modules/inventory/inventory.routes";
 import { orderRouter } from "@/modules/order/order.routes";
 import { shippingRouter } from "@/modules/shipping/shipping.routes";
+import { authRouter } from "@/modules/auth/auth.routes";
+import { adminRouter } from "@/modules/admin/admin.routes";
+import { rbacRouter } from "@/modules/rbac/rbac.routes";
+import { settingsRouter } from "@/modules/settings/settings.routes";
+import { storeRouter } from "@/modules/store/store.routes";
 
 const app = express();
 
@@ -28,6 +33,11 @@ app.get("/health", (_req: Request, res: Response) => {
   return res.status(200).json({ ok: true, service: "backend" });
 });
 
+app.use("/auth", authRouter);
+app.use("/admin", adminRouter);
+app.use("/rbac", rbacRouter);
+app.use("/settings", settingsRouter);
+app.use("/stores", storeRouter);
 app.use("/products", productRouter);
 app.use("/customers", customerRouter);
 app.use("/locations", locationRouter);

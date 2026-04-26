@@ -42,7 +42,21 @@ import { StackedTextField } from '@/shared/ui/form/stacked-text-field'
 import { StackedDropdown } from '@/shared/ui/form/stacked-dropdown'
 import { SummaryPaperHeader } from '@/shared/ui/summary-paper-header'
 import { orderApi, type OrderCreatePayload, type OrderListItem, type OrderOptionLookup } from './order.api'
-import { formatCurrency } from './order.utils'
+import {
+  buildPaymentNoteContent,
+  getNextPaymentStatus,
+  getNormalizedDepositAmount,
+  getNormalizedPaidAmount,
+  getPaymentMethodFromTypeId,
+  getPaymentValidationErrors,
+  parsePaymentNoteContent,
+  PaymentInformationCard,
+  PAYMENT_METHOD_TYPE_IDS,
+  type DepositInputMode,
+  type PaymentMethod,
+} from './order-payment'
+import { formatCurrency, getProcessingStatusMeta } from './order.utils'
+import { generalSettingsApi } from '@/pages/settings/general-settings.api'
 
 type OrderItemForm = {
   variant_sku: string
@@ -63,7 +77,7 @@ type OrderCreateLocationState = {
   duplicateFrom?: OrderListItem
 }
 
-type DialogKey = 'payment' | 'order' | 'shipping' | 'meta' | null
+type DialogKey = 'order' | 'meta' | null
 
 type CustomerAutocompleteOption =
   | {
@@ -77,7 +91,6 @@ type CustomerAutocompleteOption =
 
 type CustomerModalMode = 'create' | 'edit'
 type ProductSearchOption = OrderOptionLookup['products'][number]
-
 type CustomerModalForm = {
   fullName: string
   phone: string
@@ -230,6 +243,62 @@ const parseCustomerAddress = (address: string): ParsedCustomerAddress => {
   }
 }
 
+const hydrateAddressSelection = async (
+  address:
+    | {
+        state_id: number
+        city_id: number
+        district_id: number | null
+        address_line: string
+      }
+    | null
+    | undefined,
+  statesData: LocationItem[],
+) => {
+  if (!address) {
+    return {
+      state: null,
+      cities: [] as CityItem[],
+      city: null,
+      districts: [] as DistrictItem[],
+      district: null,
+    }
+  }
+
+  const state = statesData.find((item) => item.id === address.state_id) ?? null
+
+  if (!state) {
+    return {
+      state: null,
+      cities: [] as CityItem[],
+      city: null,
+      districts: [] as DistrictItem[],
+      district: null,
+    }
+  }
+
+  const cities = await customerApi.getCities({
+    state_id: state.id,
+    is_active: true,
+  })
+  const city = cities.find((item) => item.id === address.city_id) ?? null
+  const districts = city
+    ? await customerApi.getDistricts({
+        city_id: city.id,
+        is_active: true,
+      })
+    : []
+  const district = address.district_id ? districts.find((item) => item.id === address.district_id) ?? null : null
+
+  return {
+    state,
+    cities,
+    city,
+    districts,
+    district,
+  }
+}
+
 export function OrdersCreatePage(): ReactElement {
   const location = useLocation()
   const navigate = useNavigate()
@@ -274,8 +343,33 @@ export function OrdersCreatePage(): ReactElement {
 
   const [shippingService, setShippingService] = useState('')
   const [shippingFee, setShippingFee] = useState('0')
+  const [fromContactName, setFromContactName] = useState('')
+  const [fromContactPhone, setFromContactPhone] = useState('')
+  const [fromAddressLine, setFromAddressLine] = useState('')
+  const [fromState, setFromState] = useState<LocationItem | null>(null)
+  const [fromCity, setFromCity] = useState<CityItem | null>(null)
+  const [fromDistrict, setFromDistrict] = useState<DistrictItem | null>(null)
+  const [toAddressLine, setToAddressLine] = useState('')
+  const [toState, setToState] = useState<LocationItem | null>(null)
+  const [toCity, setToCity] = useState<CityItem | null>(null)
+  const [toDistrict, setToDistrict] = useState<DistrictItem | null>(null)
+  const [parcelContent, setParcelContent] = useState('')
+  const [parcelWeight, setParcelWeight] = useState('500')
+  const [parcelLength, setParcelLength] = useState('20')
+  const [parcelWidth, setParcelWidth] = useState('15')
+  const [parcelHeight, setParcelHeight] = useState('10')
+  const [insuranceValue, setInsuranceValue] = useState('0')
+  const [codAmount, setCodAmount] = useState('0')
   const [taxAmount, setTaxAmount] = useState('0')
   const [depositAmount, setDepositAmount] = useState('0')
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('unpaid')
+  const [paymentDueDate, setPaymentDueDate] = useState('')
+  const [depositInputMode, setDepositInputMode] = useState<DepositInputMode>('amount')
+  const [depositPercent, setDepositPercent] = useState('')
+  const [bankName, setBankName] = useState('')
+  const [bankAccountNumber, setBankAccountNumber] = useState('')
+  const [bankAccountHolder, setBankAccountHolder] = useState('')
+  const [transferReference, setTransferReference] = useState('')
   const [warehouseStatus, setWarehouseStatus] = useState('')
   const [trackingCode, setTrackingCode] = useState('')
   const [shippingStatus, setShippingStatus] = useState('')
@@ -296,16 +390,49 @@ export function OrdersCreatePage(): ReactElement {
       setIsStatesLoading(true)
 
       try {
-        const [optionsData, statesData, orderData] = await Promise.all([
+        const [optionsData, statesData, storeSettings, orderData] = await Promise.all([
           orderApi.getOrderOptions(),
           customerApi.getStates({ is_active: true }),
+          generalSettingsApi.getGeneralSettings(),
           isEditMode && orderId ? orderApi.getOrderById(orderId) : Promise.resolve(null),
         ])
 
         setOptions(optionsData)
         setStates(statesData)
 
+        const applyStoreDefaults = async () => {
+          const shippingDefaults = storeSettings.defaults.shipping_address
+          const bankDefaults = storeSettings.defaults.bank_account
+
+          setFromContactName(shippingDefaults.contact_name)
+          setFromContactPhone(shippingDefaults.phone)
+          setFromAddressLine(shippingDefaults.address_line)
+          setBankName(bankDefaults.bank_name)
+          setBankAccountNumber(bankDefaults.account_number)
+          setBankAccountHolder(bankDefaults.account_holder)
+
+          if (shippingDefaults.state_id && shippingDefaults.city_id) {
+            const selection = await hydrateAddressSelection(
+              {
+                state_id: shippingDefaults.state_id,
+                city_id: shippingDefaults.city_id,
+                district_id: shippingDefaults.district_id ?? null,
+                address_line: shippingDefaults.address_line,
+              },
+              statesData,
+            )
+
+            setFromState(selection.state)
+            setFromCity(selection.city)
+            setFromDistrict(selection.district)
+          }
+        }
+
         if (orderData) {
+          const parsedPaymentDetails = parsePaymentNoteContent(orderData.payment_notes)
+          const inferredPaymentMethod =
+            parsedPaymentDetails.method ?? getPaymentMethodFromTypeId(orderData.payment_type_id, orderData.payment_status)
+
           setLoadedOrder(orderData)
           setOrderCode(orderData.order_code)
           setOrderDate(orderData.order_date.slice(0, 10))
@@ -321,12 +448,41 @@ export function OrdersCreatePage(): ReactElement {
               .join(' • '),
           )
           setPaymentStatus(orderData.payment_status)
+          setPaymentMethod(inferredPaymentMethod)
           setProcessingStatus(orderData.processing_status)
           setSalesChannel(orderData.sales_channel ?? '')
           setShippingService(orderData.shipping_service ?? '')
           setShippingFee(orderData.shipping_fee)
+          const [fromSelection, toSelection] = await Promise.all([
+            hydrateAddressSelection(orderData.from_address_detail, statesData),
+            hydrateAddressSelection(orderData.to_address_detail, statesData),
+          ])
+          setFromState(fromSelection.state)
+          setFromCity(fromSelection.city)
+          setFromDistrict(fromSelection.district)
+          setToState(toSelection.state)
+          setToCity(toSelection.city)
+          setToDistrict(toSelection.district)
+          setFromContactName(orderData.from_name ?? '')
+          setFromContactPhone(orderData.from_phone ?? '')
+          setFromAddressLine(orderData.from_address_detail?.address_line ?? orderData.from_address ?? '')
+          setToAddressLine(orderData.to_address_detail?.address_line ?? orderData.customer_info.address ?? '')
+          setParcelContent(orderData.content ?? '')
+          setParcelWeight(orderData.weight ? String(orderData.weight) : '500')
+          setParcelLength(orderData.length ? String(orderData.length) : '20')
+          setParcelWidth(orderData.width ? String(orderData.width) : '15')
+          setParcelHeight(orderData.height ? String(orderData.height) : '10')
+          setInsuranceValue(orderData.insurance_value ?? '0')
+          setCodAmount(orderData.cod_amount ?? '0')
           setTaxAmount(orderData.tax_amount)
           setDepositAmount(orderData.deposit_amount)
+          setPaymentDueDate(parsedPaymentDetails.dueDate)
+          setDepositInputMode(parsedPaymentDetails.depositMode)
+          setDepositPercent(parsedPaymentDetails.depositPercent)
+          setBankName(parsedPaymentDetails.bankName)
+          setBankAccountNumber(parsedPaymentDetails.accountNumber)
+          setBankAccountHolder(parsedPaymentDetails.accountHolder)
+          setTransferReference(parsedPaymentDetails.transferReference)
           setWarehouseStatus(orderData.warehouse_status ?? '')
           setTrackingCode(orderData.tracking_code ?? '')
           setShippingStatus(orderData.shipping_status ?? '')
@@ -334,7 +490,7 @@ export function OrdersCreatePage(): ReactElement {
           setCreatedBy(orderData.created_by ?? 'Sales Admin')
           setConfirmedBy(orderData.confirmed_by ?? '')
           setOrderNotes(orderData.order_notes ?? '')
-          setPaymentNotes(orderData.payment_notes ?? '')
+          setPaymentNotes(parsedPaymentDetails.note)
           setStatusTimeline(orderData.status_timeline ?? {})
           const productOptionMap = new Map(optionsData.products.map((product) => [product.sku, product]))
 
@@ -364,6 +520,11 @@ export function OrdersCreatePage(): ReactElement {
         }
 
         if (duplicateSource) {
+          const parsedPaymentDetails = parsePaymentNoteContent(duplicateSource.payment_notes)
+          const inferredPaymentMethod =
+            parsedPaymentDetails.method ??
+            getPaymentMethodFromTypeId(duplicateSource.payment_type_id, duplicateSource.payment_status)
+
           setLoadedOrder(null)
           setOrderCode('')
           setOrderDate(new Date().toISOString().slice(0, 10))
@@ -382,13 +543,42 @@ export function OrdersCreatePage(): ReactElement {
               .filter(Boolean)
               .join(' • '),
           )
-          setPaymentStatus('unpaid')
+          setPaymentStatus(inferredPaymentMethod === 'deposit' ? 'deposit' : 'unpaid')
+          setPaymentMethod(inferredPaymentMethod)
           setProcessingStatus('draft')
           setSalesChannel(duplicateSource.sales_channel ?? '')
           setShippingService(duplicateSource.shipping_service ?? '')
           setShippingFee(duplicateSource.shipping_fee)
+          const [fromSelection, toSelection] = await Promise.all([
+            hydrateAddressSelection(duplicateSource.from_address_detail, statesData),
+            hydrateAddressSelection(duplicateSource.to_address_detail, statesData),
+          ])
+          setFromState(fromSelection.state)
+          setFromCity(fromSelection.city)
+          setFromDistrict(fromSelection.district)
+          setToState(toSelection.state)
+          setToCity(toSelection.city)
+          setToDistrict(toSelection.district)
+          setFromContactName(duplicateSource.from_name ?? '')
+          setFromContactPhone(duplicateSource.from_phone ?? '')
+          setFromAddressLine(duplicateSource.from_address_detail?.address_line ?? duplicateSource.from_address ?? '')
+          setToAddressLine(duplicateSource.to_address_detail?.address_line ?? duplicateSource.customer_info.address ?? '')
+          setParcelContent(duplicateSource.content ?? '')
+          setParcelWeight(duplicateSource.weight ? String(duplicateSource.weight) : '500')
+          setParcelLength(duplicateSource.length ? String(duplicateSource.length) : '20')
+          setParcelWidth(duplicateSource.width ? String(duplicateSource.width) : '15')
+          setParcelHeight(duplicateSource.height ? String(duplicateSource.height) : '10')
+          setInsuranceValue(duplicateSource.insurance_value ?? '0')
+          setCodAmount('0')
           setTaxAmount(duplicateSource.tax_amount)
           setDepositAmount('0')
+          setPaymentDueDate(parsedPaymentDetails.dueDate)
+          setDepositInputMode(parsedPaymentDetails.depositMode)
+          setDepositPercent(parsedPaymentDetails.depositPercent)
+          setBankName(parsedPaymentDetails.bankName)
+          setBankAccountNumber(parsedPaymentDetails.accountNumber)
+          setBankAccountHolder(parsedPaymentDetails.accountHolder)
+          setTransferReference(parsedPaymentDetails.transferReference)
           setWarehouseStatus('')
           setTrackingCode('')
           setShippingStatus('')
@@ -396,7 +586,7 @@ export function OrdersCreatePage(): ReactElement {
           setCreatedBy('Sales Admin')
           setConfirmedBy('')
           setOrderNotes(duplicateSource.order_notes ?? '')
-          setPaymentNotes('')
+          setPaymentNotes(parsedPaymentDetails.note)
           setStatusTimeline({})
           const productOptionMap = new Map(optionsData.products.map((product) => [product.sku, product]))
 
@@ -423,7 +613,10 @@ export function OrdersCreatePage(): ReactElement {
               : [],
           )
           appToast.info(`Đã sao chép từ đơn hàng ${duplicateSource.order_code}. Bạn đang tạo một bản sao mới.`)
+          return
         }
+
+        await applyStoreDefaults()
       } catch (error) {
         console.error('Lỗi khi tải dữ liệu đơn hàng:', error)
         appToast.error(getErrorMessage(error, 'Không thể tải dữ liệu đơn hàng.'))
@@ -564,9 +757,20 @@ export function OrdersCreatePage(): ReactElement {
 
   const subTotal = useMemo(() => itemRows.reduce((sum, item) => sum + item.subTotal, 0), [itemRows])
   const totalAmount = subTotal + Number(taxAmount || 0) + Number(shippingFee || 0)
-  const normalizedDepositAmount = paymentStatus === 'deposit' ? Number(depositAmount || 0) : 0
-  const normalizedPaidAmount =
-    paymentStatus === 'paid' ? totalAmount : paymentStatus === 'deposit' ? normalizedDepositAmount : 0
+  const normalizedDepositPercent = Number(depositPercent || 0)
+  const normalizedDepositAmount = getNormalizedDepositAmount({
+    paymentMethod,
+    depositInputMode,
+    depositPercent,
+    depositAmount,
+    totalAmount,
+  })
+  const normalizedPaidAmount = getNormalizedPaidAmount({
+    paymentStatus,
+    paymentMethod,
+    totalAmount,
+    depositAmount: normalizedDepositAmount,
+  })
   const outstandingAmount = Math.max(totalAmount - normalizedPaidAmount, 0)
   const selectedItemIndexSet = useMemo(() => new Set(selectedItemIndexes), [selectedItemIndexes])
   const selectedItemCount = selectedItemIndexes.length
@@ -597,30 +801,42 @@ export function OrdersCreatePage(): ReactElement {
       nextErrors.order_items = 'Mỗi dòng sản phẩm cần có tên, SKU và số lượng hợp lệ.'
     }
 
-    if (paymentStatus === 'deposit' && normalizedDepositAmount <= 0) {
-      nextErrors.deposit_amount = 'Vui lòng nhập số tiền cọc lớn hơn 0.'
+    return {
+      ...nextErrors,
+      ...getPaymentValidationErrors({
+        paymentMethod,
+        paymentStatus,
+        paymentDueDate,
+        depositInputMode,
+        depositPercent,
+        normalizedDepositAmount,
+        totalAmount,
+        bankName,
+        bankAccountNumber,
+        bankAccountHolder,
+        processingStatus,
+      }),
     }
-
-    if (paymentStatus === 'deposit' && normalizedDepositAmount > totalAmount) {
-      nextErrors.deposit_amount = 'Tiền cọc không được lớn hơn tổng đơn hàng.'
-    }
-
-    if (paymentStatus === 'unpaid' && processingStatus === 'completed') {
-      nextErrors.processing_status = 'Đơn chưa thanh toán không thể đánh dấu hoàn thành.'
-    }
-
-    if (paymentStatus === 'deposit' && processingStatus === 'completed') {
-      nextErrors.processing_status = 'Đơn đặt cọc chưa thể hoàn thành khi vẫn còn công nợ.'
-    }
-
-    return nextErrors
-  }, [customerName, customerPhone, itemRows, normalizedDepositAmount, paymentStatus, processingStatus, totalAmount])
+  }, [
+    bankAccountHolder,
+    bankAccountNumber,
+    bankName,
+    customerName,
+    customerPhone,
+    depositInputMode,
+    itemRows,
+    normalizedDepositAmount,
+    normalizedDepositPercent,
+    paymentDueDate,
+    paymentMethod,
+    paymentStatus,
+    processingStatus,
+    totalAmount,
+  ])
 
   const visibleErrors = hasAttemptedSave ? errors : {}
   const canSave = !isLoading && !isSaving && Object.keys(errors).length === 0
   const canEditOrder = !isEditMode || !loadedOrder || ['draft', 'placed'].includes(loadedOrder.processing_status)
-  const paymentStatusLabel =
-    paymentStatus === 'paid' ? 'Đã thanh toán đủ' : paymentStatus === 'deposit' ? 'Đặt cọc' : 'Chưa thanh toán'
   const hasSelectedCustomer = Boolean(customerName.trim() || customerPhone.trim() || customerAddress.trim() || customerId)
   const customerSearchOptions = useMemo<CustomerAutocompleteOption[]>(() => {
     const normalizedKeyword = customerSearch.trim().toLowerCase()
@@ -646,6 +862,49 @@ export function OrdersCreatePage(): ReactElement {
     ]
   }, [customerSearch, options?.customers])
 
+  const applyCustomerShippingAddress = async (
+    address:
+      | {
+          state_id: number
+          city_id: number
+          district_id: number | null
+          address_line: string
+        }
+      | null
+      | undefined,
+  ) => {
+    try {
+      if (!address) {
+        setToState(null)
+        setToCity(null)
+        setToDistrict(null)
+        setToAddressLine('')
+        return
+      }
+
+      const statesData =
+        states.length > 0
+          ? states
+          : await customerApi.getStates({
+              is_active: true,
+            })
+
+      if (states.length === 0) {
+        setStates(statesData)
+      }
+
+      const selection = await hydrateAddressSelection(address, statesData)
+
+      setToState(selection.state)
+      setToCity(selection.city)
+      setToDistrict(selection.district)
+      setToAddressLine(address.address_line ?? '')
+    } catch (error) {
+      console.error('Lỗi khi đồng bộ địa chỉ nhận từ khách hàng:', error)
+      appToast.error(getErrorMessage(error, 'Không thể đồng bộ địa chỉ nhận từ khách hàng.'))
+    }
+  }
+
   const handleCustomerSelect = (value: OrderOptionLookup['customers'][number] | null) => {
     if (!value) {
       setCustomerId('')
@@ -654,6 +913,7 @@ export function OrdersCreatePage(): ReactElement {
       setCustomerPhone('')
       setCustomerAddress('')
       setCustomerSearch('')
+      void applyCustomerShippingAddress(null)
       return
     }
 
@@ -663,6 +923,7 @@ export function OrdersCreatePage(): ReactElement {
     setCustomerPhone(value.phone)
     setCustomerAddress(formatDefaultCustomerAddress(value))
     setCustomerSearch(`${value.full_name} - ${value.client_code} - ${value.phone}`)
+    void applyCustomerShippingAddress(value.default_address?.address ?? null)
   }
 
   const handleCustomerModalFieldChange = (field: 'fullName' | 'phone' | 'addressLine', value: string) => {
@@ -748,6 +1009,11 @@ export function OrdersCreatePage(): ReactElement {
     setCustomerModalPrefill(null)
   }
 
+  const handlePaymentMethodChange = (method: PaymentMethod) => {
+    setPaymentMethod(method)
+    setPaymentStatus((current) => getNextPaymentStatus(method, current))
+  }
+
   const handleSaveCustomerModal = async () => {
     const fullName = customerModalForm.fullName.trim()
     const phone = customerModalForm.phone.trim()
@@ -810,6 +1076,22 @@ export function OrdersCreatePage(): ReactElement {
                 }
               : current,
           )
+          const updatedDefaultAddress = updatedCustomer.addresses.find((entry) => entry.is_default) ?? null
+          setCustomerAddress(
+            updatedDefaultAddress
+              ? formatDefaultCustomerAddress({
+                  id: updatedCustomer.id,
+                  client_code: updatedCustomer.client_code,
+                  full_name: updatedCustomer.full_name,
+                  phone: updatedCustomer.phone ?? phone,
+                  default_address: {
+                    id: updatedDefaultAddress.id,
+                    address: updatedDefaultAddress.address,
+                  },
+                })
+              : address,
+          )
+          await applyCustomerShippingAddress(updatedDefaultAddress?.address ?? null)
         } catch (error) {
           console.error('Lỗi khi cập nhật địa chỉ mặc định:', error)
           appToast.error(getErrorMessage(error, 'Không thể cập nhật địa chỉ mặc định.'))
@@ -876,8 +1158,23 @@ export function OrdersCreatePage(): ReactElement {
       setCustomerCode(createdCustomer.client_code)
       setCustomerName(createdCustomer.full_name)
       setCustomerPhone(createdCustomer.phone ?? phone)
-      setCustomerAddress(address)
+      const createdDefaultAddress = createdCustomer.addresses.find((entry) => entry.is_default) ?? null
+      setCustomerAddress(
+        createdDefaultAddress
+          ? formatDefaultCustomerAddress({
+              id: createdCustomer.id,
+              client_code: createdCustomer.client_code,
+              full_name: createdCustomer.full_name,
+              phone: createdCustomer.phone ?? phone,
+              default_address: {
+                id: createdDefaultAddress.id,
+                address: createdDefaultAddress.address,
+              },
+            })
+          : address,
+      )
       setCustomerSearch(`${createdCustomer.full_name} - ${createdCustomer.client_code} - ${createdCustomer.phone ?? phone}`)
+      await applyCustomerShippingAddress(createdDefaultAddress?.address ?? null)
       setCustomerModalOpen(false)
       appToast.success(`Đã thêm khách hàng ${createdCustomer.full_name} vào đơn hàng.`)
     } catch (error) {
@@ -906,11 +1203,6 @@ export function OrdersCreatePage(): ReactElement {
     )
   }
 
-  const removeItem = (index: number) => {
-    setItems((current) => current.filter((_, currentIndex) => currentIndex !== index))
-    setSelectedItemIndexes([])
-  }
-
   const handleToggleItemSelection = (index: number) => {
     setSelectedItemIndexes((current) =>
       current.includes(index) ? current.filter((itemIndex) => itemIndex !== index) : [...current, index].sort((a, b) => a - b),
@@ -932,7 +1224,7 @@ export function OrdersCreatePage(): ReactElement {
   }
 
   const buildStatusTimeline = (): Record<string, string> => {
-    const stages = ['placed', 'confirmed', 'picking', 'shipping', 'completed']
+    const stages = ['placed', 'confirmed', 'picked_up', 'delivering', 'completed']
     const currentStageMap: Record<string, number> = {
       draft: -1,
       placed: 0,
@@ -970,12 +1262,56 @@ export function OrdersCreatePage(): ReactElement {
         order_type: orderType,
         order_date: new Date(orderDate).toISOString(),
         customer_id: customerId ? Number(customerId) : null,
+        payment_type_id: paymentMethod === 'unpaid' ? null : PAYMENT_METHOD_TYPE_IDS[paymentMethod],
         customer_info: {
           customer_code: customerCode.trim() || null,
           name: customerName.trim(),
           phone: customerPhone.trim(),
-          address: customerAddress.trim() || null,
+          address:
+            [
+              toAddressLine.trim(),
+              toDistrict?.name ?? null,
+              toCity?.name ?? null,
+              toState?.name ?? null,
+            ]
+              .filter(Boolean)
+              .join(', ') || customerAddress.trim() || null,
         },
+        from_address_detail:
+          fromState && fromCity && fromAddressLine.trim()
+            ? {
+                state_id: fromState.id,
+                city_id: fromCity.id,
+                district_id: fromDistrict?.id ?? null,
+                address_line: fromAddressLine.trim() || null,
+              }
+            : null,
+        to_address_detail:
+          toState && toCity && (toAddressLine.trim() || customerAddress.trim())
+            ? {
+                state_id: toState.id,
+                city_id: toCity.id,
+                district_id: toDistrict?.id ?? null,
+                address_line: toAddressLine.trim() || customerAddress.trim() || null,
+              }
+            : null,
+        from_name: fromContactName.trim() || null,
+        from_phone: fromContactPhone.trim() || null,
+        from_address: fromAddressLine.trim() || null,
+        from_ward_name: fromDistrict?.name ?? null,
+        from_district_name: fromCity?.name ?? null,
+        from_province_name: fromState?.name ?? null,
+        to_district_id: null,
+        to_ward_code: null,
+        cod_amount: Number(codAmount || 0),
+        content: parcelContent.trim() || null,
+        weight: Number(parcelWeight || 0) || null,
+        length: Number(parcelLength || 0) || null,
+        width: Number(parcelWidth || 0) || null,
+        height: Number(parcelHeight || 0) || null,
+        insurance_value: Number(insuranceValue || 0),
+        service_id: null,
+        service_type_id: null,
         tax_amount: Number(taxAmount || 0),
         shipping_fee: Number(shippingFee || 0),
         deposit_amount: normalizedDepositAmount,
@@ -985,7 +1321,18 @@ export function OrdersCreatePage(): ReactElement {
         shipping_service: shippingService.trim() || null,
         sales_channel: salesChannel.trim() || null,
         order_notes: orderNotes.trim() || null,
-        payment_notes: paymentNotes.trim() || null,
+        payment_notes: buildPaymentNoteContent({
+          method: paymentMethod,
+          note: paymentNotes,
+          dueDate: paymentDueDate,
+          depositMode: depositInputMode,
+          depositPercent,
+          depositAmount: normalizedDepositAmount,
+          bankName,
+          accountNumber: bankAccountNumber,
+          accountHolder: bankAccountHolder,
+          transferReference,
+        }),
         warehouse_status: warehouseStatus.trim() || null,
         tracking_code: trackingCode.trim() || null,
         shipping_status: shippingStatus.trim() || null,
@@ -1067,7 +1414,7 @@ export function OrdersCreatePage(): ReactElement {
       <Box
         sx={{
           display: 'grid',
-          gridTemplateColumns: { xs: '1fr', xl: 'minmax(0, 7fr) minmax(320px, 3fr)' },
+          gridTemplateColumns: { xs: '1fr', xl: 'minmax(0, 6fr) minmax(320px, 4fr)' },
           gap: 2.5,
           alignItems: 'start',
         }}
@@ -1511,23 +1858,37 @@ export function OrdersCreatePage(): ReactElement {
             </Stack>
           </Paper>
 
-          <Paper sx={borderedCardSx}>
-            <Stack spacing={1.5}>
-              <SummaryPaperHeader title="Thanh toán" onEdit={() => setActiveDialog('payment')} />
-              <SummaryRow label="Trạng thái" value={paymentStatusLabel} />
-              <SummaryRow label="Tạm tính" value={formatCurrency(subTotal)} />
-              <SummaryRow label="Thuế" value={formatCurrency(taxAmount)} />
-              <SummaryRow label="Phí vận chuyển" value={formatCurrency(shippingFee)} />
-              <SummaryRow label="Tổng đơn" value={formatCurrency(totalAmount)} />
-              {paymentStatus === 'deposit' ? <SummaryRow label="Tiền cọc" value={formatCurrency(normalizedDepositAmount)} /> : null}
-              <SummaryRow
-                label={paymentStatus === 'paid' ? 'Đã thu' : 'Còn phải thu'}
-                value={formatCurrency(paymentStatus === 'paid' ? totalAmount : paymentStatus === 'deposit' ? outstandingAmount : totalAmount)}
-              />
-              <SummaryRow label="Ghi chú thanh toán" value={paymentNotes || 'Chưa có ghi chú'} multiline />
-              {visibleErrors.deposit_amount ? <Typography color="error">{visibleErrors.deposit_amount}</Typography> : null}
-            </Stack>
-          </Paper>
+          <PaymentInformationCard
+            canEdit={canEditOrder}
+            paymentMethod={paymentMethod}
+            paymentStatus={paymentStatus}
+            paymentNotes={paymentNotes}
+            paymentDueDate={paymentDueDate}
+            depositInputMode={depositInputMode}
+            depositPercent={depositPercent}
+            bankName={bankName}
+            bankAccountNumber={bankAccountNumber}
+            bankAccountHolder={bankAccountHolder}
+            transferReference={transferReference}
+            taxAmount={taxAmount}
+            subTotal={subTotal}
+            totalAmount={totalAmount}
+            paidAmount={normalizedPaidAmount}
+            remainingAmount={outstandingAmount}
+            depositAmount={normalizedDepositAmount}
+            errors={visibleErrors}
+            onPaymentMethodChange={handlePaymentMethodChange}
+            onTaxAmountChange={setTaxAmount}
+            onPaymentNotesChange={setPaymentNotes}
+            onPaymentDueDateChange={setPaymentDueDate}
+            onDepositInputModeChange={setDepositInputMode}
+            onDepositPercentChange={setDepositPercent}
+            onDepositAmountChange={setDepositAmount}
+            onBankNameChange={setBankName}
+            onBankAccountNumberChange={setBankAccountNumber}
+            onBankAccountHolderChange={setBankAccountHolder}
+            onTransferReferenceChange={setTransferReference}
+          />
         </Stack>
 
         <Stack spacing={2.5}>
@@ -1539,20 +1900,10 @@ export function OrdersCreatePage(): ReactElement {
               <SummaryRow label="Loại đơn" value={orderType === 'sale' ? 'Bán hàng' : 'Trả hàng'} />
               <SummaryRow
                 label="Trạng thái xử lý"
-                value={options?.processing_statuses.find((status) => status.value === processingStatus)?.label ?? processingStatus}
+                value={getProcessingStatusMeta(processingStatus).label}
               />
               <SummaryRow label="Kênh bán hàng" value={salesChannel || 'Chưa chọn kênh'} />
               {visibleErrors.processing_status ? <Typography color="error">{visibleErrors.processing_status}</Typography> : null}
-            </Stack>
-          </Paper>
-
-          <Paper sx={borderedCardSx}>
-            <Stack spacing={1.5}>
-              <SummaryPaperHeader title="Vận chuyển" onEdit={() => setActiveDialog('shipping')} />
-              <SummaryRow label="Đơn vị vận chuyển" value={shippingService || 'Chưa chọn đơn vị'} />
-              <SummaryRow label="Trạng thái giao hàng" value={shippingStatus || 'Chưa có trạng thái'} />
-              <SummaryRow label="Mã tracking" value={trackingCode || 'Chưa có tracking'} />
-              <SummaryRow label="Trạng thái kho" value={warehouseStatus || 'Chưa có trạng thái kho'} />
             </Stack>
           </Paper>
 
@@ -1683,29 +2034,6 @@ export function OrdersCreatePage(): ReactElement {
         </DialogActions>
       </Dialog>
 
-      <Dialog open={activeDialog === 'payment'} onClose={() => setActiveDialog(null)} fullWidth maxWidth="sm">
-        <DialogTitle>Chỉnh sửa thanh toán</DialogTitle>
-        <DialogContent>
-          <Stack spacing={2} sx={{ pt: 1 }}>
-            <StackedDropdown fullWidth label="Trạng thái thanh toán" value={paymentStatus} onChange={(event) => setPaymentStatus(event.target.value as 'unpaid' | 'paid' | 'deposit')}>
-              <MenuItem value="unpaid">Chưa thanh toán</MenuItem>
-              <MenuItem value="paid">Thanh toán đủ</MenuItem>
-              <MenuItem value="deposit">Đặt cọc</MenuItem>
-            </StackedDropdown>
-            <StackedTextField fullWidth label="Thuế" type="number" value={taxAmount} onChange={(event) => setTaxAmount(event.target.value)} />
-            <StackedTextField fullWidth label="Phí vận chuyển" type="number" value={shippingFee} onChange={(event) => setShippingFee(event.target.value)} />
-            {paymentStatus === 'deposit' ? (
-              <StackedTextField fullWidth label="Tiền cọc" type="number" value={depositAmount} onChange={(event) => setDepositAmount(event.target.value)} />
-            ) : null}
-            <StackedTextField fullWidth multiline minRows={2} label="Ghi chú thanh toán" value={paymentNotes} onChange={(event) => setPaymentNotes(event.target.value)} />
-          </Stack>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setActiveDialog(null)}>Đóng</Button>
-          <Button variant="contained" onClick={() => setActiveDialog(null)}>Lưu</Button>
-        </DialogActions>
-      </Dialog>
-
       <Dialog open={activeDialog === 'order'} onClose={() => setActiveDialog(null)} fullWidth maxWidth="sm">
         <DialogTitle>Chỉnh sửa thông tin đơn</DialogTitle>
         <DialogContent>
@@ -1728,27 +2056,11 @@ export function OrdersCreatePage(): ReactElement {
             >
               {options?.processing_statuses.map((status) => (
                 <MenuItem key={status.value} value={status.value}>
-                  {status.label}
+                  {getProcessingStatusMeta(status.value).label}
                 </MenuItem>
               ))}
             </StackedDropdown>
             <StackedTextField fullWidth label="Kênh bán hàng" value={salesChannel} onChange={(event) => setSalesChannel(event.target.value)} />
-          </Stack>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setActiveDialog(null)}>Đóng</Button>
-          <Button variant="contained" onClick={() => setActiveDialog(null)}>Lưu</Button>
-        </DialogActions>
-      </Dialog>
-
-      <Dialog open={activeDialog === 'shipping'} onClose={() => setActiveDialog(null)} fullWidth maxWidth="sm">
-        <DialogTitle>Chỉnh sửa vận chuyển</DialogTitle>
-        <DialogContent>
-          <Stack spacing={2} sx={{ pt: 1 }}>
-            <StackedTextField fullWidth label="Đơn vị vận chuyển" value={shippingService} onChange={(event) => setShippingService(event.target.value)} />
-            <StackedTextField fullWidth label="Trạng thái giao hàng" value={shippingStatus} onChange={(event) => setShippingStatus(event.target.value)} />
-            <StackedTextField fullWidth label="Mã tracking" value={trackingCode} onChange={(event) => setTrackingCode(event.target.value)} />
-            <StackedTextField fullWidth label="Trạng thái kho" value={warehouseStatus} onChange={(event) => setWarehouseStatus(event.target.value)} />
           </Stack>
         </DialogContent>
         <DialogActions>

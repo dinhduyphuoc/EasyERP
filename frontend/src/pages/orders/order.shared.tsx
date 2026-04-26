@@ -131,9 +131,9 @@ export function OrdersCollectionPage({
         placeholder: 'Tất cả trạng thái xử lý',
         options: [
           { label: 'Nháp', value: 'draft' },
-          { label: 'Đặt hàng', value: 'placed' },
-          { label: 'Xác nhận', value: 'confirmed' },
-          { label: 'DVVC lấy hàng', value: 'picked_up' },
+          { label: 'Chờ xác nhận', value: 'placed' },
+          { label: 'Đã xác nhận', value: 'confirmed' },
+          { label: 'Đóng gói', value: 'picked_up' },
           { label: 'Đang giao', value: 'delivering' },
           { label: 'Hoàn thành', value: 'completed' },
           { label: 'Đã hủy', value: 'cancelled' },
