@@ -1,5 +1,5 @@
 import type { Request, Response } from "express";
-import { BadRequestError } from "@/common";
+import { BadRequestError, UnauthorizedError } from "@/common";
 import { ShippingService } from "./shipping.service";
 import type {
   GHNOrderStatusCallbackPayload,
@@ -14,7 +14,6 @@ import type {
   ShippingFeeQuoteByLocationInput,
   ShippingLocationResolveInput,
   ShippingProviderParams,
-  ShippingStoreScopedQuery,
   ShippingVerifyInput,
 } from "./shipping.types";
 
@@ -28,32 +27,35 @@ const parseBody = <T>(value: unknown) => {
 
 export const ShippingController = {
   listProviders: async (
-    req: Request<{}, {}, {}, ShippingStoreScopedQuery>,
+    req: Request,
     res: Response,
   ) => {
-    const data = await ShippingService.listProviders(req.query.store_id);
+    if (!req.store) {
+      throw new UnauthorizedError("Store context is required");
+    }
+    const data = await ShippingService.listProviders(req.store.id);
     return res.status(200).json(data);
   },
 
   getConnectionDetail: async (
-    req: Request<ShippingProviderParams, {}, {}, ShippingStoreScopedQuery>,
+    req: Request<ShippingProviderParams>,
     res: Response,
   ) => {
-    const data = await ShippingService.getConnectionDetail(
-      req.params.code,
-      req.query.store_id,
-    );
+    if (!req.store) {
+      throw new UnauthorizedError("Store context is required");
+    }
+    const data = await ShippingService.getConnectionDetail(req.params.code, req.store.id);
     return res.status(200).json(data);
   },
 
   listProviderProvinces: async (
-    req: Request<ShippingProviderParams, {}, {}, ShippingStoreScopedQuery>,
+    req: Request<ShippingProviderParams>,
     res: Response,
   ) => {
-    const data = await ShippingService.listProviderProvinces(
-      req.params.code,
-      req.query.store_id,
-    );
+    if (!req.store) {
+      throw new UnauthorizedError("Store context is required");
+    }
+    const data = await ShippingService.listProviderProvinces(req.params.code, req.store.id);
     return res.status(200).json(data);
   },
 
@@ -61,10 +63,10 @@ export const ShippingController = {
     req: Request<ShippingProviderParams, {}, {}, ShippingAddressDistrictQuery>,
     res: Response,
   ) => {
-    const data = await ShippingService.listProviderDistricts(
-      req.params.code,
-      req.query,
-    );
+    if (!req.store) {
+      throw new UnauthorizedError("Store context is required");
+    }
+    const data = await ShippingService.listProviderDistricts(req.params.code, req.store.id, req.query);
     return res.status(200).json(data);
   },
 
@@ -72,10 +74,10 @@ export const ShippingController = {
     req: Request<ShippingProviderParams, {}, {}, ShippingAddressWardQuery>,
     res: Response,
   ) => {
-    const data = await ShippingService.listProviderWards(
-      req.params.code,
-      req.query,
-    );
+    if (!req.store) {
+      throw new UnauthorizedError("Store context is required");
+    }
+    const data = await ShippingService.listProviderWards(req.params.code, req.store.id, req.query);
     return res.status(200).json(data);
   },
 
@@ -83,10 +85,10 @@ export const ShippingController = {
     req: Request<ShippingProviderParams, {}, ShippingAvailableServicesInput>,
     res: Response,
   ) => {
-    const data = await ShippingService.listAvailableServices(
-      req.params.code,
-      parseBody<ShippingAvailableServicesInput>(req.body),
-    );
+    if (!req.store) {
+      throw new UnauthorizedError("Store context is required");
+    }
+    const data = await ShippingService.listAvailableServices(req.params.code, req.store.id, parseBody<ShippingAvailableServicesInput>(req.body));
     return res.status(200).json(data);
   },
 
@@ -94,10 +96,10 @@ export const ShippingController = {
     req: Request<ShippingProviderParams, {}, ShippingLocationResolveInput>,
     res: Response,
   ) => {
-    const data = await ShippingService.resolveProviderLocation(
-      req.params.code,
-      parseBody<ShippingLocationResolveInput>(req.body),
-    );
+    if (!req.store) {
+      throw new UnauthorizedError("Store context is required");
+    }
+    const data = await ShippingService.resolveProviderLocation(req.params.code, req.store.id, parseBody<ShippingLocationResolveInput>(req.body));
     return res.status(200).json(data);
   },
 
@@ -105,10 +107,10 @@ export const ShippingController = {
     req: Request<ShippingProviderParams, {}, ShippingAvailableServicesByLocationInput>,
     res: Response,
   ) => {
-    const data = await ShippingService.listAvailableServicesByLocation(
-      req.params.code,
-      parseBody<ShippingAvailableServicesByLocationInput>(req.body),
-    );
+    if (!req.store) {
+      throw new UnauthorizedError("Store context is required");
+    }
+    const data = await ShippingService.listAvailableServicesByLocation(req.params.code, req.store.id, parseBody<ShippingAvailableServicesByLocationInput>(req.body));
     return res.status(200).json(data);
   },
 
@@ -116,10 +118,10 @@ export const ShippingController = {
     req: Request<ShippingProviderParams, {}, ShippingFeeQuoteInput>,
     res: Response,
   ) => {
-    const data = await ShippingService.calculateFee(
-      req.params.code,
-      parseBody<ShippingFeeQuoteInput>(req.body),
-    );
+    if (!req.store) {
+      throw new UnauthorizedError("Store context is required");
+    }
+    const data = await ShippingService.calculateFee(req.params.code, req.store.id, parseBody<ShippingFeeQuoteInput>(req.body));
     return res.status(200).json(data);
   },
 
@@ -127,10 +129,10 @@ export const ShippingController = {
     req: Request<ShippingProviderParams, {}, ShippingFeeQuoteByLocationInput>,
     res: Response,
   ) => {
-    const data = await ShippingService.calculateFeeByLocation(
-      req.params.code,
-      parseBody<ShippingFeeQuoteByLocationInput>(req.body),
-    );
+    if (!req.store) {
+      throw new UnauthorizedError("Store context is required");
+    }
+    const data = await ShippingService.calculateFeeByLocation(req.params.code, req.store.id, parseBody<ShippingFeeQuoteByLocationInput>(req.body));
     return res.status(200).json(data);
   },
 
@@ -138,10 +140,10 @@ export const ShippingController = {
     req: Request<ShippingProviderParams, {}, ShippingConnectInput>,
     res: Response,
   ) => {
-    const data = await ShippingService.connectProvider(
-      req.params.code,
-      parseBody<ShippingConnectInput>(req.body),
-    );
+    if (!req.store) {
+      throw new UnauthorizedError("Store context is required");
+    }
+    const data = await ShippingService.connectProvider(req.params.code, req.store.id, parseBody<ShippingConnectInput>(req.body));
     return res.status(200).json(data);
   },
 
@@ -149,10 +151,10 @@ export const ShippingController = {
     req: Request<ShippingProviderParams, {}, ShippingDisconnectInput>,
     res: Response,
   ) => {
-    const data = await ShippingService.disconnectProvider(
-      req.params.code,
-      parseBody<ShippingDisconnectInput>(req.body),
-    );
+    if (!req.store) {
+      throw new UnauthorizedError("Store context is required");
+    }
+    const data = await ShippingService.disconnectProvider(req.params.code, req.store.id, parseBody<ShippingDisconnectInput>(req.body));
     return res.status(200).json(data);
   },
 
@@ -160,10 +162,10 @@ export const ShippingController = {
     req: Request<ShippingProviderParams, {}, ShippingVerifyInput>,
     res: Response,
   ) => {
-    const data = await ShippingService.verifyProvider(
-      req.params.code,
-      parseBody<ShippingVerifyInput>(req.body),
-    );
+    if (!req.store) {
+      throw new UnauthorizedError("Store context is required");
+    }
+    const data = await ShippingService.verifyProvider(req.params.code, req.store.id, parseBody<ShippingVerifyInput>(req.body));
     return res.status(200).json(data);
   },
 

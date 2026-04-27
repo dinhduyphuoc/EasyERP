@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { authenticate } from "@/common/middleware/authenticate";
+import { resolveStoreContext } from "@/common/middleware/resolve-store-context";
 import {
   requireAnyPermission,
   requirePermission,
@@ -12,6 +13,7 @@ shippingRouter.post("/webhooks/ghn/order-status", ShippingController.receiveGHNO
 shippingRouter.post("/webhooks/ghn/ticket", ShippingController.receiveGHNTicketCallback);
 
 shippingRouter.use(authenticate);
+shippingRouter.use(resolveStoreContext);
 
 shippingRouter.get("/providers", requirePermission("settings.read"), ShippingController.listProviders);
 shippingRouter.get("/providers/:code", requirePermission("settings.read"), ShippingController.getConnectionDetail);

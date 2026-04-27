@@ -161,15 +161,31 @@ const parseNonNegativeInteger = (value: unknown, fieldName: string) => {
   return parsed;
 };
 
-const ensureVariantExists = async (tx: PrismaTransaction, productVariantId: string) => {
+const ensureVariantExists = async (
+  tx: PrismaTransaction | typeof prisma,
+  productVariantId: string,
+  storeId?: string,
+) => {
   const variant = await tx.productVariant.findUnique({
     where: { sku: productVariantId },
-    select: { sku: true },
+    select: {
+      sku: true,
+      store_id: true,
+    },
   });
 
   if (!variant) {
     throw new NotFoundError("Product variant not found");
   }
+
+  if (storeId && variant.store_id !== storeId) {
+    throw new NotFoundError("Product variant not found");
+  }
+
+  return {
+    sku: variant.sku,
+    store_id: variant.store_id,
+  };
 };
 
 const getIdempotentTransaction = async (
@@ -360,11 +376,13 @@ const buildAuditCode = async (tx: PrismaTransaction) => {
 
 const ensureAuditCodeIsUnique = async (
   tx: PrismaTransaction,
+  storeId: string,
   auditCode: string,
   ignoreAuditId?: number,
 ) => {
   const existingAudit = await tx.inventoryAudit.findFirst({
     where: {
+      store_id: storeId,
       audit_code: auditCode,
       ...(ignoreAuditId ? { id: { not: ignoreAuditId } } : {}),
     },
@@ -479,6 +497,7 @@ const buildAuditResponse = (audit: {
 
 const applyInventoryMutation = async (params: {
   tx: PrismaTransaction;
+  storeId?: string;
   productVariantId: string;
   transactionType: InventoryTransactionType;
   reasonCode: InventoryReasonCode;
@@ -502,7 +521,8 @@ const applyInventoryMutation = async (params: {
     };
   }
 
-  await ensureVariantExists(params.tx, params.productVariantId);
+  const variant = await ensureVariantExists(params.tx, params.productVariantId, params.storeId);
+  const effectiveStoreId = params.storeId ?? variant.store_id;
 
   const current = await lockStock(params.tx, params.productVariantId);
 
@@ -516,6 +536,7 @@ const applyInventoryMutation = async (params: {
 
   const transaction = await params.tx.inventoryTransaction.create({
     data: {
+      store_id: effectiveStoreId,
       product_variant_id: params.productVariantId,
       transaction_type: params.transactionType,
       reason_code: params.reasonCode,
@@ -529,6 +550,7 @@ const applyInventoryMutation = async (params: {
   await params.tx.inventoryStock.update({
     where: { product_variant_id: params.productVariantId },
     data: {
+      store_id: effectiveStoreId,
       on_hand: next.on_hand,
       available: next.available,
       committed: next.committed,
@@ -832,13 +854,17 @@ const normalizeAuditPayload = (input: InventoryAuditUpsertInput) => {
 const ensureVariantStocks = async (
   tx: PrismaTransaction,
   productVariantIds: string[],
+  storeId?: string,
 ) => {
   if (productVariantIds.length === 0) {
     return new Map<string, number>();
   }
 
   const variants = await tx.productVariant.findMany({
-    where: { sku: { in: productVariantIds } },
+    where: {
+      sku: { in: productVariantIds },
+      ...(storeId ? { store_id: storeId } : {}),
+    },
     select: {
       sku: true,
       inventory_stock: {
@@ -863,10 +889,12 @@ const ensureVariantStocks = async (
 const buildAuditLineCreateManyData = async (
   tx: PrismaTransaction,
   lines: ReturnType<typeof normalizeAuditPayload>["lines"],
+  storeId?: string,
   existingSystemQtyByVariantId?: Map<string, number>,
 ) => {
   const systemQtyByVariantId =
-    existingSystemQtyByVariantId ?? (await ensureVariantStocks(tx, lines.map((line) => line.product_variant_id)));
+    existingSystemQtyByVariantId ??
+    (await ensureVariantStocks(tx, lines.map((line) => line.product_variant_id), storeId));
 
   return lines.map((line) => {
     const systemOnHand = systemQtyByVariantId.get(line.product_variant_id);
@@ -945,7 +973,7 @@ const parseCursor = (query: InventoryHistoryQuery) => {
 };
 
 export const InventoryService = {
-  getStockList: async (query: InventoryStockListQuery) => {
+  getStockList: async (storeId: string, query: InventoryStockListQuery) => {
     const search = toOptionalTrimmedString(query.search)?.toLowerCase();
 
     const variants = await prisma.productVariant.findMany({
@@ -958,6 +986,7 @@ export const InventoryService = {
             not: "deleted",
           },
         },
+        store_id: storeId,
       },
       include: {
           product: {
@@ -1027,7 +1056,7 @@ export const InventoryService = {
       });
   },
 
-  getAuditList: async (query: InventoryAuditListQuery) => {
+  getAuditList: async (storeId: string, query: InventoryAuditListQuery) => {
     const search = toOptionalTrimmedString(query.search);
     const status =
       query.status === undefined
@@ -1042,6 +1071,7 @@ export const InventoryService = {
 
     const audits = await prisma.inventoryAudit.findMany({
       where: {
+        store_id: storeId,
         ...(status ? { status } : {}),
         ...(search
           ? {
@@ -1070,9 +1100,12 @@ export const InventoryService = {
     return audits.map((audit) => buildAuditResponse(audit));
   },
 
-  getAuditById: async (id: number) => {
-    const audit = await prisma.inventoryAudit.findUnique({
-      where: { id },
+  getAuditById: async (storeId: string, id: number) => {
+    const audit = await prisma.inventoryAudit.findFirst({
+      where: {
+        id,
+        store_id: storeId,
+      },
       include: auditInclude,
     });
 
@@ -1083,16 +1116,17 @@ export const InventoryService = {
     return buildAuditResponse(audit);
   },
 
-  createAudit: async (input: InventoryAuditUpsertInput) => {
+  createAudit: async (storeId: string, input: InventoryAuditUpsertInput) => {
     const payload = normalizeAuditPayload(input);
 
     return prisma.$transaction(async (tx) => {
       const auditCode = payload.audit_code ?? (await buildAuditCode(tx));
-      await ensureAuditCodeIsUnique(tx, auditCode);
-      const lineData = await buildAuditLineCreateManyData(tx, payload.lines);
+      await ensureAuditCodeIsUnique(tx, storeId, auditCode);
+      const lineData = await buildAuditLineCreateManyData(tx, payload.lines, storeId);
 
       const audit = await tx.inventoryAudit.create({
         data: {
+          store_id: storeId,
           audit_code: auditCode,
           status: payload.status,
           note: payload.note,
@@ -1108,12 +1142,15 @@ export const InventoryService = {
     });
   },
 
-  updateAudit: async (id: number, input: InventoryAuditUpsertInput) => {
+  updateAudit: async (storeId: string, id: number, input: InventoryAuditUpsertInput) => {
     const payload = normalizeAuditPayload(input);
 
     return prisma.$transaction(async (tx) => {
-      const existingAudit = await tx.inventoryAudit.findUnique({
-        where: { id },
+      const existingAudit = await tx.inventoryAudit.findFirst({
+        where: {
+          id,
+          store_id: storeId,
+        },
         include: {
           lines: {
             orderBy: { id: "asc" },
@@ -1135,7 +1172,7 @@ export const InventoryService = {
       const newVariantIds = payload.lines
         .map((line) => line.product_variant_id)
         .filter((variantId) => !existingSystemQtyByVariantId.has(variantId));
-      const currentSystemQtyByVariantId = await ensureVariantStocks(tx, newVariantIds);
+      const currentSystemQtyByVariantId = await ensureVariantStocks(tx, newVariantIds, storeId);
 
       await tx.inventoryAuditLine.deleteMany({
         where: { audit_id: id },
@@ -1149,10 +1186,11 @@ export const InventoryService = {
       const lineData = await buildAuditLineCreateManyData(
         tx,
         payload.lines,
+        storeId,
         mergedSystemQtyByVariantId,
       );
       const nextAuditCode = payload.audit_code ?? existingAudit.audit_code;
-      await ensureAuditCodeIsUnique(tx, nextAuditCode, id);
+      await ensureAuditCodeIsUnique(tx, storeId, nextAuditCode, id);
 
       const audit = await tx.inventoryAudit.update({
         where: { id },
@@ -1172,10 +1210,13 @@ export const InventoryService = {
     });
   },
 
-  deleteAudit: async (id: number) => {
+  deleteAudit: async (storeId: string, id: number) => {
     return prisma.$transaction(async (tx) => {
-      const audit = await tx.inventoryAudit.findUnique({
-        where: { id },
+      const audit = await tx.inventoryAudit.findFirst({
+        where: {
+          id,
+          store_id: storeId,
+        },
         select: {
           id: true,
           status: true,
@@ -1196,10 +1237,13 @@ export const InventoryService = {
     });
   },
 
-  completeAudit: async (id: number, input: InventoryAuditFinalizeInput) => {
+  completeAudit: async (storeId: string, id: number, input: InventoryAuditFinalizeInput) => {
     return prisma.$transaction(async (tx) => {
-      const audit = await tx.inventoryAudit.findUnique({
-        where: { id },
+      const audit = await tx.inventoryAudit.findFirst({
+        where: {
+          id,
+          store_id: storeId,
+        },
         include: {
           lines: {
             orderBy: { id: "asc" },
@@ -1242,6 +1286,7 @@ export const InventoryService = {
 
         await applyInventoryMutation({
           tx,
+          storeId,
           productVariantId: line.product_variant_id,
           transactionType: "adjust",
           reasonCode: "actual_count",
@@ -1293,14 +1338,14 @@ export const InventoryService = {
     });
   },
 
-  getInventory: async (productVariantId: string) => {
+  getInventory: async (storeId: string, productVariantId: string) => {
     const variantId = toOptionalTrimmedString(productVariantId);
 
     if (!variantId) {
       throw new BadRequestError("Invalid product variant id");
     }
 
-    await ensureVariantExists(prisma, variantId);
+    await ensureVariantExists(prisma, variantId, storeId);
 
     const stock = await prisma.inventoryStock.findUnique({
       where: { product_variant_id: variantId },
@@ -1323,20 +1368,21 @@ export const InventoryService = {
     };
   },
 
-  getHistory: async (productVariantId: string, query: InventoryHistoryQuery) => {
+  getHistory: async (storeId: string, productVariantId: string, query: InventoryHistoryQuery) => {
     const variantId = toOptionalTrimmedString(productVariantId);
 
     if (!variantId) {
       throw new BadRequestError("Invalid product variant id");
     }
 
-    await ensureVariantExists(prisma, variantId);
+    await ensureVariantExists(prisma, variantId, storeId);
 
     const limit = parseHistoryLimit(query);
     const cursor = parseCursor(query);
 
     const items = await prisma.inventoryTransaction.findMany({
       where: {
+        store_id: storeId,
         product_variant_id: variantId,
       },
       include: {
@@ -1358,7 +1404,9 @@ export const InventoryService = {
     };
   },
 
-  initialize: async (input: InventoryInitializeInput) => {
+  initialize: async (storeIdOrInput: string | InventoryInitializeInput, maybeInput?: InventoryInitializeInput) => {
+    const storeId = typeof storeIdOrInput === "string" ? storeIdOrInput : undefined;
+    const input = typeof storeIdOrInput === "string" ? maybeInput! : storeIdOrInput;
     const productVariantId = toOptionalTrimmedString(input.product_variant_id);
 
     if (!productVariantId) {
@@ -1381,7 +1429,8 @@ export const InventoryService = {
         };
       }
 
-      await ensureVariantExists(tx, productVariantId);
+      const variant = await ensureVariantExists(tx, productVariantId, storeId);
+      const effectiveStoreId = storeId ?? variant.store_id;
 
       const existingStock = await tx.inventoryStock.findUnique({
         where: { product_variant_id: productVariantId },
@@ -1404,6 +1453,7 @@ export const InventoryService = {
 
       await tx.inventoryStock.create({
         data: {
+          store_id: effectiveStoreId,
           product_variant_id: productVariantId,
           ...next,
           version: 1,
@@ -1412,6 +1462,7 @@ export const InventoryService = {
 
       const transaction = await tx.inventoryTransaction.create({
         data: {
+          store_id: effectiveStoreId,
           product_variant_id: productVariantId,
           transaction_type: "initialize",
           reason_code: "initialize",
@@ -1435,7 +1486,9 @@ export const InventoryService = {
     });
   },
 
-  adjust: async (input: InventoryAdjustInput) => {
+  adjust: async (storeIdOrInput: string | InventoryAdjustInput, maybeInput?: InventoryAdjustInput) => {
+    const storeId = typeof storeIdOrInput === "string" ? storeIdOrInput : undefined;
+    const input = typeof storeIdOrInput === "string" ? maybeInput! : storeIdOrInput;
     const productVariantId = toOptionalTrimmedString(input.product_variant_id);
 
     if (!productVariantId) {
@@ -1445,6 +1498,7 @@ export const InventoryService = {
     return prisma.$transaction((tx) =>
       applyInventoryMutation({
         tx,
+        storeId,
         productVariantId,
         transactionType: "adjust",
         reasonCode: input.reason_code,
@@ -1461,7 +1515,9 @@ export const InventoryService = {
     );
   },
 
-  reserve: async (input: InventoryQuantityCommandInput) => {
+  reserve: async (storeIdOrInput: string | InventoryQuantityCommandInput, maybeInput?: InventoryQuantityCommandInput) => {
+    const storeId = typeof storeIdOrInput === "string" ? storeIdOrInput : undefined;
+    const input = typeof storeIdOrInput === "string" ? maybeInput! : storeIdOrInput;
     const qty = parsePositiveInteger(input.qty, "qty");
     const productVariantId = toOptionalTrimmedString(input.product_variant_id);
 
@@ -1472,6 +1528,7 @@ export const InventoryService = {
     return prisma.$transaction((tx) =>
       applyInventoryMutation({
         tx,
+        storeId,
         productVariantId,
         transactionType: "reserve",
         reasonCode: "order_reserved",
@@ -1500,7 +1557,9 @@ export const InventoryService = {
     );
   },
 
-  release: async (input: InventoryQuantityCommandInput) => {
+  release: async (storeIdOrInput: string | InventoryQuantityCommandInput, maybeInput?: InventoryQuantityCommandInput) => {
+    const storeId = typeof storeIdOrInput === "string" ? storeIdOrInput : undefined;
+    const input = typeof storeIdOrInput === "string" ? maybeInput! : storeIdOrInput;
     const qty = parsePositiveInteger(input.qty, "qty");
     const productVariantId = toOptionalTrimmedString(input.product_variant_id);
 
@@ -1511,6 +1570,7 @@ export const InventoryService = {
     return prisma.$transaction((tx) =>
       applyInventoryMutation({
         tx,
+        storeId,
         productVariantId,
         transactionType: "release",
         reasonCode: "order_released",
@@ -1541,7 +1601,9 @@ export const InventoryService = {
     );
   },
 
-  moveToPacking: async (input: InventoryQuantityCommandInput) => {
+  moveToPacking: async (storeIdOrInput: string | InventoryQuantityCommandInput, maybeInput?: InventoryQuantityCommandInput) => {
+    const storeId = typeof storeIdOrInput === "string" ? storeIdOrInput : undefined;
+    const input = typeof storeIdOrInput === "string" ? maybeInput! : storeIdOrInput;
     const qty = parsePositiveInteger(input.qty, "qty");
     const productVariantId = toOptionalTrimmedString(input.product_variant_id);
 
@@ -1552,6 +1614,7 @@ export const InventoryService = {
     return prisma.$transaction((tx) =>
       applyInventoryMutation({
         tx,
+        storeId,
         productVariantId,
         transactionType: "move_to_packing",
         reasonCode: "packing_started",
@@ -1582,7 +1645,9 @@ export const InventoryService = {
     );
   },
 
-  packCancel: async (input: InventoryQuantityCommandInput) => {
+  packCancel: async (storeIdOrInput: string | InventoryQuantityCommandInput, maybeInput?: InventoryQuantityCommandInput) => {
+    const storeId = typeof storeIdOrInput === "string" ? storeIdOrInput : undefined;
+    const input = typeof storeIdOrInput === "string" ? maybeInput! : storeIdOrInput;
     const qty = parsePositiveInteger(input.qty, "qty");
     const productVariantId = toOptionalTrimmedString(input.product_variant_id);
 
@@ -1593,6 +1658,7 @@ export const InventoryService = {
     return prisma.$transaction((tx) =>
       applyInventoryMutation({
         tx,
+        storeId,
         productVariantId,
         transactionType: "pack_cancel",
         reasonCode: "packing_cancelled",
@@ -1623,7 +1689,9 @@ export const InventoryService = {
     );
   },
 
-  fulfill: async (input: InventoryQuantityCommandInput) => {
+  fulfill: async (storeIdOrInput: string | InventoryQuantityCommandInput, maybeInput?: InventoryQuantityCommandInput) => {
+    const storeId = typeof storeIdOrInput === "string" ? storeIdOrInput : undefined;
+    const input = typeof storeIdOrInput === "string" ? maybeInput! : storeIdOrInput;
     const qty = parsePositiveInteger(input.qty, "qty");
     const productVariantId = toOptionalTrimmedString(input.product_variant_id);
 
@@ -1634,6 +1702,7 @@ export const InventoryService = {
     return prisma.$transaction((tx) =>
       applyInventoryMutation({
         tx,
+        storeId,
         productVariantId,
         transactionType: "fulfill",
         reasonCode: "order_fulfilled",
@@ -1664,7 +1733,9 @@ export const InventoryService = {
     );
   },
 
-  returnRestock: async (input: InventoryQuantityCommandInput) => {
+  returnRestock: async (storeIdOrInput: string | InventoryQuantityCommandInput, maybeInput?: InventoryQuantityCommandInput) => {
+    const storeId = typeof storeIdOrInput === "string" ? storeIdOrInput : undefined;
+    const input = typeof storeIdOrInput === "string" ? maybeInput! : storeIdOrInput;
     const qty = parsePositiveInteger(input.qty, "qty");
     const productVariantId = toOptionalTrimmedString(input.product_variant_id);
 
@@ -1675,6 +1746,7 @@ export const InventoryService = {
     return prisma.$transaction((tx) =>
       applyInventoryMutation({
         tx,
+        storeId,
         productVariantId,
         transactionType: "return_restock",
         reasonCode: "customer_return",
@@ -1699,7 +1771,9 @@ export const InventoryService = {
     );
   },
 
-  incomingCreate: async (input: InventoryQuantityCommandInput) => {
+  incomingCreate: async (storeIdOrInput: string | InventoryQuantityCommandInput, maybeInput?: InventoryQuantityCommandInput) => {
+    const storeId = typeof storeIdOrInput === "string" ? storeIdOrInput : undefined;
+    const input = typeof storeIdOrInput === "string" ? maybeInput! : storeIdOrInput;
     const qty = parsePositiveInteger(input.qty, "qty");
     const productVariantId = toOptionalTrimmedString(input.product_variant_id);
 
@@ -1710,6 +1784,7 @@ export const InventoryService = {
     return prisma.$transaction((tx) =>
       applyInventoryMutation({
         tx,
+        storeId,
         productVariantId,
         transactionType: "incoming_create",
         reasonCode: "purchase_incoming",
@@ -1734,7 +1809,9 @@ export const InventoryService = {
     );
   },
 
-  incomingReceive: async (input: InventoryQuantityCommandInput) => {
+  incomingReceive: async (storeIdOrInput: string | InventoryQuantityCommandInput, maybeInput?: InventoryQuantityCommandInput) => {
+    const storeId = typeof storeIdOrInput === "string" ? storeIdOrInput : undefined;
+    const input = typeof storeIdOrInput === "string" ? maybeInput! : storeIdOrInput;
     const qty = parsePositiveInteger(input.qty, "qty");
     const productVariantId = toOptionalTrimmedString(input.product_variant_id);
 
@@ -1745,6 +1822,7 @@ export const InventoryService = {
     return prisma.$transaction((tx) =>
       applyInventoryMutation({
         tx,
+        storeId,
         productVariantId,
         transactionType: "incoming_receive",
         reasonCode: "purchase_received",

@@ -1,7 +1,3 @@
-export type ShippingStoreScopedQuery = {
-  store_id?: string;
-};
-
 export type ShippingProviderParams = {
   code: string;
 };
@@ -25,16 +21,15 @@ export type ShippingProviderAddressWard = {
   name: string;
 };
 
-export type ShippingAddressDistrictQuery = ShippingStoreScopedQuery & {
+export type ShippingAddressDistrictQuery = {
   province_id?: string;
 };
 
-export type ShippingAddressWardQuery = ShippingStoreScopedQuery & {
+export type ShippingAddressWardQuery = {
   district_id?: string;
 };
 
 export type ShippingAvailableServicesInput = {
-  store_id?: string;
   from_district_id?: number | string | null;
   to_district_id?: number | string | null;
 };
@@ -92,18 +87,15 @@ export type ShippingResolvedLocation = {
 };
 
 export type ShippingLocationResolveInput = {
-  store_id?: string;
   location?: ShippingCanonicalLocationInput | null;
 };
 
 export type ShippingAvailableServicesByLocationInput = {
-  store_id?: string;
   from_location?: ShippingCanonicalLocationInput | null;
   to_location?: ShippingCanonicalLocationInput | null;
 };
 
 export type ShippingFeeQuoteInput = {
-  store_id?: string;
   from_district_id?: number | string | null;
   from_ward_code?: string | null;
   to_district_id?: number | string | null;
@@ -128,7 +120,6 @@ export type ShippingFeeQuoteInput = {
 };
 
 export type ShippingFeeQuoteByLocationInput = {
-  store_id?: string;
   from_location?: ShippingCanonicalLocationInput | null;
   to_location?: ShippingCanonicalLocationInput | null;
   service_id?: number | string | null;
@@ -151,7 +142,6 @@ export type ShippingFeeQuoteByLocationInput = {
 };
 
 export type ShippingConnectInput = {
-  store_id?: string;
   credentials?: Record<string, unknown>;
   metadata?: Record<string, unknown> | null;
   verify?: boolean;
@@ -162,7 +152,6 @@ export type ShippingConnectInput = {
 };
 
 export type ShippingDisconnectInput = {
-  store_id?: string;
   actor?: {
     id?: string | null;
     name?: string | null;
@@ -170,7 +159,6 @@ export type ShippingDisconnectInput = {
 };
 
 export type ShippingVerifyInput = {
-  store_id?: string;
   credentials?: Record<string, unknown>;
   metadata?: Record<string, unknown> | null;
 };

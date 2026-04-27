@@ -390,8 +390,10 @@ model AttributeValue {
 
 model ProductVariant {
   sku              String                  @id
+  store_id         String
   product_id       Int
   product          Product                 @relation(fields: [product_id], references: [id])
+  store            Store                   @relation(fields: [store_id], references: [id], onDelete: Cascade)
   selling_price    Decimal                 @db.Decimal(12, 2)
   cogs             Decimal                 @default(0) @db.Decimal(12, 2)
   image_url        String?
@@ -405,6 +407,8 @@ model ProductVariant {
   inventory_audit_lines InventoryAuditLine[]
   // --------------------------------------------
 
+  @@index([store_id])
+  @@index([store_id, status])
 }
 
 enum InventoryTransactionType {
@@ -709,6 +713,7 @@ model Order {
 
   @@unique([store_id, order_code])
   @@index([store_id])
+  @@index([store_id, tracking_code])
   @@index([order_code])
   @@index([order_date])
   @@index([payment_status])
@@ -767,6 +772,7 @@ model OrderHistory {
 
 model InventoryStock {
   id                 Int      @id @default(autoincrement())
+  store_id           String
   product_variant_id String   @unique
   on_hand            Int      @default(0)
   available          Int      @default(0)
@@ -778,12 +784,15 @@ model InventoryStock {
   updated_at         DateTime @updatedAt
 
   product_variant ProductVariant @relation(fields: [product_variant_id], references: [sku])
+  store           Store          @relation(fields: [store_id], references: [id], onDelete: Cascade)
 
+  @@index([store_id])
   @@map("InventoryStock")
 }
 
 model InventoryTransaction {
   id                 Int                      @id @default(autoincrement())
+  store_id           String
   product_variant_id String
   transaction_type   InventoryTransactionType
   reason_code        InventoryReasonCode
@@ -798,8 +807,10 @@ model InventoryTransaction {
   created_at         DateTime                 @default(now())
 
   product_variant ProductVariant            @relation(fields: [product_variant_id], references: [sku])
+  store           Store                     @relation(fields: [store_id], references: [id], onDelete: Cascade)
   lines           InventoryTransactionLine[]
 
+  @@index([store_id, created_at(sort: Desc)])
   @@index([product_variant_id, created_at(sort: Desc)])
   @@index([reference_type, reference_id])
   @@map("InventoryTransaction")
@@ -807,7 +818,8 @@ model InventoryTransaction {
 
 model InventoryAudit {
   id                    Int                  @id @default(autoincrement())
-  audit_code            String               @unique
+  store_id              String
+  audit_code            String
   status                InventoryAuditStatus @default(draft)
   note                  String?
   account_id            String?
@@ -818,7 +830,10 @@ model InventoryAudit {
   updated_at            DateTime             @updatedAt
 
   lines                 InventoryAuditLine[]
+  store                 Store                @relation(fields: [store_id], references: [id], onDelete: Cascade)
 
+  @@unique([store_id, audit_code])
+  @@index([store_id])
   @@index([status, created_at(sort: Desc)])
   @@map("InventoryAudit")
 }
@@ -904,6 +919,10 @@ model Store {
   customers             Customer[]
   orders                Order[]
   products              Product[]
+  product_variants      ProductVariant[]
+  inventory_stocks      InventoryStock[]
+  inventory_transactions InventoryTransaction[]
+  inventory_audits      InventoryAudit[]
   shipping_connections  ShippingConnection[] @relation("StoreShippingConnections")
 
   @@index([owner_user_id])

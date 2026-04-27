@@ -1097,7 +1097,7 @@ const buildNormalizedItems = async (storeId: string, items: OrderItemRequestInpu
   const [variants, products] = await Promise.all([
     requestedVariantSkus.length > 0
       ? prisma.productVariant.findMany({
-          where: { sku: { in: requestedVariantSkus }, product: { store_id: storeId } },
+          where: { sku: { in: requestedVariantSkus }, store_id: storeId },
           include: {
             product: {
               select: {
@@ -1204,7 +1204,7 @@ export const OrderService = {
         orderBy: [{ full_name: "asc" }],
       }),
       prisma.productVariant.findMany({
-        where: { status: "active", product: { store_id: storeId } },
+        where: { status: "active", store_id: storeId },
         select: {
           sku: true,
           selling_price: true,
@@ -1689,7 +1689,7 @@ export const OrderService = {
           const resolvedOrderCode = orderCode ?? (await generateNextOrderCode(tx, storeId));
 
           const existingOrder = await tx.order.findFirst({
-            where: { order_code: resolvedOrderCode },
+            where: { order_code: resolvedOrderCode, store_id: storeId },
             select: { id: true },
           });
 

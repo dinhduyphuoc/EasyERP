@@ -24,21 +24,10 @@ import type {
   ShippingVerifyInput,
 } from "./shipping.types";
 
-const DEFAULT_STORE_ID = "default-store";
-
 const STATUS_LABELS: Record<ShippingConnectionStatus, string> = {
   disconnected: "Chưa liên kết",
   connected: "Đã liên kết",
   error: "Lỗi",
-};
-
-const normalizeStoreId = (value: unknown) => {
-  if (typeof value !== "string") {
-    return DEFAULT_STORE_ID;
-  }
-
-  const trimmed = value.trim();
-  return trimmed.length ? trimmed : DEFAULT_STORE_ID;
 };
 
 const parseRequiredPositiveInt = (value: unknown, fieldName: string) => {
@@ -67,9 +56,8 @@ const parseOptionalNonNegativeInt = (value: unknown, fieldName: string) => {
 
 const getConnectedProviderClient = async (
   providerCode: string,
-  storeIdInput?: string,
+  storeId: string,
 ) => {
-  const storeId = normalizeStoreId(storeIdInput);
   const provider = await prisma.shippingProvider.findUnique({
     where: { code: providerCode.toLowerCase() },
     select: { id: true, code: true, display_name: true },
@@ -201,6 +189,15 @@ const toOptionalString = (value: unknown) => {
   return trimmed.length ? trimmed : null;
 };
 
+const toOptionalPositiveInt = (value: unknown) => {
+  if (value === undefined || value === null || value === "") {
+    return null;
+  }
+
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+};
+
 const mergeMetadata = (
   currentValue: Prisma.JsonValue | null | undefined,
   nextValue: Record<string, unknown>,
@@ -214,6 +211,79 @@ const mergeMetadata = (
     ...currentObject,
     ...nextValue,
   };
+};
+
+const resolveGHNWebhookOrder = async (trackingCode: string, shopIdInput?: number | null) => {
+  const candidateOrders = await prisma.order.findMany({
+    where: { tracking_code: trackingCode },
+    select: {
+      id: true,
+      store_id: true,
+      order_code: true,
+      tracking_code: true,
+      processing_status: true,
+    },
+  });
+
+  if (candidateOrders.length === 0) {
+    return null;
+  }
+
+  if (candidateOrders.length === 1 && !shopIdInput) {
+    return candidateOrders[0];
+  }
+
+  const ghnProvider = await prisma.shippingProvider.findUnique({
+    where: { code: "ghn" },
+    select: { id: true },
+  });
+
+  if (!ghnProvider) {
+    return null;
+  }
+
+  const connections = await prisma.shippingConnection.findMany({
+    where: {
+      provider_id: ghnProvider.id,
+      store_id: { in: candidateOrders.map((order) => order.store_id) },
+      status: "connected",
+    },
+    select: {
+      store_id: true,
+      credentials_json: true,
+    },
+  });
+
+  const matchedStoreIds = new Set(
+    connections
+      .filter((connection) => {
+        if (
+          !connection.credentials_json ||
+          typeof connection.credentials_json !== "object" ||
+          Array.isArray(connection.credentials_json)
+        ) {
+          return false;
+        }
+
+        const credentials = connection.credentials_json as Record<string, unknown>;
+        const connectionShopId = toOptionalPositiveInt(credentials.shop_id);
+
+        if (shopIdInput) {
+          return connectionShopId === shopIdInput;
+        }
+
+        return connectionShopId !== null;
+      })
+      .map((connection) => connection.store_id),
+  );
+
+  const matchedOrders = candidateOrders.filter((order) => matchedStoreIds.has(order.store_id));
+
+  if (shopIdInput) {
+    return matchedOrders.length === 1 ? matchedOrders[0] : null;
+  }
+
+  return matchedOrders.length === 1 ? matchedOrders[0] : null;
 };
 
 const syncProviderCatalog = async () => {
@@ -399,10 +469,9 @@ const serializeConnectionDetail = (
 };
 
 export const ShippingService = {
-  listProviders: async (storeIdInput?: string) => {
+  listProviders: async (storeId: string) => {
     await syncProviderCatalog();
 
-    const storeId = normalizeStoreId(storeIdInput);
     const providers = await prisma.shippingProvider.findMany({
       where: { is_active: true },
       include: {
@@ -432,10 +501,9 @@ export const ShippingService = {
     };
   },
 
-  getConnectionDetail: async (providerCode: string, storeIdInput?: string) => {
+  getConnectionDetail: async (providerCode: string, storeId: string) => {
     await syncProviderCatalog();
 
-    const storeId = normalizeStoreId(storeIdInput);
     const provider = await prisma.shippingProvider.findUnique({
       where: { code: providerCode.toLowerCase() },
       include: {
@@ -459,11 +527,8 @@ export const ShippingService = {
     return serializeConnectionDetail(provider, storeId, provider.connections[0] ?? null);
   },
 
-  listProviderProvinces: async (providerCode: string, storeIdInput?: string) => {
-    const { client, provider, store_id } = await getConnectedProviderClient(
-      providerCode,
-      storeIdInput,
-    );
+  listProviderProvinces: async (providerCode: string, storeId: string) => {
+    const { client, provider, store_id } = await getConnectedProviderClient(providerCode, storeId);
 
     switch (provider.code) {
       case "ghn": {
@@ -488,12 +553,10 @@ export const ShippingService = {
 
   listProviderDistricts: async (
     providerCode: string,
+    storeId: string,
     query: ShippingAddressDistrictQuery,
   ) => {
-    const { client, provider, store_id } = await getConnectedProviderClient(
-      providerCode,
-      query.store_id,
-    );
+    const { client, provider, store_id } = await getConnectedProviderClient(providerCode, storeId);
     const provinceId = parseRequiredPositiveInt(query.province_id, "province_id");
 
     switch (provider.code) {
@@ -523,12 +586,10 @@ export const ShippingService = {
 
   listProviderWards: async (
     providerCode: string,
+    storeId: string,
     query: ShippingAddressWardQuery,
   ) => {
-    const { client, provider, store_id } = await getConnectedProviderClient(
-      providerCode,
-      query.store_id,
-    );
+    const { client, provider, store_id } = await getConnectedProviderClient(providerCode, storeId);
     const districtId = parseRequiredPositiveInt(query.district_id, "district_id");
 
     switch (provider.code) {
@@ -557,12 +618,10 @@ export const ShippingService = {
 
   resolveProviderLocation: async (
     providerCode: string,
+    storeId: string,
     input: ShippingLocationResolveInput,
   ) => {
-    const { client, provider, store_id } = await getConnectedProviderClient(
-      providerCode,
-      input.store_id,
-    );
+    const { client, provider, store_id } = await getConnectedProviderClient(providerCode, storeId);
 
     switch (provider.code) {
       case "ghn": {
@@ -590,12 +649,10 @@ export const ShippingService = {
 
   listAvailableServices: async (
     providerCode: string,
+    storeId: string,
     input: ShippingAvailableServicesInput,
   ) => {
-    const { client, provider, store_id, credentials } = await getConnectedProviderClient(
-      providerCode,
-      input.store_id,
-    );
+    const { client, provider, store_id, credentials } = await getConnectedProviderClient(providerCode, storeId);
     const fromDistrictId = parseRequiredPositiveInt(
       input.from_district_id,
       "from_district_id",
@@ -633,12 +690,10 @@ export const ShippingService = {
 
   listAvailableServicesByLocation: async (
     providerCode: string,
+    storeId: string,
     input: ShippingAvailableServicesByLocationInput,
   ) => {
-    const { client, provider, store_id, credentials } = await getConnectedProviderClient(
-      providerCode,
-      input.store_id,
-    );
+    const { client, provider, store_id, credentials } = await getConnectedProviderClient(providerCode, storeId);
 
     switch (provider.code) {
       case "ghn": {
@@ -701,11 +756,8 @@ export const ShippingService = {
     }
   },
 
-  calculateFee: async (providerCode: string, input: ShippingFeeQuoteInput) => {
-    const { client, provider, store_id } = await getConnectedProviderClient(
-      providerCode,
-      input.store_id,
-    );
+  calculateFee: async (providerCode: string, storeId: string, input: ShippingFeeQuoteInput) => {
+    const { client, provider, store_id } = await getConnectedProviderClient(providerCode, storeId);
 
     switch (provider.code) {
       case "ghn": {
@@ -778,12 +830,10 @@ export const ShippingService = {
 
   calculateFeeByLocation: async (
     providerCode: string,
+    storeId: string,
     input: ShippingFeeQuoteByLocationInput,
   ) => {
-    const { client, provider, store_id, credentials } = await getConnectedProviderClient(
-      providerCode,
-      input.store_id,
-    );
+    const { client, provider, store_id, credentials } = await getConnectedProviderClient(providerCode, storeId);
 
     switch (provider.code) {
       case "ghn": {
@@ -949,12 +999,11 @@ export const ShippingService = {
     }
   },
 
-  connectProvider: async (providerCode: string, input: ShippingConnectInput) => {
+  connectProvider: async (providerCode: string, storeId: string, input: ShippingConnectInput) => {
     await syncProviderCatalog();
 
     const provider = await getProviderOrThrow(providerCode);
     const adapter = resolveShippingAdapter(provider.code);
-    const storeId = normalizeStoreId(input.store_id);
     const credentials = adapter.validateCredentials(ensureCredentialsObject(input.credentials));
     const metadata = ensurePlainObject(input.metadata);
     const shouldVerify = input.verify !== false;
@@ -1038,11 +1087,10 @@ export const ShippingService = {
     return ShippingService.getConnectionDetail(provider.code, storeId);
   },
 
-  disconnectProvider: async (providerCode: string, input: ShippingDisconnectInput) => {
+  disconnectProvider: async (providerCode: string, storeId: string, input: ShippingDisconnectInput) => {
     await syncProviderCatalog();
 
     const provider = await getProviderOrThrow(providerCode);
-    const storeId = normalizeStoreId(input.store_id);
     const existingConnection = await prisma.shippingConnection.findUnique({
       where: {
         provider_id_store_id: {
@@ -1093,12 +1141,11 @@ export const ShippingService = {
     return ShippingService.getConnectionDetail(provider.code, storeId);
   },
 
-  verifyProvider: async (providerCode: string, input: ShippingVerifyInput) => {
+  verifyProvider: async (providerCode: string, storeId: string, input: ShippingVerifyInput) => {
     await syncProviderCatalog();
 
     const provider = await getProviderOrThrow(providerCode);
     const adapter = resolveShippingAdapter(provider.code);
-    const storeId = normalizeStoreId(input.store_id);
     const existingConnection = await prisma.shippingConnection.findUnique({
       where: {
         provider_id_store_id: {
@@ -1164,25 +1211,20 @@ export const ShippingService = {
 
   receiveGHNOrderStatusCallback: async (payload: GHNOrderStatusCallbackPayload) => {
     const trackingCode = toOptionalString(payload.OrderCode);
+    const shopId = toOptionalPositiveInt(payload.ShopID);
 
     if (!trackingCode) {
       console.warn("GHN order status callback missing OrderCode", payload);
       return { matched: false };
     }
 
-    const order = await prisma.order.findFirst({
-      where: { tracking_code: trackingCode },
-      select: {
-        id: true,
-        order_code: true,
-        tracking_code: true,
-        processing_status: true,
-      },
-    });
+    const order = await resolveGHNWebhookOrder(trackingCode, shopId);
 
     if (!order) {
-      console.info(`GHN callback did not match any order for tracking code ${trackingCode}`);
-      return { matched: false, tracking_code: trackingCode };
+      console.info(
+        `GHN callback did not resolve a unique order for tracking code ${trackingCode}${shopId ? ` and ShopID ${shopId}` : ""}`,
+      );
+      return { matched: false, tracking_code: trackingCode, shop_id: shopId };
     }
 
     const nextProcessingStatus = mapGHNStatusToProcessingStatus(payload.Status);
@@ -1228,6 +1270,7 @@ export const ShippingService = {
       matched: true,
       order_id: order.id,
       tracking_code: trackingCode,
+      shop_id: shopId,
       processing_status: nextProcessingStatus ?? order.processing_status,
     };
   },
@@ -1240,13 +1283,10 @@ export const ShippingService = {
       return { matched: false };
     }
 
-    const order = await prisma.order.findFirst({
-      where: { tracking_code: trackingCode },
-      select: { id: true },
-    });
+    const order = await resolveGHNWebhookOrder(trackingCode);
 
     if (!order) {
-      console.info(`GHN ticket callback did not match any order for tracking code ${trackingCode}`);
+      console.info(`GHN ticket callback did not resolve a unique order for tracking code ${trackingCode}`);
       return { matched: false, tracking_code: trackingCode };
     }
 
