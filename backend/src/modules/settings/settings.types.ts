@@ -77,4 +77,5 @@ export type VietQrGenerateResponse = {
     qrDataURL: string;
   };
   quick_link: string;
+  transfer_content: string;
 };

@@ -6,6 +6,7 @@ import { CommonListLayout } from '@/shared/ui/list/common-list-layout'
 import { ListEmptyState } from '@/shared/ui/list/list-empty-state'
 import type { ListColumn, ListTabConfig } from '@/shared/ui/list/common-list.types'
 import { inventoryApi, type InventoryAuditItem } from './inventory.api'
+import { InventoryAuditListTableSkeleton } from './inventory-skeletons'
 
 type InventoryAuditListPageCache = {
   activeTab: string
@@ -49,6 +50,7 @@ export function InventoryAuditListPage() {
   const [pageSize, setPageSize] = useState(inventoryAuditListPageCache?.pageSize ?? 10)
   const [rows, setRows] = useState<InventoryAuditItem[]>(inventoryAuditListPageCache?.rows ?? [])
   const [isLoading, setIsLoading] = useState(inventoryAuditListPageCache === null)
+  const [hasResolvedInitialLoad, setHasResolvedInitialLoad] = useState(inventoryAuditListPageCache !== null)
 
   useEffect(() => {
     const fetchAuditList = async () => {
@@ -58,9 +60,10 @@ export function InventoryAuditListPage() {
         const data = await inventoryApi.getAuditList()
         setRows(data)
       } catch (error) {
-        console.error('Loi khi tai lich su kiem kho:', error)
+        console.error('Lỗi khi tải lịch sử kiểm kho:', error)
       } finally {
         setIsLoading(false)
+        setHasResolvedInitialLoad(true)
       }
     }
 
@@ -68,6 +71,10 @@ export function InventoryAuditListPage() {
   }, [])
 
   useEffect(() => {
+    if (!hasResolvedInitialLoad) {
+      return
+    }
+
     inventoryAuditListPageCache = {
       activeTab,
       searchValue,
@@ -75,7 +82,7 @@ export function InventoryAuditListPage() {
       pageSize,
       rows,
     }
-  }, [activeTab, page, pageSize, rows, searchValue])
+  }, [activeTab, hasResolvedInitialLoad, page, pageSize, rows, searchValue])
 
   const tabs = useMemo<ListTabConfig[]>(
     () => [
@@ -198,6 +205,8 @@ export function InventoryAuditListPage() {
     [],
   )
 
+  const shouldShowInitialSkeleton = (!hasResolvedInitialLoad || isLoading) && rows.length === 0
+
   return (
     <CommonListLayout
       title="Lịch sử kiểm kho"
@@ -240,7 +249,8 @@ export function InventoryAuditListPage() {
       rows={pagedRows}
       rowKey={(row) => String(row.id)}
       onRowClick={(row) => navigate(`/inventory/audit/${row.id}/edit`)}
-      loading={isLoading && rows.length === 0}
+      loading={shouldShowInitialSkeleton}
+      loadingState={<InventoryAuditListTableSkeleton />}
       emptyState={
         <ListEmptyState
           title="Chưa có phiếu kiểm kho phù hợp"

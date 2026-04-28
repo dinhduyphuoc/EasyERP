@@ -44,3 +44,5 @@ export type ListPaginationConfig = {
   onPageSizeChange?: (pageSize: number) => void
   pageSizeOptions?: number[]
 }
+
+export type ListLoadingState = ReactNode

@@ -4,11 +4,11 @@ import { OrdersCollectionPage } from './order.shared'
 export function OrdersReturnsPage(): ReactElement {
   return (
     <OrdersCollectionPage
-      title="Tra hang"
-      description="Quan ly cac don tra hang sau giao thanh cong de theo doi reverse logistics, hau mai va nhap lai kho."
+      title="Trả hàng"
+      description="Quản lý các đơn trả hàng sau giao thành công để theo dõi reverse logistics, hậu mãi và nhập lại kho."
       view="returns"
-      helperTitle="Returns tach module"
-      helperDescription="Cancelled da duoc tach sang danh sach rieng. Trang nay tap trung cho returned va cac don return type de theo doi tra hang thuc su."
+      helperTitle="Returns tách module"
+      helperDescription="Đơn đã hủy đã được tách sang danh sách riêng. Trang này tập trung cho đơn trả hàng và các đơn loại return để theo dõi nghiệp vụ trả hàng thực tế."
     />
   )
 }

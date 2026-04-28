@@ -1,11 +1,13 @@
 import { Router } from "express";
 import { authenticate } from "@/common/middleware/authenticate";
+import { resolveStoreContext } from "@/common/middleware/resolve-store-context";
 import { requirePermission } from "@/common/middleware/require-permission";
 import { InventoryController } from "./inventory.controller";
 
 const inventoryRouter = Router();
 
 inventoryRouter.use(authenticate);
+inventoryRouter.use(resolveStoreContext);
 
 inventoryRouter.get("/stock", requirePermission("inventory.read"), InventoryController.getStockList);
 inventoryRouter.get("/audits", requirePermission("inventory.read"), InventoryController.getAuditList);

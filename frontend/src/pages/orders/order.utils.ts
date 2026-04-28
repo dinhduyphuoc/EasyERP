@@ -1,9 +1,6 @@
 import type { OrderPaymentStatus, OrderProcessingStatus } from './order.api'
 
-export function formatCurrency(value: string | number | null | undefined): string {
-  const numericValue = Number(value ?? 0)
-  return `${numericValue.toLocaleString('vi-VN')} đ`
-}
+export { formatCurrency, formatCurrencyInput, formatNumber } from '@/shared/utils/currency'
 
 export function formatDateTime(value: string | null | undefined): string {
   if (!value) {

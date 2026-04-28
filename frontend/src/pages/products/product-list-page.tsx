@@ -1,16 +1,20 @@
-import { useEffect, useMemo, useState } from 'react'
+﻿import { useEffect, useMemo, useState } from 'react'
 import { Box, Button, Chip, Stack, Typography, alpha } from '@mui/material'
 import { Link as RouterLink, useNavigate } from 'react-router'
 import { CommonListLayout } from '@/shared/ui/list/common-list-layout'
 import { ListEmptyState } from '@/shared/ui/list/list-empty-state'
 import type { ListColumn, ListFilterConfig, ListTabConfig } from '@/shared/ui/list/common-list.types'
 import type { ProductListItem } from '@/pages/products/product-list.data'
+import { useStore } from '@/modules/store/use-store'
 import { productApi, type ProductCategory } from '@/pages/products/product.api'
+import { ProductListTableSkeleton } from '@/pages/products/product-skeletons'
 import { appToast } from '@/shared/ui/toast/toast.helpers'
+import { formatCurrency as sharedFormatCurrency } from '@/shared/utils/currency'
 
 type ProductStatus = 'active' | 'inactive' | 'draft' | 'deleted'
 
 type ProductListPageCache = {
+  storeId: string | null
   activeTab: string
   searchValue: string
   filterValues: Record<string, string>
@@ -25,7 +29,7 @@ let productListPageCache: ProductListPageCache | null = null
 const productTabs: ListTabConfig[] = [
   { label: 'Tất cả', value: 'all' },
   { label: 'Đang bán', value: 'active' },
-  { label: 'Ngưng bán', value: 'inactive' },
+  { label: 'Ngừng bán', value: 'inactive' },
   { label: 'Nháp', value: 'draft' },
 ]
 
@@ -35,7 +39,7 @@ const productStatusFilter: ListFilterConfig = {
   placeholder: 'Tất cả trạng thái',
   options: [
     { label: 'Đang bán', value: 'active' },
-    { label: 'Ngưng bán', value: 'inactive' },
+    { label: 'Ngừng bán', value: 'inactive' },
     { label: 'Nháp', value: 'draft' },
   ],
 }
@@ -58,7 +62,7 @@ function getStatusLabel(status: ProductStatus) {
   }
 
   if (status === 'inactive') {
-    return 'Ngưng bán'
+    return 'Ngừng bán'
   }
 
   if (status === 'deleted') {
@@ -77,6 +81,7 @@ function matchesTab(row: ProductListItem, activeTab: string) {
 }
 
 function formatCurrency(value: string) {
+  return sharedFormatCurrency(value)
   return `${Number(value).toLocaleString('vi-VN')} đ`
 }
 
@@ -106,44 +111,108 @@ function getProductPriceLabel(product: ProductListItem) {
 
 export function ProductListPage() {
   const navigate = useNavigate()
-  const [activeTab, setActiveTab] = useState(productListPageCache?.activeTab ?? 'all')
-  const [searchValue, setSearchValue] = useState(productListPageCache?.searchValue ?? '')
+  const { activeStore, isReady } = useStore()
+  const cachedState = activeStore && productListPageCache?.storeId === activeStore.id ? productListPageCache : null
+  const [activeTab, setActiveTab] = useState(cachedState?.activeTab ?? 'all')
+  const [searchValue, setSearchValue] = useState(cachedState?.searchValue ?? '')
   const [filterValues, setFilterValues] = useState<Record<string, string>>(
-    productListPageCache?.filterValues ?? {
+    cachedState?.filterValues ?? {
       category: '',
       status: '',
     },
   )
-  const [page, setPage] = useState(productListPageCache?.page ?? 1)
-  const [pageSize, setPageSize] = useState(productListPageCache?.pageSize ?? 10)
-  const [products, setProducts] = useState<ProductListItem[]>(productListPageCache?.products ?? [])
-  const [categories, setCategories] = useState<ProductCategory[]>(productListPageCache?.categories ?? [])
-  const [isLoading, setIsLoading] = useState(productListPageCache === null)
+  const [page, setPage] = useState(cachedState?.page ?? 1)
+  const [pageSize, setPageSize] = useState(cachedState?.pageSize ?? 10)
+  const [products, setProducts] = useState<ProductListItem[]>(cachedState?.products ?? [])
+  const [categories, setCategories] = useState<ProductCategory[]>(cachedState?.categories ?? [])
+  const [isLoading, setIsLoading] = useState(cachedState === null)
+  const [hasResolvedInitialLoad, setHasResolvedInitialLoad] = useState(cachedState !== null)
   const [selectedProductIds, setSelectedProductIds] = useState<string[]>([])
   const [isDeleting, setIsDeleting] = useState(false)
 
   useEffect(() => {
+    if (!isReady) {
+      return
+    }
+
+    if (!activeStore) {
+      setHasResolvedInitialLoad(true)
+      return
+    }
+
+    const nextCachedState = productListPageCache?.storeId === activeStore.id ? productListPageCache : null
+    setHasResolvedInitialLoad(nextCachedState !== null)
+
+    if (!nextCachedState) {
+      setProducts([])
+      setCategories([])
+      setSelectedProductIds([])
+      return
+    }
+
+    setActiveTab(nextCachedState.activeTab)
+    setSearchValue(nextCachedState.searchValue)
+    setFilterValues(nextCachedState.filterValues)
+    setPage(nextCachedState.page)
+    setPageSize(nextCachedState.pageSize)
+    setProducts(nextCachedState.products)
+    setCategories(nextCachedState.categories)
+    setSelectedProductIds([])
+  }, [activeStore, isReady])
+
+  useEffect(() => {
     const fetchProducts = async () => {
-      setIsLoading(productListPageCache === null)
+      if (!isReady) {
+        return
+      }
+
+      if (!activeStore) {
+        setProducts([])
+        setCategories([])
+        setIsLoading(false)
+        setHasResolvedInitialLoad(true)
+        return
+      }
+
+      const hasCachedDataForStore = productListPageCache?.storeId === activeStore.id
+      setIsLoading(!hasCachedDataForStore)
       try {
-        const [productData, categoryData] = await Promise.all([
+        const [productResult, categoryResult] = await Promise.allSettled([
           productApi.getProducts(),
           productApi.getProductCategories(),
         ])
-        setProducts(productData)
-        setCategories(categoryData)
+        if (productResult.status === 'fulfilled') {
+          setProducts(productResult.value)
+        } else {
+          setProducts([])
+          console.error('Lỗi khi tải danh sách sản phẩm:', productResult.reason)
+          appToast.error(`Không thể tải danh sách sản phẩm cho cửa hàng ${activeStore.name}.`)
+        }
+        if (categoryResult.status === 'fulfilled') {
+          setCategories(categoryResult.value)
+        } else {
+          setCategories([])
+          console.error('Lỗi khi tải danh mục sản phẩm:', categoryResult.reason)
+          appToast.warning(`Không thể tải danh mục của cửa hàng ${activeStore.name}.`)
+        }
       } catch (error) {
         console.error('Lỗi khi tải danh sách sản phẩm:', error)
       } finally {
         setIsLoading(false)
+        setHasResolvedInitialLoad(true)
       }
     }
 
     void fetchProducts()
-  }, [])
+  }, [activeStore, isReady])
 
   useEffect(() => {
+    if (!isReady || !activeStore || !hasResolvedInitialLoad) {
+      return
+    }
+
     productListPageCache = {
+      storeId: activeStore.id,
       activeTab,
       searchValue,
       filterValues,
@@ -152,7 +221,7 @@ export function ProductListPage() {
       products,
       categories,
     }
-  }, [activeTab, categories, filterValues, page, pageSize, products, searchValue])
+  }, [activeStore, activeTab, categories, filterValues, hasResolvedInitialLoad, isReady, page, pageSize, products, searchValue])
 
   const categoryLabelMap = useMemo(
     () =>
@@ -333,6 +402,8 @@ export function ProductListPage() {
     }))
   }
 
+  const shouldShowInitialSkeleton = (!isReady || !hasResolvedInitialLoad || isLoading) && products.length === 0
+
   return (
     <CommonListLayout
       title="Danh sách sản phẩm"
@@ -394,7 +465,8 @@ export function ProductListPage() {
         getRowLabel: (row) => row.product_name,
       }}
       onRowClick={(row) => navigate(`/products/${row.id}/edit`)}
-      loading={isLoading && products.length === 0}
+      loading={shouldShowInitialSkeleton}
+      loadingState={<ProductListTableSkeleton />}
       emptyState={
         <ListEmptyState
           title="Không tìm thấy sản phẩm phù hợp"

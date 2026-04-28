@@ -282,9 +282,7 @@ const ensureNoCrossProductSkuConflict = async (
     where: {
       sku: { in: variantSkus },
       product_id: { not: productId },
-      product: {
-        store_id: storeId,
-      },
+      store_id: storeId,
     },
   });
 
@@ -297,10 +295,24 @@ const ensureInventoryStockExists = async (
   tx: PrismaTransaction,
   productVariantId: string,
 ) => {
+  const variant = await tx.productVariant.findUnique({
+    where: { sku: productVariantId },
+    select: {
+      store_id: true,
+    },
+  });
+
+  if (!variant) {
+    throw new NotFoundError(`Product variant "${productVariantId}" not found`);
+  }
+
   await tx.inventoryStock.upsert({
     where: { product_variant_id: productVariantId },
-    update: {},
+    update: {
+      store_id: variant.store_id,
+    },
     create: {
+      store_id: variant.store_id,
       product_variant_id: productVariantId,
       on_hand: 0,
       available: 0,
@@ -363,6 +375,7 @@ const deleteVariantAttributeLinks = async (
 
 const syncVariants = async (
   tx: PrismaTransaction,
+  storeId: string,
   productId: number,
   variants: ProductInput["variants"],
   attributeValueMap: Map<string, number>,
@@ -395,6 +408,7 @@ const syncVariants = async (
       await tx.productVariant.update({
         where: { sku: variant.sku },
         data: {
+          store_id: storeId,
           product_id: productId,
           selling_price: variant.selling_price,
           cogs: variant.cogs,
@@ -413,6 +427,7 @@ const syncVariants = async (
     await tx.productVariant.create({
       data: {
         sku: variant.sku,
+        store_id: storeId,
         product_id: productId,
         selling_price: variant.selling_price,
         cogs: variant.cogs,
@@ -712,7 +727,7 @@ export const ProductService = {
 
         const updatedAttributeValueMap = buildAttributeValueMap(updatedAttributes);
 
-        await syncVariants(tx, existingProduct.id, data.variants, updatedAttributeValueMap);
+        await syncVariants(tx, storeId, existingProduct.id, data.variants, updatedAttributeValueMap);
 
         const product = await tx.product.findUniqueOrThrow({
           where: { id: existingProduct.id },
@@ -743,7 +758,7 @@ export const ProductService = {
 
       const attributeValueMap = buildAttributeValueMap(createdProduct.attributes);
 
-      await syncVariants(tx, createdProduct.id, data.variants, attributeValueMap);
+      await syncVariants(tx, storeId, createdProduct.id, data.variants, attributeValueMap);
 
       const product = await tx.product.findUniqueOrThrow({
         where: { id: createdProduct.id },
@@ -902,7 +917,7 @@ export const ProductService = {
 
       const attributeValueMap = buildAttributeValueMap(updatedProduct.attributes);
 
-      await syncVariants(tx, id, data.variants, attributeValueMap);
+      await syncVariants(tx, storeId, id, data.variants, attributeValueMap);
 
       const product = await tx.product.findUniqueOrThrow({
         where: { id },
@@ -936,14 +951,14 @@ export const ProductService = {
 
       const productIdsToDelete = existingProducts.map((product) => product.id);
       const variantSkusToDelete = await tx.productVariant.findMany({
-        where: { product: { store_id: storeId }, product_id: { in: productIdsToDelete } },
+        where: { store_id: storeId, product_id: { in: productIdsToDelete } },
         select: { sku: true },
       });
       const variantSkuList = variantSkusToDelete.map((variant) => variant.sku);
 
       await resetInventoryStocks(tx, variantSkuList);
       await tx.productVariant.updateMany({
-        where: { product: { store_id: storeId }, product_id: { in: productIdsToDelete } },
+        where: { store_id: storeId, product_id: { in: productIdsToDelete } },
         data: { status: "deleted" },
       });
 

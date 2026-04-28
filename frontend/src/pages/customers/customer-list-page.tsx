@@ -7,6 +7,7 @@ import { CommonListLayout } from '@/shared/ui/list/common-list-layout'
 import { ListEmptyState } from '@/shared/ui/list/list-empty-state'
 import type { ListColumn, ListFilterConfig, ListTabConfig } from '@/shared/ui/list/common-list.types'
 import { customerApi, type CustomerCategory, type CustomerListItem } from './customer.api'
+import { CustomerListTableSkeleton } from './customer-skeletons'
 import { appToast } from '@/shared/ui/toast/toast.helpers'
 
 type CustomerStatus = 'active' | 'inactive' | 'soft_deleted' | 'deleted'
@@ -83,6 +84,7 @@ export function CustomerListPage() {
   const [rows, setRows] = useState<CustomerListItem[]>(customerListPageCache?.rows ?? [])
   const [categories, setCategories] = useState<CustomerCategory[]>(customerListPageCache?.categories ?? [])
   const [isLoading, setIsLoading] = useState(customerListPageCache === null)
+  const [hasResolvedInitialLoad, setHasResolvedInitialLoad] = useState(customerListPageCache !== null)
   const [selectedCustomerIds, setSelectedCustomerIds] = useState<string[]>([])
   const [isDeleting, setIsDeleting] = useState(false)
 
@@ -102,6 +104,7 @@ export function CustomerListPage() {
       appToast.error('Không thể tải danh sách khách hàng.')
     } finally {
       setIsLoading(false)
+      setHasResolvedInitialLoad(true)
     }
   }, [])
 
@@ -110,6 +113,10 @@ export function CustomerListPage() {
   }, [fetchCustomers])
 
   useEffect(() => {
+    if (!hasResolvedInitialLoad) {
+      return
+    }
+
     customerListPageCache = {
       activeTab,
       searchValue,
@@ -119,7 +126,7 @@ export function CustomerListPage() {
       rows,
       categories,
     }
-  }, [activeTab, categories, filterValues, page, pageSize, rows, searchValue])
+  }, [activeTab, categories, filterValues, hasResolvedInitialLoad, page, pageSize, rows, searchValue])
 
   const filters = useMemo<ListFilterConfig[]>(
     () => [
@@ -240,6 +247,8 @@ export function CustomerListPage() {
     [],
   )
 
+  const shouldShowInitialSkeleton = (!hasResolvedInitialLoad || isLoading) && rows.length === 0
+
   return (
     <CommonListLayout
       title="Khách hàng"
@@ -307,7 +316,8 @@ export function CustomerListPage() {
         getRowLabel: (row) => row.full_name,
       }}
       onRowClick={(row) => navigate(`/customers/${row.id}`)}
-      loading={isLoading && rows.length === 0}
+      loading={shouldShowInitialSkeleton}
+      loadingState={<CustomerListTableSkeleton />}
       emptyState={
         <ListEmptyState
           title="Không tìm thấy khách hàng phù hợp"

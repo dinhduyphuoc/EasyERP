@@ -294,6 +294,8 @@ export type OrderActionName =
   | 'confirm'
   | 'confirm_shipping'
   | 'push_to_delivery'
+  | 'add_payment'
+  | 'confirm_full_payment'
   | 'mark_paid'
   | 'request_invoice'
   | 'complete'
@@ -303,6 +305,8 @@ export type OrderActionName =
 export type OrderActionPayload = {
   actor_name?: string
   note?: string
+  payment_amount?: number | string | null
+  payment_method?: string | null
   shipping_service?: string | null
   tracking_code?: string | null
   shipping_status?: string | null

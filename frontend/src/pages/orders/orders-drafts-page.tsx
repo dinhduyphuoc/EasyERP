@@ -8,7 +8,7 @@ export function OrdersDraftsPage(): ReactElement {
       description="Danh sách các đơn đang được nhập liệu hoặc chờ hoàn thiện thông tin trước khi xác nhận xử lý."
       view="drafts"
       helperTitle="Luồng nháp"
-      helperDescription="Draft phù hợp cho đơn chưa chốt sản phẩm, chưa chốt thanh toán hoặc đang cần xác minh thông tin khách hàng. Khi chuyển ra khỏi draft, timeline xử lý sẽ bắt đầu rõ ràng hơn."
+      helperDescription="Draft phù hợp cho đơn chưa chốt sản phẩm, chưa chốt thanh toán hoặc đang cần xác minh thông tin khách hàng. Khi chuyển ra khỏi nháp, timeline xử lý sẽ bắt đầu rõ ràng hơn."
     />
   )
 }

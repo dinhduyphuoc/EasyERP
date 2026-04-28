@@ -7,7 +7,6 @@ import {
   Box,
   Button,
   Chip,
-  CircularProgress,
   Dialog,
   DialogActions,
   DialogContent,
@@ -26,6 +25,7 @@ import {
 import { useAuth } from '@/modules/auth/use-auth'
 import { ListPageHeader } from '@/shared/ui/list/list-page-header'
 import { borderedCardSx } from '@/shared/ui/paper'
+import { TableCardSkeleton } from '@/shared/ui/skeleton/loading-skeletons'
 import { appToast } from '@/shared/ui/toast/toast.helpers'
 import { adminApi, type AdminUserItem, type RoleItem } from './admin.api'
 
@@ -291,9 +291,11 @@ export function SettingsAccountsPage(): ReactElement {
           </Box>
 
           {isLoading ? (
-            <Stack sx={{ py: 6, alignItems: 'center' }}>
-              <CircularProgress />
-            </Stack>
+            <TableCardSkeleton
+              titleWidth="32%"
+              descriptionWidth="66%"
+              columns={['Họ tên', 'Email', 'Vai trò', 'Trạng thái', 'Lần đăng nhập gần nhất', 'Thao tác']}
+            />
           ) : users.length === 0 ? (
             <Alert severity="info">Chưa có tài khoản nào được tạo.</Alert>
           ) : (

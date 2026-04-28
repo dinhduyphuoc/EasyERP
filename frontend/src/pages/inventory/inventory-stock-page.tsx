@@ -5,7 +5,9 @@ import { useNavigate } from 'react-router'
 import { CommonListLayout } from '@/shared/ui/list/common-list-layout'
 import { ListEmptyState } from '@/shared/ui/list/list-empty-state'
 import type { ListColumn, ListTabConfig } from '@/shared/ui/list/common-list.types'
+import { formatCurrency as sharedFormatCurrency, formatNumber as sharedFormatNumber } from '@/shared/utils/currency'
 import { inventoryApi, type InventoryStockListItem } from './inventory.api'
+import { InventoryStockTableSkeleton } from './inventory-skeletons'
 
 type InventoryStockPageCache = {
   activeTab: string
@@ -18,10 +20,12 @@ type InventoryStockPageCache = {
 let inventoryStockPageCache: InventoryStockPageCache | null = null
 
 function formatCurrency(value: string) {
+  return sharedFormatCurrency(value)
   return `${Number(value).toLocaleString('vi-VN')} đ`
 }
 
 function formatNumber(value: number) {
+  return sharedFormatNumber(value)
   return value.toLocaleString('vi-VN')
 }
 
@@ -33,6 +37,7 @@ export function InventoryStockPage() {
   const [pageSize, setPageSize] = useState(inventoryStockPageCache?.pageSize ?? 10)
   const [rows, setRows] = useState<InventoryStockListItem[]>(inventoryStockPageCache?.rows ?? [])
   const [isLoading, setIsLoading] = useState(inventoryStockPageCache === null)
+  const [hasResolvedInitialLoad, setHasResolvedInitialLoad] = useState(inventoryStockPageCache !== null)
 
   const fetchStockList = useCallback(async () => {
     setIsLoading(inventoryStockPageCache === null)
@@ -41,9 +46,10 @@ export function InventoryStockPage() {
       const data = await inventoryApi.getStockList()
       setRows(data)
     } catch (error) {
-      console.error('Loi khi tai danh sach ton kho:', error)
+      console.error('Lỗi khi tải danh sách tồn kho:', error)
     } finally {
       setIsLoading(false)
+      setHasResolvedInitialLoad(true)
     }
   }, [])
 
@@ -52,6 +58,10 @@ export function InventoryStockPage() {
   }, [fetchStockList])
 
   useEffect(() => {
+    if (!hasResolvedInitialLoad) {
+      return
+    }
+
     inventoryStockPageCache = {
       activeTab,
       searchValue,
@@ -59,7 +69,7 @@ export function InventoryStockPage() {
       pageSize,
       rows,
     }
-  }, [activeTab, page, pageSize, rows, searchValue])
+  }, [activeTab, hasResolvedInitialLoad, page, pageSize, rows, searchValue])
 
   const tabs = useMemo<ListTabConfig[]>(() => {
     const inStockCount = rows.filter((row) => row.on_hand > 0).length
@@ -185,6 +195,8 @@ export function InventoryStockPage() {
     [],
   )
 
+  const shouldShowInitialSkeleton = (!hasResolvedInitialLoad || isLoading) && rows.length === 0
+
   return (
     <CommonListLayout
       title="Tồn kho"
@@ -228,7 +240,8 @@ export function InventoryStockPage() {
           },
         })
       }
-      loading={isLoading && rows.length === 0}
+      loading={shouldShowInitialSkeleton}
+      loadingState={<InventoryStockTableSkeleton />}
       emptyState={
         <ListEmptyState
           title="Chưa có dữ liệu tồn kho"

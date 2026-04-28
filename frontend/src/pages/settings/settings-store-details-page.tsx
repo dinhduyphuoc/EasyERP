@@ -98,7 +98,7 @@ export function SettingsStoreDetailsPage(): ReactElement {
         setAddressLine(store.profile.address_line)
       } catch (error) {
         if (!cancelled) {
-          appToast.error(getErrorMessage(error, 'Khong the tai cau hinh cua hang.'))
+          appToast.error(getErrorMessage(error, 'Không thể tải cấu hình cửa hàng.'))
         }
       } finally {
         if (!cancelled) {
@@ -128,7 +128,7 @@ export function SettingsStoreDetailsPage(): ReactElement {
         const nextCities = await customerApi.getCities({ state_id: stateId, is_active: true })
         setCities(nextCities)
       } catch (error) {
-        appToast.error(getErrorMessage(error, 'Khong the tai quan huyen.'))
+        appToast.error(getErrorMessage(error, 'Không thể tải quận huyện.'))
       }
     }
 
@@ -147,7 +147,7 @@ export function SettingsStoreDetailsPage(): ReactElement {
         const nextDistricts = await customerApi.getDistricts({ city_id: cityId, is_active: true })
         setDistricts(nextDistricts)
       } catch (error) {
-        appToast.error(getErrorMessage(error, 'Khong the tai phuong xa.'))
+        appToast.error(getErrorMessage(error, 'Không thể tải phường xã.'))
       }
     }
 
@@ -159,7 +159,7 @@ export function SettingsStoreDetailsPage(): ReactElement {
     const cityName = cities.find((item) => item.id === cityId)?.name
     const districtName = districts.find((item) => item.id === districtId)?.name
 
-    return [addressLine, districtName, cityName, stateName].filter(Boolean).join(', ') || 'Chua co dia chi'
+    return [addressLine, districtName, cityName, stateName].filter(Boolean).join(', ') || 'Chưa có địa chỉ'
   }, [addressLine, cities, cityId, districtId, districts, stateId, states])
 
   const handleSave = async () => {
@@ -187,10 +187,10 @@ export function SettingsStoreDetailsPage(): ReactElement {
       })
 
       await Promise.all([refreshUser(), refreshStores()])
-      appToast.success('Da cap nhat thong tin cua hang.')
+      appToast.success('Đã cập nhật thông tin cửa hàng.')
       navigate('/settings/general', { state: { overlayFrom: '/' } })
     } catch (error) {
-      appToast.error(getErrorMessage(error, 'Khong the luu thong tin cua hang.'))
+      appToast.error(getErrorMessage(error, 'Không thể lưu thông tin cửa hàng.'))
     } finally {
       setIsSaving(false)
     }
@@ -206,43 +206,43 @@ export function SettingsStoreDetailsPage(): ReactElement {
             onClick={() => navigate('/settings/general', { state: { overlayFrom: '/' } })}
             sx={{ alignSelf: 'flex-start', px: 0 }}
           >
-            Quay lai General
+            Quay lại Cài đặt chung
           </Button>
-          <SummaryPaperHeader title="Store details" />
+          <SummaryPaperHeader title="Thông tin cửa hàng" />
           <Alert severity="info" sx={{ borderRadius: 3 }}>
-            Chinh sua ten cua hang, thong tin lien he, ho so phap ly, va default van hanh.
+            Chỉnh sửa tên cửa hàng, thông tin liên hệ, hồ sơ pháp lý và thiết lập vận hành mặc định.
           </Alert>
         </Stack>
       </Paper>
 
       <Paper sx={borderedCardSx}>
         <Stack spacing={2}>
-          <SummaryPaperHeader title="Store profile" />
+          <SummaryPaperHeader title="Hồ sơ cửa hàng" />
           {isLoading ? <CircularProgress size={24} /> : null}
 
           <StackedTextField
             fullWidth
-            label="Store name"
+            label="Tên cửa hàng"
             value={storeName}
             onChange={(event) => setStoreName(event.target.value)}
-            helperText="Appears on your online store."
+            helperText="Hiển thị trên cửa hàng của bạn."
           />
 
           <StackedTextField
             fullWidth
-            label="Store email"
+            label="Email cửa hàng"
             value={contactEmail}
             onChange={(event) => setContactEmail(event.target.value)}
           />
 
           <StackedTextField
             fullWidth
-            label="Store phone"
+            label="Số điện thoại cửa hàng"
             value={contactPhone}
             onChange={(event) => setContactPhone(event.target.value)}
           />
 
-          <StackedDropdown fullWidth label="Loai hinh" value={businessType} onChange={(event) => setBusinessType(String(event.target.value))}>
+          <StackedDropdown fullWidth label="Loại hình" value={businessType} onChange={(event) => setBusinessType(String(event.target.value))}>
             {BUSINESS_TYPES.map((item) => (
               <MenuItem key={item.value} value={item.value}>
                 {item.label}
@@ -252,7 +252,7 @@ export function SettingsStoreDetailsPage(): ReactElement {
 
           <StackedTextField
             fullWidth
-            label="Ten phap ly / Ho va ten"
+            label="Tên pháp lý / Họ và tên"
             value={legalFullName}
             onChange={(event) => setLegalFullName(event.target.value)}
           />
@@ -264,8 +264,8 @@ export function SettingsStoreDetailsPage(): ReactElement {
               gap: 2,
             }}
           >
-            <StackedDropdown fullWidth label="Tinh / Thanh pho" value={stateId} onChange={(event) => setStateId(Number(event.target.value) || '')}>
-              <MenuItem value="">Chua chon</MenuItem>
+            <StackedDropdown fullWidth label="Tỉnh / Thành phố" value={stateId} onChange={(event) => setStateId(Number(event.target.value) || '')}>
+              <MenuItem value="">Chưa chọn</MenuItem>
               {states.map((item) => (
                 <MenuItem key={item.id} value={item.id}>
                   {item.name}
@@ -273,8 +273,8 @@ export function SettingsStoreDetailsPage(): ReactElement {
               ))}
             </StackedDropdown>
 
-            <StackedDropdown fullWidth label="Quan / Huyen" value={cityId} onChange={(event) => setCityId(Number(event.target.value) || '')} disabled={!stateId}>
-              <MenuItem value="">Chua chon</MenuItem>
+            <StackedDropdown fullWidth label="Quận / Huyện" value={cityId} onChange={(event) => setCityId(Number(event.target.value) || '')} disabled={!stateId}>
+              <MenuItem value="">Chưa chọn</MenuItem>
               {cities.map((item) => (
                 <MenuItem key={item.id} value={item.id}>
                   {item.name}
@@ -282,8 +282,8 @@ export function SettingsStoreDetailsPage(): ReactElement {
               ))}
             </StackedDropdown>
 
-            <StackedDropdown fullWidth label="Phuong / Xa" value={districtId} onChange={(event) => setDistrictId(Number(event.target.value) || '')} disabled={!cityId}>
-              <MenuItem value="">Chua chon</MenuItem>
+            <StackedDropdown fullWidth label="Phường / Xã" value={districtId} onChange={(event) => setDistrictId(Number(event.target.value) || '')} disabled={!cityId}>
+              <MenuItem value="">Chưa chọn</MenuItem>
               {districts.map((item) => (
                 <MenuItem key={item.id} value={item.id}>
                   {item.name}
@@ -294,7 +294,7 @@ export function SettingsStoreDetailsPage(): ReactElement {
 
           <StackedTextField
             fullWidth
-            label="Dia chi chi tiet"
+            label="Địa chỉ chi tiết"
             value={addressLine}
             onChange={(event) => setAddressLine(event.target.value)}
             multiline
@@ -305,7 +305,7 @@ export function SettingsStoreDetailsPage(): ReactElement {
 
       <Paper sx={borderedCardSx}>
         <Stack spacing={2}>
-          <SummaryPaperHeader title="Store defaults" />
+          <SummaryPaperHeader title="Thiết lập mặc định" />
           <StackedDropdown fullWidth label="Currency" value={currency} onChange={(event) => setCurrency(String(event.target.value))}>
             {CURRENCIES.map((item) => (
               <MenuItem key={item} value={item}>
@@ -323,17 +323,17 @@ export function SettingsStoreDetailsPage(): ReactElement {
           </StackedDropdown>
 
           <Typography variant="body2" sx={{ color: '#667085' }}>
-            Preview: {locationPreview}
+            Xem trước: {locationPreview}
           </Typography>
         </Stack>
       </Paper>
 
       <Stack direction="row" spacing={1.25} sx={{ justifyContent: 'flex-end' }}>
         <Button variant="outlined" onClick={() => navigate('/settings/general', { state: { overlayFrom: '/' } })}>
-          Huy
+          Hủy
         </Button>
         <Button variant="contained" onClick={() => void handleSave()} disabled={isSaving || isLoading || !activeStore}>
-          {isSaving ? 'Dang luu...' : 'Luu cau hinh'}
+          {isSaving ? 'Đang lưu...' : 'Lưu cấu hình'}
         </Button>
       </Stack>
     </Stack>

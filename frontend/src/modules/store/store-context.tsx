@@ -21,6 +21,23 @@ type StoreContextValue = {
 
 export const StoreContext = createContext<StoreContextValue | null>(null)
 
+const EMPTY_STORE_PROFILE = {
+  business_type: 'individual',
+  legal_full_name: '',
+  contact_email: '',
+  contact_phone: '',
+  state_id: null,
+  city_id: null,
+  district_id: null,
+  address_line: '',
+}
+
+const EMPTY_STORE_ADDRESSES = {
+  default: {},
+  billing: {},
+  return: {},
+}
+
 const persistActiveStoreId = (storeId: string | null) => {
   if (!storeId) {
     localStorage.removeItem(ACTIVE_STORE_STORAGE_KEY)
@@ -29,6 +46,23 @@ const persistActiveStoreId = (storeId: string | null) => {
 
   localStorage.setItem(ACTIVE_STORE_STORAGE_KEY, storeId)
 }
+
+const buildStoresFromAuthUser = (
+  user: ReturnType<typeof useAuth>['user'],
+): StoreRecord[] =>
+  (user?.stores ?? []).map((store) => ({
+    id: store.id,
+    name: store.name,
+    slug: store.slug,
+    owner_user_id: '',
+    default_currency: store.default_currency,
+    default_timezone: store.default_timezone,
+    role: store.role,
+    profile: EMPTY_STORE_PROFILE,
+    addresses: EMPTY_STORE_ADDRESSES,
+    created_at: '',
+    updated_at: '',
+  }))
 
 export function StoreProvider({ children }: PropsWithChildren) {
   const { status, user, refreshUser } = useAuth()
@@ -65,6 +99,19 @@ export function StoreProvider({ children }: PropsWithChildren) {
       return
     }
 
+    const authStores = buildStoresFromAuthUser(user)
+    const storedStoreId = localStorage.getItem(ACTIVE_STORE_STORAGE_KEY)
+    const authActiveStore =
+      authStores.find((store) => store.id === user?.active_store_id) ??
+      authStores.find((store) => store.id === storedStoreId) ??
+      authStores[0] ??
+      null
+
+    persistActiveStoreId(authActiveStore?.id ?? null)
+    setStores(authStores)
+    setActiveStore(authActiveStore)
+    setIsReady(true)
+
     let cancelled = false
 
     void syncStoresFromServer()
@@ -73,8 +120,8 @@ export function StoreProvider({ children }: PropsWithChildren) {
           return
         }
 
-        setStores([])
-        setActiveStore(null)
+        setStores(authStores)
+        setActiveStore(authActiveStore)
         setIsReady(true)
       })
 

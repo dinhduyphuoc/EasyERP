@@ -56,6 +56,28 @@ export type VietQrBankItem = {
   support: number
 }
 
+export type VietQrGeneratePayload = {
+  bank_bin?: string | null
+  account_name?: string | null
+  account_number?: string | null
+  amount?: string | number | null
+  memo?: string | null
+  template?: string | null
+  media?: string | null
+}
+
+export type VietQrGenerateResponse = {
+  code: string
+  desc: string
+  data: {
+    acqId: string
+    accountName: string
+    qrDataURL: string
+  }
+  quick_link: string
+  transfer_content: string
+}
+
 export const generalSettingsApi = {
   getGeneralSettings: async (): Promise<GeneralSettings> => {
     return apiClient.get(ENDPOINT)
@@ -73,5 +95,11 @@ export const generalSettingsApi = {
     data: VietQrBankItem[]
   }> => {
     return apiClient.get(`${ENDPOINT}/payment-methods/vietqr/banks`)
+  },
+
+  generateVietQr: async (
+    payload: VietQrGeneratePayload,
+  ): Promise<VietQrGenerateResponse> => {
+    return apiClient.post(`${ENDPOINT}/payment-methods/vietqr/qr`, payload)
   },
 }

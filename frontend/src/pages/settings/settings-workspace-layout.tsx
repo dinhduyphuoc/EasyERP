@@ -23,11 +23,11 @@ import { settingsItemsByPath, settingsSections } from './settings.config'
 const nestedBreadcrumbItems: Record<string, { parentPath: string; title: string }> = {
   '/settings/general/store-details': {
     parentPath: '/settings/general',
-    title: 'Store details',
+    title: 'Thông tin cửa hàng',
   },
   '/settings/general/payment-methods': {
     parentPath: '/settings/general',
-    title: 'Payment methods',
+    title: 'Phương thức thanh toán',
   },
 }
 
@@ -195,10 +195,10 @@ export function SettingsWorkspaceLayout(): ReactElement {
               </Avatar>
               <Box sx={{ minWidth: 0 }}>
                 <Typography sx={{ fontWeight: 800, color: '#0f172a' }} noWrap>
-                  {activeStore?.name ?? 'Store settings'}
+                  {activeStore?.name ?? 'Cài đặt cửa hàng'}
                 </Typography>
                 <Typography variant="body2" sx={{ color: '#667085' }} noWrap>
-                  {activeStore ? `${activeStore.slug}.oms.local` : 'No active store'}
+                  {activeStore ? `${activeStore.slug}.oms.local` : 'Chưa có cửa hàng hoạt động'}
                 </Typography>
               </Box>
             </Stack>
@@ -210,7 +210,7 @@ export function SettingsWorkspaceLayout(): ReactElement {
               onChange={(event) => setSearch(event.target.value)}
               size="small"
               fullWidth
-              placeholder="Search settings"
+              placeholder="Tìm trong cài đặt"
               startAdornment={
                 <InputAdornment position="start">
                   <SearchRoundedIcon fontSize="small" sx={{ color: '#98a2b3' }} />

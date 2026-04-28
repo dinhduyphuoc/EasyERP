@@ -20,7 +20,6 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
-  Divider,
   FormControlLabel,
   IconButton,
   InputAdornment,
@@ -44,18 +43,21 @@ import { SummaryPaperHeader } from '@/shared/ui/summary-paper-header'
 import { orderApi, type OrderCreatePayload, type OrderListItem, type OrderOptionLookup } from './order.api'
 import {
   buildPaymentNoteContent,
+  getDerivedPaymentStatusValue,
   getNextPaymentStatus,
+  getNormalizedDiscountAmount,
   getNormalizedDepositAmount,
   getNormalizedPaidAmount,
   getPaymentMethodFromTypeId,
   getPaymentValidationErrors,
+  getNormalizedTaxAmountFromDiscount,
   parsePaymentNoteContent,
   PaymentInformationCard,
   PAYMENT_METHOD_TYPE_IDS,
   type DepositInputMode,
   type PaymentMethod,
 } from './order-payment'
-import { formatCurrency, getProcessingStatusMeta } from './order.utils'
+import { formatCurrency, formatCurrencyInput, getProcessingStatusMeta } from './order.utils'
 import { generalSettingsApi } from '@/pages/settings/general-settings.api'
 
 type OrderItemForm = {
@@ -76,8 +78,6 @@ type OrderItemForm = {
 type OrderCreateLocationState = {
   duplicateFrom?: OrderListItem
 }
-
-type DialogKey = 'order' | 'meta' | null
 
 type CustomerAutocompleteOption =
   | {
@@ -117,9 +117,6 @@ const parseCurrencyValue = (value: string | number | null | undefined): number =
   return Number(digits || '0')
 }
 
-const formatCurrencyInput = (value: string | number | null | undefined): string =>
-  parseCurrencyValue(value).toLocaleString('vi-VN')
-
 const formatStockNumber = (value: number | null | undefined): string => Number(value ?? 0).toLocaleString('vi-VN')
 
 const createItemFromProduct = (product: ProductSearchOption): OrderItemForm => ({
@@ -136,19 +133,6 @@ const createItemFromProduct = (product: ProductSearchOption): OrderItemForm => (
   notes: '',
   noteOpen: false,
 })
-
-const formatDateOnly = (value: string): string => {
-  if (!value) {
-    return '-'
-  }
-
-  const parsed = new Date(value)
-  if (Number.isNaN(parsed.getTime())) {
-    return value
-  }
-
-  return parsed.toLocaleDateString('vi-VN')
-}
 
 const getErrorMessage = (error: unknown, fallback: string) => {
   return typeof error === 'object' &&
@@ -312,7 +296,6 @@ export function OrdersCreatePage(): ReactElement {
   const [isSaving, setIsSaving] = useState(false)
   const [hasAttemptedSave, setHasAttemptedSave] = useState(false)
   const [loadedOrder, setLoadedOrder] = useState<OrderListItem | null>(null)
-  const [activeDialog, setActiveDialog] = useState<DialogKey>(null)
 
   const [orderCode, setOrderCode] = useState('')
   const [orderDate, setOrderDate] = useState(new Date().toISOString().slice(0, 10))
@@ -756,8 +739,15 @@ export function OrdersCreatePage(): ReactElement {
   )
 
   const subTotal = useMemo(() => itemRows.reduce((sum, item) => sum + item.subTotal, 0), [itemRows])
-  const totalAmount = subTotal + Number(taxAmount || 0) + Number(shippingFee || 0)
-  const normalizedDepositPercent = Number(depositPercent || 0)
+  const normalizedDiscountAmount = getNormalizedDiscountAmount({
+    subTotal,
+    discountAmount: Number(taxAmount || 0) * -1,
+  })
+  const normalizedTaxAmount = getNormalizedTaxAmountFromDiscount({
+    subTotal,
+    discountAmount: normalizedDiscountAmount,
+  })
+  const totalAmount = Math.max(subTotal + normalizedTaxAmount + Number(shippingFee || 0), 0)
   const normalizedDepositAmount = getNormalizedDepositAmount({
     paymentMethod,
     depositInputMode,
@@ -824,9 +814,9 @@ export function OrdersCreatePage(): ReactElement {
     customerName,
     customerPhone,
     depositInputMode,
+    depositPercent,
     itemRows,
     normalizedDepositAmount,
-    normalizedDepositPercent,
     paymentDueDate,
     paymentMethod,
     paymentStatus,
@@ -1008,6 +998,11 @@ export function OrdersCreatePage(): ReactElement {
     setCustomerModalForm(createEmptyCustomerModalForm())
     setCustomerModalPrefill(null)
   }
+
+  const derivedPaymentStatus = getDerivedPaymentStatusValue({
+    totalAmount,
+    paidAmount: normalizedPaidAmount,
+  })
 
   const handlePaymentMethodChange = (method: PaymentMethod) => {
     setPaymentMethod(method)
@@ -1312,11 +1307,11 @@ export function OrdersCreatePage(): ReactElement {
         insurance_value: Number(insuranceValue || 0),
         service_id: null,
         service_type_id: null,
-        tax_amount: Number(taxAmount || 0),
+        tax_amount: normalizedTaxAmount,
         shipping_fee: Number(shippingFee || 0),
-        deposit_amount: normalizedDepositAmount,
+        deposit_amount: derivedPaymentStatus === 'deposit' ? normalizedPaidAmount : 0,
         paid_amount: normalizedPaidAmount,
-        payment_status: paymentStatus,
+        payment_status: derivedPaymentStatus,
         processing_status: processingStatus,
         shipping_service: shippingService.trim() || null,
         sales_channel: salesChannel.trim() || null,
@@ -1366,7 +1361,7 @@ export function OrdersCreatePage(): ReactElement {
       )
       navigate(`/orders/${order.id}`)
     } catch (error) {
-      console.error('Loi khi tao don hang:', error)
+      console.error('Lỗi khi tạo đơn hàng:', error)
       appToast.error(
         getErrorMessage(
           error,
@@ -1717,10 +1712,10 @@ export function OrdersCreatePage(): ReactElement {
               </Stack>
             ) : (
             <Box sx={{ overflowX: 'auto' }}>
-              <Table sx={{ minWidth: 820 }}>
+              <Table sx={{ minWidth: 680 }}>
                 <TableHead>
                   <TableRow>
-                    <TableCell padding="checkbox">
+                    <TableCell padding="checkbox" sx={{ width: 52, whiteSpace: 'nowrap' }}>
                       <Checkbox
                         checked={areAllItemsSelected}
                         indeterminate={areSomeItemsSelected}
@@ -1728,10 +1723,10 @@ export function OrdersCreatePage(): ReactElement {
                         disabled={isLoading}
                       />
                     </TableCell>
-                    <TableCell sx={{ width: '50%' }}>Sản phẩm</TableCell>
-                    <TableCell align="center">Số lượng</TableCell>
-                    <TableCell align="right">Đơn giá</TableCell>
-                    <TableCell align="right">Thành tiền</TableCell>
+                    <TableCell sx={{ whiteSpace: 'nowrap' }}>Sản phẩm</TableCell>
+                    <TableCell align="center" sx={{ width: 96, whiteSpace: 'nowrap' }}>Số lượng</TableCell>
+                    <TableCell align="right" sx={{ width: 180, whiteSpace: 'nowrap' }}>Đơn giá</TableCell>
+                    <TableCell align="right" sx={{ width: 140, whiteSpace: 'nowrap' }}>Thành tiền</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -1840,7 +1835,7 @@ export function OrdersCreatePage(): ReactElement {
                             }}
                           />
                           <Typography variant="body2" color="text.secondary" sx={{ mt: 1, fontVariantNumeric: 'tabular-nums' }}>
-                            Discount: {formatCurrency(item.discount_amount)}
+                            Giảm giá: {formatCurrency(item.discount_amount)}
                           </Typography>
                         </TableCell>
 
@@ -1859,61 +1854,81 @@ export function OrdersCreatePage(): ReactElement {
           </Paper>
 
           <PaymentInformationCard
+            itemCount={itemRows.length}
             canEdit={canEditOrder}
             paymentMethod={paymentMethod}
-            paymentStatus={paymentStatus}
-            paymentNotes={paymentNotes}
-            paymentDueDate={paymentDueDate}
-            depositInputMode={depositInputMode}
-            depositPercent={depositPercent}
-            bankName={bankName}
-            bankAccountNumber={bankAccountNumber}
-            bankAccountHolder={bankAccountHolder}
-            transferReference={transferReference}
+            onPaymentStatusChange={setPaymentStatus}
             taxAmount={taxAmount}
             subTotal={subTotal}
             totalAmount={totalAmount}
-            paidAmount={normalizedPaidAmount}
-            remainingAmount={outstandingAmount}
             depositAmount={normalizedDepositAmount}
             errors={visibleErrors}
             onPaymentMethodChange={handlePaymentMethodChange}
             onTaxAmountChange={setTaxAmount}
-            onPaymentNotesChange={setPaymentNotes}
-            onPaymentDueDateChange={setPaymentDueDate}
-            onDepositInputModeChange={setDepositInputMode}
-            onDepositPercentChange={setDepositPercent}
             onDepositAmountChange={setDepositAmount}
-            onBankNameChange={setBankName}
-            onBankAccountNumberChange={setBankAccountNumber}
-            onBankAccountHolderChange={setBankAccountHolder}
-            onTransferReferenceChange={setTransferReference}
           />
         </Stack>
 
         <Stack spacing={2.5}>
           <Paper sx={borderedCardSx}>
             <Stack spacing={1.5}>
-              <SummaryPaperHeader title="Thông tin đơn hàng" onEdit={() => setActiveDialog('order')} />
-              <SummaryRow label="Mã đơn hàng" value={orderCode || 'Đang được hệ thống tự tạo'} />
-              <SummaryRow label="Ngày tạo đơn" value={formatDateOnly(orderDate)} />
-              <SummaryRow label="Loại đơn" value={orderType === 'sale' ? 'Bán hàng' : 'Trả hàng'} />
-              <SummaryRow
-                label="Trạng thái xử lý"
-                value={getProcessingStatusMeta(processingStatus).label}
+              <SummaryPaperHeader title="Thông tin đơn hàng" />
+              <StackedTextField
+                fullWidth
+                label="Mã đơn hàng"
+                placeholder="Để trống nếu muốn hệ thống tự tạo"
+                value={orderCode}
+                onChange={(event) => setOrderCode(event.target.value)}
               />
-              <SummaryRow label="Kênh bán hàng" value={salesChannel || 'Chưa chọn kênh'} />
+              <StackedTextField
+                fullWidth
+                label="Ngày tạo đơn"
+                type="date"
+                value={orderDate}
+                onChange={(event) => setOrderDate(event.target.value)}
+              />
+              <StackedDropdown fullWidth label="Loại đơn" value={orderType} onChange={(event) => setOrderType(event.target.value as 'sale' | 'return')}>
+                <MenuItem value="sale">Bán hàng</MenuItem>
+                <MenuItem value="return">Trả hàng</MenuItem>
+              </StackedDropdown>
+              <StackedDropdown
+                fullWidth
+                label="Trạng thái xử lý"
+                value={processingStatus}
+                onChange={(event) =>
+                  setProcessingStatus(
+                    event.target.value as 'draft' | 'placed' | 'confirmed' | 'picked_up' | 'delivering' | 'completed' | 'cancelled' | 'returned',
+                  )
+                }
+              >
+                {options?.processing_statuses.map((status) => (
+                  <MenuItem key={status.value} value={status.value}>
+                    {getProcessingStatusMeta(status.value).label}
+                  </MenuItem>
+                ))}
+              </StackedDropdown>
+              <StackedTextField
+                fullWidth
+                label="Kênh bán hàng"
+                placeholder="Nhập kênh bán hàng"
+                value={salesChannel}
+                onChange={(event) => setSalesChannel(event.target.value)}
+              />
               {visibleErrors.processing_status ? <Typography color="error">{visibleErrors.processing_status}</Typography> : null}
             </Stack>
           </Paper>
 
           <Paper sx={borderedCardSx}>
             <Stack spacing={1.5}>
-              <SummaryPaperHeader title="Ghi chú và metadata" onEdit={() => setActiveDialog('meta')} />
-              <SummaryRow label="Ghi chú đơn hàng" value={orderNotes || 'Chưa có ghi chú'} multiline />
-              <SummaryRow label="Người tạo" value={createdBy || 'Chưa có người tạo'} />
-              <SummaryRow label="Người xử lý" value={confirmedBy || 'Chưa có người xử lý'} />
-              <SummaryRow label="Mã hóa đơn" value={invoiceCode || 'Chưa có mã hóa đơn'} />
+              <SummaryPaperHeader title="Ghi chú" />
+              <StackedTextField
+                fullWidth
+                multiline
+                minRows={4}
+                placeholder="Nhập ghi chú cho đơn hàng"
+                value={orderNotes}
+                onChange={(event) => setOrderNotes(event.target.value)}
+              />
             </Stack>
           </Paper>
         </Stack>
@@ -2034,85 +2049,7 @@ export function OrdersCreatePage(): ReactElement {
         </DialogActions>
       </Dialog>
 
-      <Dialog open={activeDialog === 'order'} onClose={() => setActiveDialog(null)} fullWidth maxWidth="sm">
-        <DialogTitle>Chỉnh sửa thông tin đơn</DialogTitle>
-        <DialogContent>
-          <Stack spacing={2} sx={{ pt: 1 }}>
-            <StackedTextField fullWidth label="Mã đơn hàng" value={orderCode} onChange={(event) => setOrderCode(event.target.value)} />
-            <StackedTextField fullWidth label="Ngày tạo đơn" type="date" value={orderDate} onChange={(event) => setOrderDate(event.target.value)} />
-            <StackedDropdown fullWidth label="Loại đơn" value={orderType} onChange={(event) => setOrderType(event.target.value as 'sale' | 'return')}>
-              <MenuItem value="sale">Bán hàng</MenuItem>
-              <MenuItem value="return">Trả hàng</MenuItem>
-            </StackedDropdown>
-            <StackedDropdown
-              fullWidth
-              label="Trạng thái xử lý"
-              value={processingStatus}
-              onChange={(event) =>
-                setProcessingStatus(
-                  event.target.value as 'draft' | 'placed' | 'confirmed' | 'picked_up' | 'delivering' | 'completed' | 'cancelled' | 'returned',
-                )
-              }
-            >
-              {options?.processing_statuses.map((status) => (
-                <MenuItem key={status.value} value={status.value}>
-                  {getProcessingStatusMeta(status.value).label}
-                </MenuItem>
-              ))}
-            </StackedDropdown>
-            <StackedTextField fullWidth label="Kênh bán hàng" value={salesChannel} onChange={(event) => setSalesChannel(event.target.value)} />
-          </Stack>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setActiveDialog(null)}>Đóng</Button>
-          <Button variant="contained" onClick={() => setActiveDialog(null)}>Lưu</Button>
-        </DialogActions>
-      </Dialog>
-
-      <Dialog open={activeDialog === 'meta'} onClose={() => setActiveDialog(null)} fullWidth maxWidth="sm">
-        <DialogTitle>Chỉnh sửa ghi chú và metadata</DialogTitle>
-        <DialogContent>
-          <Stack spacing={2} sx={{ pt: 1 }}>
-            <StackedTextField fullWidth multiline minRows={3} label="Ghi chú đơn hàng" value={orderNotes} onChange={(event) => setOrderNotes(event.target.value)} />
-            <StackedTextField fullWidth label="Người tạo" value={createdBy} onChange={(event) => setCreatedBy(event.target.value)} />
-            <StackedTextField fullWidth label="Người xử lý" value={confirmedBy} onChange={(event) => setConfirmedBy(event.target.value)} />
-            <StackedTextField fullWidth label="Mã hóa đơn" value={invoiceCode} onChange={(event) => setInvoiceCode(event.target.value)} />
-          </Stack>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setActiveDialog(null)}>Đóng</Button>
-          <Button variant="contained" onClick={() => setActiveDialog(null)}>Lưu</Button>
-        </DialogActions>
-      </Dialog>
     </Box>
-  )
-}
-
-function SummaryRow({
-  label,
-  value,
-  multiline = false,
-}: {
-  label: string
-  value: string
-  multiline?: boolean
-}): ReactElement {
-  return (
-    <Stack spacing={0.35}>
-      <Typography variant="body2" color="text.secondary">
-        {label}
-      </Typography>
-      <Typography
-        sx={{
-          color: value.toLowerCase().startsWith('chua') || value.toLowerCase().startsWith('de trong') ? '#98a2b3' : '#0f172a',
-          lineHeight: multiline ? 1.6 : 1.45,
-          whiteSpace: multiline ? 'pre-wrap' : 'normal',
-        }}
-      >
-        {value}
-      </Typography>
-      <Divider />
-    </Stack>
   )
 }
 

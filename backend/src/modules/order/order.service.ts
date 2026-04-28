@@ -23,6 +23,7 @@ const ORDER_CODE_PREFIX = "DH";
 const ORDER_CODE_NUMBER_LENGTH = 4;
 const ORDER_CODE_GENERATION_RETRIES = 5;
 const ORDER_PAYMENT_STATUSES: OrderPaymentStatusInput[] = ["unpaid", "paid", "deposit"];
+const ORDER_PAYMENT_COLLECTION_METHODS = ["bank_transfer", "cash", "cod", "card"] as const;
 const ORDER_PROCESSING_STATUSES: OrderProcessingStatusInput[] = [
   "draft",
   "placed",
@@ -281,6 +282,25 @@ const parseOrderPaymentStatus = (value: unknown) => {
   }
 
   throw new BadRequestError(`payment_status must be one of: ${ORDER_PAYMENT_STATUSES.join(", ")}`);
+};
+
+const parsePaymentCollectionMethod = (value: unknown) => {
+  if (value === undefined || value === null || value === "") {
+    return "bank_transfer" as const;
+  }
+
+  if (
+    typeof value === "string" &&
+    ORDER_PAYMENT_COLLECTION_METHODS.includes(
+      value as (typeof ORDER_PAYMENT_COLLECTION_METHODS)[number],
+    )
+  ) {
+    return value as (typeof ORDER_PAYMENT_COLLECTION_METHODS)[number];
+  }
+
+  throw new BadRequestError(
+    `payment_method must be one of: ${ORDER_PAYMENT_COLLECTION_METHODS.join(", ")}`,
+  );
 };
 
 const parseOrderProcessingStatus = (value: unknown) => {
@@ -1027,12 +1047,15 @@ const buildHistoryEntries = (input: {
   if (input.paymentStatus === "deposit") {
     baseEntries.push({
       event_type: "payment_updated",
-      description: "Ghi nhận thanh toán đặt cọc",
+      description: "Khách hàng đặt cọc",
       actor_name: input.createdBy,
       metadata: {
         payment_status: input.paymentStatus,
+        payment_amount: input.paidAmount.toString(),
+        paid_amount: input.paidAmount.toString(),
         deposit_amount: input.depositAmount.toString(),
         outstanding_amount: input.totalAmount.minus(input.paidAmount).toString(),
+        payment_label: "Đặt cọc",
       },
     });
   }
@@ -1043,8 +1066,11 @@ const buildHistoryEntries = (input: {
       description: "Đơn hàng đã được thanh toán",
       actor_name: input.createdBy,
       metadata: {
+        payment_amount: input.paidAmount.toString(),
         payment_status: input.paymentStatus,
         paid_amount: input.paidAmount.toString(),
+        outstanding_amount: "0",
+        payment_label: "Thanh toán đủ",
       },
     });
   }
@@ -1440,7 +1466,7 @@ export const OrderService = {
       order_history: [
         {
           event_type: "order_duplicated",
-          description: `Nhan ban tu don ${existingOrder.order_code}`,
+          description: `Nhân bản từ đơn ${existingOrder.order_code}`,
           actor_name: actorName,
           metadata: {
             source_order_id: existingOrder.id,
@@ -2368,7 +2394,7 @@ export const OrderService = {
       };
       historyEntry = {
         event_type: "status_changed",
-        description: "Xac nhan don hang",
+        description: "Xác nhận đơn hàng",
         actor_name: actorName,
         metadata: {
           processing_status: "confirmed",
@@ -2398,7 +2424,7 @@ export const OrderService = {
       };
       historyEntry = {
         event_type: "status_changed",
-        description: "Xac nhan giao hang",
+        description: "Xác nhận giao hàng",
         actor_name: actorName,
         metadata: {
           processing_status: "picked_up",
@@ -2429,7 +2455,7 @@ export const OrderService = {
       };
       historyEntry = {
         event_type: "shipping_updated",
-        description: "Day don sang don vi van chuyen",
+        description: "Đẩy đơn sang đơn vị vận chuyển",
         actor_name: actorName,
         metadata: {
           processing_status: "delivering",
@@ -2441,17 +2467,91 @@ export const OrderService = {
       };
     }
 
-    if (action === "mark_paid") {
+    if (action === "add_payment") {
+      if (["cancelled", "returned"].includes(existingOrder.processing_status)) {
+        throw new BadRequestError("Cannot add payment to cancelled or returned orders");
+      }
+
+      if (existingOrder.outstanding_amount.lte(0)) {
+        throw new BadRequestError("Order does not have any remaining balance");
+      }
+
+      const paymentAmount = parseDecimal(input.payment_amount, "payment_amount", 0);
+      const paymentMethod = parsePaymentCollectionMethod(input.payment_method);
+
+      if (paymentAmount.lte(0)) {
+        throw new BadRequestError("payment_amount must be greater than 0");
+      }
+
+      if (paymentAmount.gt(existingOrder.outstanding_amount)) {
+        throw new BadRequestError("payment_amount cannot exceed outstanding_amount");
+      }
+
+      const nextPaidAmount = existingOrder.paid_amount.plus(paymentAmount);
+      const nextOutstandingAmount = existingOrder.total_amount.minus(nextPaidAmount);
+      const nextPaymentStatus = nextOutstandingAmount.lte(0)
+        ? "paid"
+        : nextPaidAmount.gt(0)
+          ? "deposit"
+          : "unpaid";
+      const paymentLabel =
+        existingOrder.paid_amount.lte(0) && nextOutstandingAmount.gt(0)
+          ? "Đặt cọc"
+          : nextOutstandingAmount.lte(0)
+            ? "Thanh toán đủ"
+            : "Thanh toán thêm";
+
+      nextData = {
+        payment_status: nextPaymentStatus,
+        deposit_amount: nextPaymentStatus === "deposit" ? nextPaidAmount : existingOrder.deposit_amount,
+        paid_amount: nextPaidAmount,
+        outstanding_amount: nextOutstandingAmount,
+        status_timeline: updateOrderStageTimeline(existingOrder.status_timeline, "payment", {
+          actor: actorName,
+          paid_amount: nextPaidAmount.toString(),
+          outstanding_amount: nextOutstandingAmount.toString(),
+          payment_status: nextPaymentStatus,
+        }) as Prisma.InputJsonValue,
+      };
+      historyEntry = {
+        event_type: "payment_updated",
+        description: paymentLabel,
+        actor_name: actorName,
+        metadata: {
+          payment_amount: paymentAmount.toString(),
+          paid_amount: nextPaidAmount.toString(),
+          outstanding_amount: nextOutstandingAmount.toString(),
+          payment_status: nextPaymentStatus,
+          payment_method: paymentMethod,
+          payment_label: paymentLabel,
+          note,
+        },
+      };
+    }
+
+    if (action === "confirm_full_payment" || action === "mark_paid") {
       if (existingOrder.payment_status === "paid" && existingOrder.outstanding_amount.lte(0)) {
         return mapOrder(existingOrder);
       }
+
+      if (existingOrder.outstanding_amount.lte(0)) {
+        throw new BadRequestError("Order does not have any remaining balance");
+      }
+
+      const paymentMethod = parsePaymentCollectionMethod(input.payment_method);
+      const confirmationNote = toOptionalTrimmedString(input.note);
+
+      if (!confirmationNote) {
+        throw new BadRequestError("note is required when confirming full payment manually");
+      }
+
+      const paymentAmount = existingOrder.outstanding_amount;
 
       nextData = {
         payment_status: "paid",
         deposit_amount: existingOrder.deposit_amount,
         paid_amount: existingOrder.total_amount,
         outstanding_amount: new Prisma.Decimal(0),
-        payment_notes: note ?? existingOrder.payment_notes,
         status_timeline: updateOrderStageTimeline(existingOrder.status_timeline, "payment", {
           actor: actorName,
           paid_amount: existingOrder.total_amount.toString(),
@@ -2461,12 +2561,16 @@ export const OrderService = {
       };
       historyEntry = {
         event_type: "payment_updated",
-        description: "Đơn hàng đã được thanh toán",
+        description: "Xác nhận đã thu đủ tiền",
         actor_name: actorName,
         metadata: {
+          payment_amount: paymentAmount.toString(),
           payment_status: "paid",
           paid_amount: existingOrder.total_amount.toString(),
-          note,
+          outstanding_amount: "0",
+          payment_method: paymentMethod,
+          payment_label: "Xác nhận đã thu đủ tiền",
+          note: confirmationNote,
         },
       };
     }

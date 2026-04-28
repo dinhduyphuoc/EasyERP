@@ -17,6 +17,7 @@ import { productApi } from '@/pages/products/product.api'
 import { defaultCardSx } from '@/shared/ui/paper'
 import { appToast } from '@/shared/ui/toast/toast.helpers'
 import { StackedTextField } from '@/shared/ui/form/stacked-text-field'
+import { ProductCategoryPageSkeleton } from '@/pages/products/product-skeletons'
 
 export function ProductCategoryCreatePage(): ReactElement {
   const { id } = useParams()
@@ -79,6 +80,10 @@ export function ProductCategoryCreatePage(): ReactElement {
 
   const visibleErrors = hasAttemptedSave ? errors : {}
   const canSave = !isSaving && Object.keys(errors).length === 0 && (!isEditMode || dirty)
+
+  if (isLoading) {
+    return <ProductCategoryPageSkeleton />
+  }
 
   const handleSave = async () => {
     setHasAttemptedSave(true)

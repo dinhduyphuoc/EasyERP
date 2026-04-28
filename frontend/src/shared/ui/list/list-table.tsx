@@ -12,6 +12,7 @@ import {
 } from '@mui/material'
 import type {
   ListColumn,
+  ListLoadingState,
   ListRowClickHandler,
   ListRowSelectionConfig,
 } from '@/shared/ui/list/common-list.types'
@@ -23,6 +24,7 @@ type ListTableProps<T> = {
   onRowClick?: ListRowClickHandler<T>
   rowSelection?: ListRowSelectionConfig<T>
   loading?: boolean
+  loadingState?: ListLoadingState
   emptyState?: ReactNode
 }
 
@@ -33,9 +35,14 @@ export function ListTable<T>({
   onRowClick,
   rowSelection,
   loading = false,
+  loadingState,
   emptyState,
 }: ListTableProps<T>) {
   if (loading) {
+    if (loadingState) {
+      return <>{loadingState}</>
+    }
+
     return (
       <Box sx={{ py: 8, display: 'grid', placeItems: 'center' }}>
         <CircularProgress size={28} />

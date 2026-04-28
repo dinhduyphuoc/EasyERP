@@ -64,7 +64,7 @@ export function SettingsPaymentMethodsPage(): ReactElement {
         setShippingSnapshot(settings.defaults.shipping_address)
         setBankOptions(banksResponse.data)
       } catch (error) {
-        appToast.error(getErrorMessage(error, 'Khong the tai tai khoan ngan hang mac dinh.'))
+        appToast.error(getErrorMessage(error, 'Không thể tải tài khoản ngân hàng mặc định.'))
       } finally {
         setIsLoading(false)
       }
@@ -98,9 +98,9 @@ export function SettingsPaymentMethodsPage(): ReactElement {
           },
         },
       })
-      appToast.success('Da cap nhat tai khoan ngan hang mac dinh.')
+      appToast.success('Đã cập nhật tài khoản ngân hàng mặc định.')
     } catch (error) {
-      appToast.error(getErrorMessage(error, 'Khong the luu tai khoan ngan hang mac dinh.'))
+      appToast.error(getErrorMessage(error, 'Không thể lưu tài khoản ngân hàng mặc định.'))
     } finally {
       setIsSaving(false)
     }
@@ -126,7 +126,7 @@ export function SettingsPaymentMethodsPage(): ReactElement {
               <AccountBalanceOutlinedIcon fontSize="small" />
             </Box>
             <Box>
-              <Typography sx={{ fontWeight: 700, color: '#101828' }}>Tài khoản ngân hàng</Typography>
+              <Typography sx={{ fontWeight: 700, color: '#101828' }}>Quản lý thanh toán</Typography>
               <Typography variant="body2" sx={{ color: '#667085' }}>
                 Dùng làm thông tin thanh toán mặc định.
               </Typography>

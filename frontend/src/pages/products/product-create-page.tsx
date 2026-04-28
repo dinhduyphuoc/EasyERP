@@ -32,6 +32,8 @@ import { defaultCardSx } from '@/shared/ui/paper'
 import { appToast } from '@/shared/ui/toast/toast.helpers'
 import { StackedTextField } from '@/shared/ui/form/stacked-text-field'
 import { StackedDropdown } from '@/shared/ui/form/stacked-dropdown'
+import { formatCurrencyInput as formatCurrency } from '@/shared/utils/currency'
+import { ProductPageSkeleton } from '@/pages/products/product-skeletons'
 
 type AttributeRow = {
   id: string
@@ -70,17 +72,6 @@ function formatVariantSkuToken(value: string) {
     .replace(/\s+/g, '-')
     .replace(/-+/g, '-')
     .replace(/^-+|-+$/g, '')
-}
-
-function formatCurrency(value: string | number, options?: { zeroAsEmpty?: boolean }) {
-  const digits = String(value).replace(/\D/g, '')
-  const numeric = Number(digits || '0')
-
-  if (numeric === 0) {
-    return options?.zeroAsEmpty ?? true ? '' : '0'
-  }
-
-  return new Intl.NumberFormat('vi-VN').format(numeric)
 }
 
 function parseCurrency(value: string) {
@@ -187,6 +178,7 @@ export function ProductCreatePage(): ReactElement {
   const [attributes, setAttributes] = useState<AttributeRow[]>([])
   const [variants, setVariants] = useState<VariantRow[]>([])
   const [imagePreview, setImagePreview] = useState('')
+  const [isPageLoading, setIsPageLoading] = useState(true)
   const [isUploading, setIsUploading] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [errors, setErrors] = useState<Record<string, string>>({})
@@ -213,6 +205,7 @@ export function ProductCreatePage(): ReactElement {
 
   useEffect(() => {
     const fetchPageData = async () => {
+      setIsPageLoading(true)
       try {
         const categoryData = await productApi.getProductCategories()
         setCategories(categoryData)
@@ -263,10 +256,12 @@ export function ProductCreatePage(): ReactElement {
       } catch (error) {
         console.error('Lỗi khi lấy dữ liệu sản phẩm:', error)
         appToast.error('Không thể tải dữ liệu sản phẩm. Vui lòng thử lại!')
+      } finally {
+        setIsPageLoading(false)
       }
     }
 
-    fetchPageData()
+    void fetchPageData()
   }, [id])
 
   useEffect(() => {
@@ -310,11 +305,16 @@ export function ProductCreatePage(): ReactElement {
 
   const hasPendingLocalImage = imagePreview.trim().length > 0 && isObjectUrl(imagePreview.trim())
   const canSave =
+    !isPageLoading &&
     !isSaving &&
     !isUploading &&
     !hasPendingLocalImage &&
     Object.keys(validationErrors).length === 0 &&
     (!isEditMode || dirty)
+
+  if (isPageLoading) {
+    return <ProductPageSkeleton />
+  }
 
   const handleSave = async () => {
     setHasAttemptedSave(true)

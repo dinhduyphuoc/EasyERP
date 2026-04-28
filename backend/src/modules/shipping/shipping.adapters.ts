@@ -139,26 +139,26 @@ class GhnShippingAdapter extends BaseTokenShippingAdapter {
     code: "ghn",
     display_name: "GHN",
     short_description:
-      "Ket noi Giao Hang Nhanh de chuan bi cho luong tao van don, tracking va webhook theo tung cua hang.",
+      "Kết nối Giao Hàng Nhanh để chuẩn bị cho luồng tạo vận đơn, tracking và webhook theo từng cửa hàng.",
     logo_url: null,
     credential_fields: [
       {
         key: "shop_id",
         label: "Shop ID",
-        placeholder: "Nhap Shop ID GHN",
+        placeholder: "Nhập Shop ID GHN",
         input_type: "text",
         required: true,
         min_length: 1,
-        helper_text: "Shop ID dung cho cac request tao va cap nhat van don GHN.",
+        helper_text: "Shop ID dùng cho các request tạo và cập nhật vận đơn GHN.",
       },
       {
         key: "token",
         label: "Client Token",
-        placeholder: "Nhap client token GHN",
+        placeholder: "Nhập client token GHN",
         input_type: "password",
         required: true,
         min_length: 10,
-        helper_text: "Token dung de dong bo cau hinh va xac thuc ket noi GHN cho tung store.",
+        helper_text: "Token dùng để đồng bộ cấu hình và xác thực kết nối GHN cho từng store.",
       },
     ],
     capabilities: {
@@ -233,17 +233,17 @@ class GhtkShippingAdapter extends BaseTokenShippingAdapter {
     code: "ghtk",
     display_name: "GHTK",
     short_description:
-      "Ket noi Giao Hang Tiet Kiem de quan ly token tich hop, lam nen cho tao van don va dong bo trang thai giao hang.",
+      "Kết nối Giao Hàng Tiết Kiệm để quản lý token tích hợp, làm nền cho tạo vận đơn và đồng bộ trạng thái giao hàng.",
     logo_url: null,
     credential_fields: [
       {
         key: "token",
         label: "Client Token",
-        placeholder: "Nhap client token GHTK",
+        placeholder: "Nhập client token GHTK",
         input_type: "password",
         required: true,
         min_length: 10,
-        helper_text: "Token dung de dong bo va xac thuc ket noi GHTK cho tung store.",
+        helper_text: "Token dùng để đồng bộ và xác thực kết nối GHTK cho từng store.",
       },
     ],
     capabilities: {

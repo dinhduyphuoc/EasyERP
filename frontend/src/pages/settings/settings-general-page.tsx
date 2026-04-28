@@ -167,7 +167,7 @@ export function SettingsGeneralPage(): ReactElement {
         setAccountNumber(settings.defaults.bank_account.account_number)
       } catch (error) {
         if (!cancelled) {
-          appToast.error(getErrorMessage(error, 'Khong the tai cau hinh cua hang.'))
+          appToast.error(getErrorMessage(error, 'Không thể tải cấu hình cửa hàng.'))
         }
       } finally {
         if (!cancelled) {
@@ -197,7 +197,7 @@ export function SettingsGeneralPage(): ReactElement {
         const nextCities = await customerApi.getCities({ state_id: stateId, is_active: true })
         setCities(nextCities)
       } catch (error) {
-        appToast.error(getErrorMessage(error, 'Khong the tai quan huyen.'))
+        appToast.error(getErrorMessage(error, 'Không thể tải quận huyện.'))
       }
     }
 
@@ -216,7 +216,7 @@ export function SettingsGeneralPage(): ReactElement {
         const nextDistricts = await customerApi.getDistricts({ city_id: cityId, is_active: true })
         setDistricts(nextDistricts)
       } catch (error) {
-        appToast.error(getErrorMessage(error, 'Khong the tai phuong xa.'))
+        appToast.error(getErrorMessage(error, 'Không thể tải phường xã.'))
       }
     }
 
@@ -235,9 +235,9 @@ export function SettingsGeneralPage(): ReactElement {
     <Stack spacing={2.5} sx={{ pb: 8 }}>
       <Paper sx={borderedCardSx}>
         <Stack spacing={1.5}>
-          <SummaryPaperHeader title="General" />
+          <SummaryPaperHeader title="Cài đặt chung" />
           <Alert severity="info" sx={{ borderRadius: 3 }}>
-            Cau hinh chung cua store hien tai. Chon tung muc ben duoi de vao man hinh chinh sua chi tiet.
+            Cấu hình chung của cửa hàng hiện tại. Chọn từng mục bên dưới để vào màn hình chỉnh sửa chi tiết.
           </Alert>
         </Stack>
       </Paper>
@@ -263,7 +263,7 @@ export function SettingsGeneralPage(): ReactElement {
       <Paper sx={borderedCardSx}>
         <Stack spacing={2.5}>
           <Stack spacing={0.75}>
-            <SummaryPaperHeader title="Phương thức thanh toán" />
+            <SummaryPaperHeader title="Quản lý thanh toán" />
             <Typography sx={{ color: '#667085' }}>Thong tin hien thi nhanh de kiem tra truoc khi mo trang edit.</Typography>
           </Stack>
 
@@ -272,11 +272,11 @@ export function SettingsGeneralPage(): ReactElement {
               icon={
                 <CreditCardOutlinedIcon fontSize="small" />
               }
-              label={bankName || 'Chua co ngan hang'}
+              label={bankName || 'Chưa có ngân hàng'}
               value={
                 accountHolder || accountNumber
-                  ? `${accountHolder || 'Chua co chu tai khoan'} - ${accountNumber || 'Chua co so tai khoan'}`
-                  : 'Them thong tin tai khoan ngan hang mac dinh'
+                  ? `${accountHolder || 'Chưa có chủ tài khoản'} - ${accountNumber || 'Chưa có số tài khoản'}`
+                  : 'Thêm thông tin tài khoản ngân hàng mặc định'
               }
               onClick={() => navigate('/settings/general/payment-methods', { state: { overlayFrom: '/' } })}
             />

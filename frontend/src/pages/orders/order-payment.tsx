@@ -1,24 +1,10 @@
 import type { ReactElement, ReactNode } from 'react'
 import AccountBalanceOutlinedIcon from '@mui/icons-material/AccountBalanceOutlined'
-import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
-import LocalShippingOutlinedIcon from '@mui/icons-material/LocalShippingOutlined'
-import ScheduleOutlinedIcon from '@mui/icons-material/ScheduleOutlined'
-import SellOutlinedIcon from '@mui/icons-material/SellOutlined'
-import {
-  alpha,
-  Box,
-  Divider,
-  InputAdornment,
-  Paper,
-  Stack,
-  ToggleButton,
-  ToggleButtonGroup,
-  Typography,
-} from '@mui/material'
+import PaymentsOutlinedIcon from '@mui/icons-material/PaymentsOutlined'
+import { alpha, Box, Divider, InputAdornment, Paper, Stack, TextField, Typography } from '@mui/material'
 import { borderedCardSx } from '@/shared/ui/paper'
-import { StackedTextField } from '@/shared/ui/form/stacked-text-field'
 import { SummaryPaperHeader } from '@/shared/ui/summary-paper-header'
-import { formatCurrency } from './order.utils'
+import { formatCurrency, formatCurrencyInput } from './order.utils'
 
 export type PaymentMethod = 'unpaid' | 'cod' | 'pay_later' | 'deposit' | 'bank_transfer'
 export type DepositInputMode = 'percent' | 'amount'
@@ -44,14 +30,14 @@ export const PAYMENT_METHOD_TYPE_IDS: Record<Exclude<PaymentMethod, 'unpaid'>, n
 
 export const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
   unpaid: 'Chưa thanh toán',
-  cod: 'COD',
+  cod: 'Tiền mặt',
   pay_later: 'Thanh toán sau',
-  deposit: 'Đặt cọc',
+  deposit: 'Thanh toán một phần',
   bank_transfer: 'Chuyển khoản',
 }
 
-export const PAYMENT_FIELD_LABELS = {
-  method: 'Phương thức thanh toán:',
+const PAYMENT_NOTE_LABELS = {
+  method: 'Hình thức thanh toán:',
   dueDate: 'Hạn thanh toán:',
   depositMode: 'Chế độ đặt cọc:',
   depositPercent: 'Tỷ lệ đặt cọc:',
@@ -85,28 +71,49 @@ export const getPaymentMethodFromTypeId = (
 }
 
 export const getNextPaymentStatus = (
-  method: PaymentMethod,
+  _method: PaymentMethod,
   currentStatus: 'unpaid' | 'paid' | 'deposit',
-): 'unpaid' | 'paid' | 'deposit' => {
-  if (method === 'unpaid') {
-    return 'unpaid'
+): 'unpaid' | 'paid' | 'deposit' => currentStatus
+
+export const getDerivedPaymentStatusValue = ({
+  totalAmount,
+  paidAmount,
+}: {
+  totalAmount: number
+  paidAmount: number
+}): 'unpaid' | 'paid' | 'deposit' => {
+  if (totalAmount > 0 && paidAmount >= totalAmount) {
+    return 'paid'
   }
 
-  if (method === 'deposit') {
+  if (paidAmount > 0) {
     return 'deposit'
   }
 
-  if (currentStatus === 'deposit') {
-    return 'unpaid'
-  }
-
-  return currentStatus
+  return 'unpaid'
 }
 
+export const getNormalizedDiscountAmount = ({
+  subTotal,
+  discountAmount,
+}: {
+  subTotal: number
+  discountAmount: string | number
+}): number => {
+  const normalizedSubTotal = Math.max(Number(subTotal || 0), 0)
+  const normalizedDiscount = Math.max(Number(discountAmount || 0), 0)
+  return Math.min(normalizedDiscount, normalizedSubTotal)
+}
+
+export const getNormalizedTaxAmountFromDiscount = ({
+  subTotal,
+  discountAmount,
+}: {
+  subTotal: number
+  discountAmount: string | number
+}): number => -getNormalizedDiscountAmount({ subTotal, discountAmount })
+
 export const getNormalizedDepositAmount = ({
-  paymentMethod,
-  depositInputMode,
-  depositPercent,
   depositAmount,
   totalAmount,
 }: {
@@ -116,22 +123,12 @@ export const getNormalizedDepositAmount = ({
   depositAmount: string | number
   totalAmount: number
 }): number => {
-  const normalizedDepositPercent = Number(depositPercent || 0)
-
-  if (paymentMethod !== 'deposit') {
-    return 0
-  }
-
-  if (depositInputMode === 'percent') {
-    return Number(((totalAmount * normalizedDepositPercent) / 100).toFixed(2))
-  }
-
-  return Number(depositAmount || 0)
+  const normalizedTotal = Math.max(Number(totalAmount || 0), 0)
+  return Math.min(Math.max(Number(depositAmount || 0), 0), normalizedTotal)
 }
 
 export const getNormalizedPaidAmount = ({
   paymentStatus,
-  paymentMethod,
   totalAmount,
   depositAmount,
 }: {
@@ -140,28 +137,19 @@ export const getNormalizedPaidAmount = ({
   totalAmount: number
   depositAmount: number
 }): number => {
+  const normalizedTotal = Math.max(totalAmount, 0)
+
   if (paymentStatus === 'paid') {
-    return totalAmount
+    return normalizedTotal
   }
 
-  if (paymentMethod === 'deposit') {
-    return depositAmount
-  }
-
-  return 0
+  return Math.min(Math.max(Number(depositAmount || 0), 0), normalizedTotal)
 }
 
 export const getPaymentValidationErrors = ({
-  paymentMethod,
   paymentStatus,
-  paymentDueDate,
-  depositInputMode,
-  depositPercent,
   normalizedDepositAmount,
   totalAmount,
-  bankName,
-  bankAccountNumber,
-  bankAccountHolder,
   processingStatus,
 }: {
   paymentMethod: PaymentMethod
@@ -171,52 +159,25 @@ export const getPaymentValidationErrors = ({
   depositPercent: string
   normalizedDepositAmount: number
   totalAmount: number
-  bankName: string
-  bankAccountNumber: string
-  bankAccountHolder: string
+  hasBankAccountConfigured?: boolean
+  bankName?: string
+  bankAccountNumber?: string
+  bankAccountHolder?: string
   processingStatus?: string
 }): Record<string, string> => {
   const nextErrors: Record<string, string> = {}
-  const normalizedDepositPercent = Number(depositPercent || 0)
+  const normalizedTotal = Math.max(totalAmount, 0)
 
-  if (paymentMethod === 'pay_later' && !paymentDueDate.trim()) {
-    nextErrors.payment_due_date = 'Phương thức thanh toán sau cần có hạn thanh toán.'
+  if (normalizedDepositAmount > normalizedTotal) {
+    nextErrors.deposit_amount = 'Số tiền khách đã trả không được lớn hơn số tiền phải thanh toán.'
   }
 
-  if (paymentMethod === 'deposit' && depositInputMode === 'percent' && normalizedDepositPercent > 100) {
-    nextErrors.deposit_percent = 'Tỷ lệ đặt cọc không được vượt quá 100%.'
+  if (paymentStatus === 'unpaid' && processingStatus === 'completed' && normalizedTotal > 0) {
+    nextErrors.processing_status = 'Đơn chưa thanh toán không thể đánh dấu hoàn thành.'
   }
 
-  if (paymentMethod === 'deposit' && depositInputMode === 'percent' && normalizedDepositPercent <= 0) {
-    nextErrors.deposit_percent = 'Vui long nhap ty le dat coc lon hon 0%.'
-  }
-
-  if (paymentMethod === 'deposit' && normalizedDepositAmount <= 0) {
-    nextErrors.deposit_amount = 'Vui long nhap so tien coc lon hon 0.'
-  }
-
-  if (paymentMethod === 'deposit' && normalizedDepositAmount > totalAmount) {
-    nextErrors.deposit_amount = 'Tien coc khong duoc lon hon tong don hang.'
-  }
-
-  if (paymentMethod === 'bank_transfer' && !bankName.trim()) {
-    nextErrors.bank_name = 'Vui long nhap ten ngan hang.'
-  }
-
-  if (paymentMethod === 'bank_transfer' && !bankAccountNumber.trim()) {
-    nextErrors.bank_account_number = 'Vui long nhap so tai khoan.'
-  }
-
-  if (paymentMethod === 'bank_transfer' && !bankAccountHolder.trim()) {
-    nextErrors.bank_account_holder = 'Vui long nhap ten chu tai khoan.'
-  }
-
-  if (paymentStatus === 'unpaid' && processingStatus === 'completed') {
-    nextErrors.processing_status = 'Don chua thanh toan khong the danh dau hoan thanh.'
-  }
-
-  if (paymentStatus === 'deposit' && processingStatus === 'completed') {
-    nextErrors.processing_status = 'Don dat coc chua the hoan thanh khi van con cong no.'
+  if (normalizedDepositAmount > 0 && normalizedDepositAmount < normalizedTotal && processingStatus === 'completed') {
+    nextErrors.processing_status = 'Đơn còn công nợ không thể đánh dấu hoàn thành.'
   }
 
   return nextErrors
@@ -251,45 +212,41 @@ export const buildPaymentNoteContent = ({
     lines.push(note.trim())
   }
 
-  lines.push(`${PAYMENT_FIELD_LABELS.method} ${PAYMENT_METHOD_LABELS[method]}`)
+  lines.push(`${PAYMENT_NOTE_LABELS.method} ${PAYMENT_METHOD_LABELS[method]}`)
 
-  if (method === 'unpaid') {
-    lines.push('Ghi chu thanh toan: Chua xac dinh phuong thuc, se bo sung sau')
-  }
-
-  if (method === 'cod') {
-    lines.push('Ghi chu COD: Thanh toan khi nhan hang')
-  }
-
-  if (method === 'pay_later' && dueDate) {
-    lines.push(`${PAYMENT_FIELD_LABELS.dueDate} ${dueDate}`)
+  if ((method === 'pay_later' || method === 'bank_transfer') && dueDate) {
+    lines.push(`${PAYMENT_NOTE_LABELS.dueDate} ${dueDate}`)
   }
 
   if (method === 'deposit') {
-    lines.push(`${PAYMENT_FIELD_LABELS.depositMode} ${depositMode === 'percent' ? 'Theo %' : 'So tien co dinh'}`)
+    lines.push(`${PAYMENT_NOTE_LABELS.depositMode} ${depositMode === 'percent' ? 'Theo %' : 'Theo số tiền'}`)
 
     if (depositMode === 'percent' && depositPercent.trim()) {
-      lines.push(`${PAYMENT_FIELD_LABELS.depositPercent} ${depositPercent.trim()}%`)
+      lines.push(`${PAYMENT_NOTE_LABELS.depositPercent} ${depositPercent.trim()}%`)
     }
 
-    lines.push(`So tien dat coc: ${formatCurrency(depositAmount)}`)
+    lines.push(`Số tiền đặt cọc: ${formatCurrency(depositAmount)}`)
+
+    if (dueDate) {
+      lines.push(`${PAYMENT_NOTE_LABELS.dueDate} ${dueDate}`)
+    }
   }
 
   if (method === 'bank_transfer') {
     if (bankName.trim()) {
-      lines.push(`${PAYMENT_FIELD_LABELS.bankName} ${bankName.trim()}`)
+      lines.push(`${PAYMENT_NOTE_LABELS.bankName} ${bankName.trim()}`)
     }
 
     if (accountNumber.trim()) {
-      lines.push(`${PAYMENT_FIELD_LABELS.accountNumber} ${accountNumber.trim()}`)
+      lines.push(`${PAYMENT_NOTE_LABELS.accountNumber} ${accountNumber.trim()}`)
     }
 
     if (accountHolder.trim()) {
-      lines.push(`${PAYMENT_FIELD_LABELS.accountHolder} ${accountHolder.trim()}`)
+      lines.push(`${PAYMENT_NOTE_LABELS.accountHolder} ${accountHolder.trim()}`)
     }
 
     if (transferReference.trim()) {
-      lines.push(`${PAYMENT_FIELD_LABELS.transferReference} ${transferReference.trim()}`)
+      lines.push(`${PAYMENT_NOTE_LABELS.transferReference} ${transferReference.trim()}`)
     }
   }
 
@@ -319,53 +276,59 @@ export const parsePaymentNoteContent = (value: string | null | undefined): Parse
     .map((line) => line.trim())
     .filter(Boolean)
     .forEach((line) => {
-      if (line.startsWith(PAYMENT_FIELD_LABELS.method)) {
-        const methodLabel = line.slice(PAYMENT_FIELD_LABELS.method.length).trim()
+      if (line.startsWith(PAYMENT_NOTE_LABELS.method) || line.startsWith('Phương thức thanh toán:')) {
+        const methodPrefix = line.startsWith(PAYMENT_NOTE_LABELS.method)
+          ? PAYMENT_NOTE_LABELS.method
+          : 'Phương thức thanh toán:'
+        const methodLabel = line.slice(methodPrefix.length).trim()
+
+        if (methodLabel === 'COD') {
+          parsed.method = 'cod'
+          return
+        }
+
         parsed.method =
           (Object.entries(PAYMENT_METHOD_LABELS).find(([, label]) => label === methodLabel)?.[0] as PaymentMethod | undefined) ??
           parsed.method
         return
       }
 
-      if (line.startsWith(PAYMENT_FIELD_LABELS.dueDate)) {
-        parsed.dueDate = line.slice(PAYMENT_FIELD_LABELS.dueDate.length).trim()
+      if (line.startsWith(PAYMENT_NOTE_LABELS.dueDate)) {
+        parsed.dueDate = line.slice(PAYMENT_NOTE_LABELS.dueDate.length).trim()
         return
       }
 
-      if (line.startsWith(PAYMENT_FIELD_LABELS.depositMode)) {
+      if (line.startsWith(PAYMENT_NOTE_LABELS.depositMode)) {
         parsed.depositMode = line.includes('Theo %') ? 'percent' : 'amount'
         return
       }
 
-      if (line.startsWith(PAYMENT_FIELD_LABELS.depositPercent)) {
-        parsed.depositPercent = line
-          .slice(PAYMENT_FIELD_LABELS.depositPercent.length)
-          .replace('%', '')
-          .trim()
+      if (line.startsWith(PAYMENT_NOTE_LABELS.depositPercent)) {
+        parsed.depositPercent = line.slice(PAYMENT_NOTE_LABELS.depositPercent.length).replace('%', '').trim()
         return
       }
 
-      if (line.startsWith(PAYMENT_FIELD_LABELS.bankName)) {
-        parsed.bankName = line.slice(PAYMENT_FIELD_LABELS.bankName.length).trim()
+      if (line.startsWith(PAYMENT_NOTE_LABELS.bankName)) {
+        parsed.bankName = line.slice(PAYMENT_NOTE_LABELS.bankName.length).trim()
         return
       }
 
-      if (line.startsWith(PAYMENT_FIELD_LABELS.accountNumber)) {
-        parsed.accountNumber = line.slice(PAYMENT_FIELD_LABELS.accountNumber.length).trim()
+      if (line.startsWith(PAYMENT_NOTE_LABELS.accountNumber)) {
+        parsed.accountNumber = line.slice(PAYMENT_NOTE_LABELS.accountNumber.length).trim()
         return
       }
 
-      if (line.startsWith(PAYMENT_FIELD_LABELS.accountHolder)) {
-        parsed.accountHolder = line.slice(PAYMENT_FIELD_LABELS.accountHolder.length).trim()
+      if (line.startsWith(PAYMENT_NOTE_LABELS.accountHolder)) {
+        parsed.accountHolder = line.slice(PAYMENT_NOTE_LABELS.accountHolder.length).trim()
         return
       }
 
-      if (line.startsWith(PAYMENT_FIELD_LABELS.transferReference)) {
-        parsed.transferReference = line.slice(PAYMENT_FIELD_LABELS.transferReference.length).trim()
+      if (line.startsWith(PAYMENT_NOTE_LABELS.transferReference)) {
+        parsed.transferReference = line.slice(PAYMENT_NOTE_LABELS.transferReference.length).trim()
         return
       }
 
-      if (line.startsWith('Ghi chu COD:') || line.startsWith('So tien dat coc:')) {
+      if (line.startsWith('Số tiền đặt cọc:') || line.startsWith('Ghi chú COD:') || line.startsWith('Ghi chú thanh toán:')) {
         return
       }
 
@@ -376,93 +339,152 @@ export const parsePaymentNoteContent = (value: string | null | undefined): Parse
   return parsed
 }
 
-const getPaymentMethodIcon = (method: PaymentMethod): ReactElement => {
-  switch (method) {
-    case 'unpaid':
-      return <CloseRoundedIcon fontSize="small" />
-    case 'cod':
-      return <LocalShippingOutlinedIcon fontSize="small" />
-    case 'pay_later':
-      return <ScheduleOutlinedIcon fontSize="small" />
-    case 'deposit':
-      return <SellOutlinedIcon fontSize="small" />
-    case 'bank_transfer':
-      return <AccountBalanceOutlinedIcon fontSize="small" />
-  }
+type OrderPricingCardProps = {
+  items: Array<{
+    id: string | number
+    productName: string
+    quantity: number
+    lineTotal: number
+    secondary?: string
+  }>
+  subTotal: number
+  shippingFee: number
+  discountAmount: number
+  taxAmount?: number
+  totalAmount: number
+}
+
+export function OrderPricingCard({
+  items,
+  subTotal,
+  shippingFee,
+  discountAmount,
+  taxAmount = 0,
+  totalAmount,
+}: OrderPricingCardProps): ReactElement {
+  return (
+    <Paper sx={borderedCardSx}>
+      <Stack spacing={2.25}>
+        <SummaryPaperHeader title="Bảng giá" />
+
+        <Stack spacing={1.25}>
+          {items.map((item) => (
+            <Box
+              key={item.id}
+              sx={{
+                p: 1.5,
+                borderRadius: 3,
+                border: '1px solid',
+                borderColor: alpha('#0f172a', 0.08),
+                bgcolor: '#fff',
+              }}
+            >
+              <Stack direction="row" spacing={1.5} sx={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <Box sx={{ minWidth: 0 }}>
+                  <Typography sx={{ fontWeight: 700, color: '#0f172a' }}>
+                    {item.productName || 'Sản phẩm chưa đặt tên'}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary" sx={{ mt: 0.35 }}>
+                    SL {item.quantity}
+                    {item.secondary ? ` · ${item.secondary}` : ''}
+                  </Typography>
+                </Box>
+                <Typography sx={{ fontWeight: 700, color: '#0f172a', fontVariantNumeric: 'tabular-nums' }}>
+                  {formatCurrency(item.lineTotal)}
+                </Typography>
+              </Stack>
+            </Box>
+          ))}
+        </Stack>
+
+        <Stack spacing={1}>
+          <PaymentDetailRow label="Tạm tính" value={formatCurrency(subTotal)} />
+          <PaymentDetailRow label="Phí vận chuyển" value={formatCurrency(shippingFee)} />
+          <PaymentDetailRow label="Giảm giá" value={discountAmount > 0 ? `- ${formatCurrency(discountAmount)}` : formatCurrency(0)} />
+          {taxAmount > 0 ? <PaymentDetailRow label="Thuế" value={formatCurrency(taxAmount)} /> : null}
+          <Divider />
+          <PaymentDetailRow label="Tổng cộng" value={formatCurrency(totalAmount)} highlight />
+        </Stack>
+      </Stack>
+    </Paper>
+  )
 }
 
 type PaymentInformationCardProps = {
   title?: string
   headerAction?: ReactNode
+  itemCount?: number
   canEdit: boolean
   paymentMethod: PaymentMethod
-  paymentStatus: 'unpaid' | 'paid' | 'deposit'
-  paymentNotes: string
-  paymentDueDate: string
-  depositInputMode: DepositInputMode
-  depositPercent: string
-  bankName: string
-  bankAccountNumber: string
-  bankAccountHolder: string
-  transferReference: string
   taxAmount: string
   subTotal: number
   totalAmount: number
-  paidAmount: number
-  remainingAmount: number
   depositAmount: number
   errors: Record<string, string>
+  onPaymentStatusChange?: (status: 'unpaid' | 'paid' | 'deposit') => void
   onPaymentMethodChange: (method: PaymentMethod) => void
   onTaxAmountChange: (value: string) => void
-  onPaymentNotesChange: (value: string) => void
-  onPaymentDueDateChange: (value: string) => void
-  onDepositInputModeChange: (mode: DepositInputMode) => void
-  onDepositPercentChange: (value: string) => void
   onDepositAmountChange: (value: string) => void
-  onBankNameChange: (value: string) => void
-  onBankAccountNumberChange: (value: string) => void
-  onBankAccountHolderChange: (value: string) => void
-  onTransferReferenceChange: (value: string) => void
 }
 
 export function PaymentInformationCard({
   title = 'Thanh toán',
   headerAction,
+  itemCount = 0,
   canEdit,
   paymentMethod,
-  paymentNotes,
-  paymentDueDate,
-  depositInputMode,
-  depositPercent,
-  bankName,
-  bankAccountNumber,
-  bankAccountHolder,
-  transferReference,
   taxAmount,
   subTotal,
   totalAmount,
-  paidAmount,
   depositAmount,
   errors,
+  onPaymentStatusChange = () => undefined,
   onPaymentMethodChange,
   onTaxAmountChange,
-  onPaymentNotesChange,
-  onPaymentDueDateChange,
-  onDepositInputModeChange,
-  onDepositPercentChange,
   onDepositAmountChange,
-  onBankNameChange,
-  onBankAccountNumberChange,
-  onBankAccountHolderChange,
-  onTransferReferenceChange,
 }: PaymentInformationCardProps): ReactElement {
-  const methodOptions: PaymentMethod[] = ['unpaid', 'cod', 'pay_later', 'deposit', 'bank_transfer']
+  const paidAmount = Math.max(Number(depositAmount || 0), 0)
+  const discountAmount = getNormalizedDiscountAmount({
+    subTotal,
+    discountAmount: Number(taxAmount || 0) * -1,
+  })
+  const payableAmount = Math.max(totalAmount, 0)
+  const remainingAmount = Math.max(payableAmount - paidAmount, 0)
+  const selectedMethod = paymentMethod === 'bank_transfer' ? 'bank_transfer' : 'cod'
+
+  const handleDiscountChange = (value: string) => {
+    const nextDiscount = getNormalizedDiscountAmount({
+      subTotal,
+      discountAmount: Number(String(value).replace(/\D/g, '') || 0),
+    })
+    onTaxAmountChange(String(getNormalizedTaxAmountFromDiscount({ subTotal, discountAmount: nextDiscount })))
+  }
+
+  const handlePaidAmountChange = (value: string) => {
+    const nextPaidAmount = Math.min(Number(String(value).replace(/\D/g, '') || 0), payableAmount)
+    onDepositAmountChange(String(nextPaidAmount))
+    onPaymentStatusChange(
+      getDerivedPaymentStatusValue({
+        totalAmount: payableAmount,
+        paidAmount: nextPaidAmount,
+      }),
+    )
+  }
+
+  const formattedDiscountValue = formatCurrencyInput(discountAmount, { zeroAsEmpty: false })
+  const formattedPaidAmountValue = formatCurrencyInput(paidAmount, { zeroAsEmpty: false })
+  const discountInputWidth = `${Math.max(formattedDiscountValue.length, 9)}ch`
+  const paidAmountInputWidth = `${Math.max(formattedPaidAmountValue.length, 9)}ch`
 
   return (
     <Paper sx={borderedCardSx}>
       <Stack spacing={2.5}>
         {headerAction ? (
-          <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5} sx={{ justifyContent: 'space-between', alignItems: { md: 'center' } }}>
+          <Stack
+            direction={{ xs: 'column', md: 'row' }}
+            spacing={1.5}
+            sx={{ justifyContent: 'space-between', alignItems: { md: 'center' } }}
+          >
             <SummaryPaperHeader title={title} />
             {headerAction}
           </Stack>
@@ -470,261 +492,161 @@ export function PaymentInformationCard({
           <SummaryPaperHeader title={title} />
         )}
 
-        <Stack spacing={2.5}>
-          <Stack spacing={1.25}>
-            <Typography sx={{ fontWeight: 700, color: '#0f172a' }}>Phuong thuc thanh toan</Typography>
-            <Box
-              sx={{
-                display: 'flex',
-                gap: 1,
-                flexWrap: 'wrap',
-                justifyContent: 'space-evenly',
-                opacity: canEdit ? 1 : 0.7,
-                pointerEvents: canEdit ? 'auto' : 'none',
-              }}
-            >
-              {methodOptions.map((option) => {
-                const selected = option === paymentMethod
-
-                return (
-                  <Box
-                    key={option}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => onPaymentMethodChange(option)}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter' || event.key === ' ') {
-                        event.preventDefault()
-                        onPaymentMethodChange(option)
-                      }
-                    }}
-                    sx={{
-                      borderRadius: 3,
-                      border: '1px solid',
-                      borderColor: selected ? '#0f766e' : alpha('#0f172a', 0.12),
-                      bgcolor: selected ? alpha('#0f766e', 0.08) : 'background.paper',
-                      px: 1.5,
-                      py: 1,
-                      cursor: 'pointer',
-                      transition: 'all 120ms ease',
-                      minWidth: 'fit-content',
-                      flex: { xs: '1 1 calc(50% - 8px)', sm: '1 1 0' },
-                    }}
-                  >
-                    <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-                      <Box
-                        sx={{
-                          width: 30,
-                          height: 30,
-                          borderRadius: 2,
-                          display: 'grid',
-                          placeItems: 'center',
-                          bgcolor: selected ? '#fff' : alpha('#0f172a', 0.04),
-                          color: selected ? '#0f766e' : '#344054',
-                        }}
-                      >
-                        {getPaymentMethodIcon(option)}
-                      </Box>
-                      <Box sx={{ minWidth: 0 }}>
-                        <Typography sx={{ fontWeight: 700, color: '#0f172a' }}>{PAYMENT_METHOD_LABELS[option]}</Typography>
-                      </Box>
-                    </Stack>
-                  </Box>
-                )
-              })}
-            </Box>
+        <Stack spacing={1.5}>
+          <Stack direction="row" spacing={1.5} sx={{ justifyContent: 'space-between', alignItems: 'baseline' }}>
+            <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 700 }}>
+              Tổng tiền hàng ({Math.max(Number(itemCount || 0), 0)} sản phẩm)
+            </Typography>
+            <Typography sx={{ color: '#0f172a', fontVariantNumeric: 'tabular-nums' }}>
+              {formatCurrency(subTotal)}
+            </Typography>
           </Stack>
 
-          <Stack spacing={2}>
-            <Typography sx={{ fontWeight: 700, color: '#0f172a' }}>Payment Details</Typography>
-            <PaymentDetailRow label="Payment method" value={PAYMENT_METHOD_LABELS[paymentMethod]} highlight />
-            <StackedTextField
-              fullWidth
-              label="Tax"
-              value={taxAmount}
-              onChange={(event) => onTaxAmountChange(event.target.value)}
-              endAdornment={<InputAdornment position="end">d</InputAdornment>}
+          <Box
+            sx={{
+              display: 'grid',
+              gridTemplateColumns: { xs: '1fr', sm: 'minmax(120px, 0.9fr) minmax(0, 1.1fr)' },
+              gap: 1.5,
+              alignItems: 'end',
+            }}
+          >
+            <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 700 }}>
+              Giảm giá
+            </Typography>
+            <TextField
+              variant="standard"
+              value={formattedDiscountValue}
+              onChange={(event) => handleDiscountChange(event.target.value)}
               disabled={!canEdit}
+              sx={{
+                justifySelf: { sm: 'end' },
+                width: `calc(${discountInputWidth} + 56px)`,
+                minWidth: 'calc(9ch + 56px)',
+                maxWidth: '100%',
+                '& input': {
+                  textAlign: 'right',
+                },
+              }}
+              slotProps={{
+                input: {
+                  endAdornment: <InputAdornment position="end">đ</InputAdornment>,
+                },
+              }}
+            />
+          </Box>
+
+          <Box
+            sx={{
+              display: 'grid',
+              gridTemplateColumns: { xs: '1fr', sm: 'minmax(120px, 0.9fr) minmax(0, 1.1fr)' },
+              gap: 1.5,
+              alignItems: 'end',
+            }}
+          >
+            <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 700 }}>
+              Khách đã trả
+            </Typography>
+            <TextField
+              variant="standard"
+              value={formattedPaidAmountValue}
+              onChange={(event) => handlePaidAmountChange(event.target.value)}
+              disabled={!canEdit}
+              error={Boolean(errors.deposit_amount)}
+              helperText={errors.deposit_amount}
+              sx={{
+                justifySelf: { sm: 'end' },
+                width: `calc(${paidAmountInputWidth} + 56px)`,
+                minWidth: 'calc(9ch + 56px)',
+                maxWidth: '100%',
+                '& input': {
+                  textAlign: 'right',
+                },
+              }}
+              slotProps={{
+                input: {
+                  endAdornment: <InputAdornment position="end">đ</InputAdornment>,
+                },
+              }}
+            />
+          </Box>
+
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.25}>
+            <PaymentMethodMiniCard
+              title="Tiền mặt"
+              icon={<PaymentsOutlinedIcon fontSize="small" />}
+              selected={selectedMethod === 'cod'}
+              disabled={!canEdit}
+              onClick={() => onPaymentMethodChange('cod')}
+            />
+            <PaymentMethodMiniCard
+              title="Chuyển khoản"
+              icon={<AccountBalanceOutlinedIcon fontSize="small" />}
+              selected={selectedMethod === 'bank_transfer'}
+              disabled={!canEdit}
+              onClick={() => onPaymentMethodChange('bank_transfer')}
             />
           </Stack>
 
-          {paymentMethod === 'unpaid' ? (
-            <Box
+          <Divider />
+
+          <Stack direction="row" spacing={1.5} sx={{ justifyContent: 'space-between', alignItems: 'center' }}>
+            <Typography variant="body2" color="text.secondary">
+              Còn lại
+            </Typography>
+            <Typography
               sx={{
-                borderRadius: 3,
-                bgcolor: alpha('#0f766e', 0.05),
-                border: (theme) => `1px solid ${alpha(theme.palette.divider, 0.9)}`,
-                p: 2,
+                fontWeight: 800,
+                color: remainingAmount > 0 ? '#d92d20' : '#027a48',
+                fontVariantNumeric: 'tabular-nums',
               }}
             >
-              <Typography sx={{ fontWeight: 700, color: '#0f172a' }}>Chua thanh toan</Typography>
-              <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-                Giu don o trang thai chua thanh toan va bo sung phuong thuc sau trong buoc xu ly don hang.
-              </Typography>
-            </Box>
-          ) : null}
-
-          {paymentMethod === 'cod' ? (
-            <Box
-              sx={{
-                borderRadius: 3,
-                bgcolor: alpha('#0f766e', 0.05),
-                border: (theme) => `1px solid ${alpha(theme.palette.divider, 0.9)}`,
-                p: 2,
-              }}
-            >
-              <Typography sx={{ fontWeight: 700, color: '#0f172a' }}>COD</Typography>
-              <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-                Minimal inputs. He thong se ghi nhan thanh toan khi giao hang thanh cong.
-              </Typography>
-            </Box>
-          ) : null}
-
-          {paymentMethod === 'pay_later' ? (
-            <Stack spacing={2}>
-              <Typography sx={{ fontWeight: 700, color: '#0f172a' }}>Pay Later</Typography>
-              <StackedTextField
-                fullWidth
-                type="date"
-                label="Due date"
-                value={paymentDueDate}
-                onChange={(event) => onPaymentDueDateChange(event.target.value)}
-                error={Boolean(errors.payment_due_date)}
-                helperText={errors.payment_due_date}
-                disabled={!canEdit}
-              />
-              <StackedTextField
-                fullWidth
-                multiline
-                minRows={3}
-                label="Notes"
-                value={paymentNotes}
-                onChange={(event) => onPaymentNotesChange(event.target.value)}
-                disabled={!canEdit}
-              />
-            </Stack>
-          ) : null}
-
-          {paymentMethod === 'deposit' ? (
-            <Stack spacing={2}>
-              <Typography sx={{ fontWeight: 700, color: '#0f172a' }}>Deposit</Typography>
-              <Box>
-                <Typography variant="body2" sx={{ mb: 1, color: '#344054', fontWeight: 500 }}>
-                  Deposit input mode
-                </Typography>
-                <ToggleButtonGroup
-                  value={depositInputMode}
-                  exclusive
-                  onChange={(_, value: DepositInputMode | null) => {
-                    if (value) {
-                      onDepositInputModeChange(value)
-                    }
-                  }}
-                  disabled={!canEdit}
-                  size="small"
-                  sx={{ flexWrap: 'wrap', gap: 1 }}
-                >
-                  <ToggleButton value="percent">% of total</ToggleButton>
-                  <ToggleButton value="amount">Fixed amount</ToggleButton>
-                </ToggleButtonGroup>
-              </Box>
-
-              {depositInputMode === 'percent' ? (
-                <StackedTextField
-                  fullWidth
-                  label="Deposit percentage"
-                  value={depositPercent}
-                  onChange={(event) => onDepositPercentChange(event.target.value)}
-                  error={Boolean(errors.deposit_percent)}
-                  helperText={errors.deposit_percent}
-                  endAdornment={<InputAdornment position="end">%</InputAdornment>}
-                  disabled={!canEdit}
-                />
-              ) : (
-                <StackedTextField
-                  fullWidth
-                  label="Deposit amount"
-                  value={String(Number.isFinite(depositAmount) ? depositAmount : 0)}
-                  onChange={(event) => onDepositAmountChange(event.target.value)}
-                  error={Boolean(errors.deposit_amount)}
-                  helperText={errors.deposit_amount}
-                  endAdornment={<InputAdornment position="end">d</InputAdornment>}
-                  disabled={!canEdit}
-                />
-              )}
-
-              {depositInputMode === 'percent' && errors.deposit_amount ? (
-                <Typography color="error">{errors.deposit_amount}</Typography>
-              ) : null}
-            </Stack>
-          ) : null}
-
-          {paymentMethod === 'bank_transfer' ? (
-            <Stack spacing={2}>
-              <Typography sx={{ fontWeight: 700, color: '#0f172a' }}>Bank Transfer</Typography>
-              <StackedTextField
-                fullWidth
-                label="Bank name"
-                value={bankName}
-                onChange={(event) => onBankNameChange(event.target.value)}
-                error={Boolean(errors.bank_name)}
-                helperText={errors.bank_name}
-                disabled={!canEdit}
-              />
-              <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
-                <StackedTextField
-                  fullWidth
-                  label="Account number"
-                  value={bankAccountNumber}
-                  onChange={(event) => onBankAccountNumberChange(event.target.value)}
-                  error={Boolean(errors.bank_account_number)}
-                  helperText={errors.bank_account_number}
-                  disabled={!canEdit}
-                />
-                <StackedTextField
-                  fullWidth
-                  label="Account holder"
-                  value={bankAccountHolder}
-                  onChange={(event) => onBankAccountHolderChange(event.target.value)}
-                  error={Boolean(errors.bank_account_holder)}
-                  helperText={errors.bank_account_holder}
-                  disabled={!canEdit}
-                />
-              </Stack>
-              <StackedTextField
-                fullWidth
-                multiline
-                minRows={2}
-                label="Transfer note/reference"
-                value={transferReference}
-                onChange={(event) => onTransferReferenceChange(event.target.value)}
-                disabled={!canEdit}
-              />
-            </Stack>
-          ) : null}
-
-          {paymentMethod === 'cod' || paymentMethod === 'deposit' || paymentMethod === 'bank_transfer' ? (
-            <StackedTextField
-              fullWidth
-              multiline
-              minRows={3}
-              label="Payment note"
-              value={paymentNotes}
-              onChange={(event) => onPaymentNotesChange(event.target.value)}
-              disabled={!canEdit}
-            />
-          ) : null}
-
-            <Stack spacing={1.25}>
-              <Typography sx={{ fontWeight: 700, color: '#0f172a' }}>Tổng đơn hàng</Typography>
-              <PaymentDetailRow label="Tổng giá trị sản phẩm" value={formatCurrency(totalAmount)} />
-              <PaymentDetailRow label="Đã thanh toán" value={formatCurrency(paidAmount)} />
-              <Divider />
-              <PaymentDetailRow label="Tạm tính" value={formatCurrency(subTotal)} highlight/>
-            </Stack>
+              {formatCurrency(remainingAmount)}
+            </Typography>
+          </Stack>
         </Stack>
       </Stack>
     </Paper>
+  )
+}
+
+function PaymentMethodMiniCard({
+  title,
+  icon,
+  selected,
+  disabled,
+  onClick,
+}: {
+  title: string
+  icon: ReactNode
+  selected: boolean
+  disabled: boolean
+  onClick: () => void
+}): ReactElement {
+  return (
+    <Box
+      component="button"
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      sx={{
+        flex: 1,
+        border: '1px solid',
+        borderColor: selected ? '#0f766e' : '#d0d5dd',
+        borderRadius: 3,
+        bgcolor: selected ? alpha('#0f766e', 0.08) : '#fff',
+        color: selected ? '#0f766e' : '#344054',
+        px: 1.5,
+        py: 1.4,
+        cursor: disabled ? 'not-allowed' : 'pointer',
+        opacity: disabled ? 0.6 : 1,
+        transition: 'all 0.2s ease',
+      }}
+    >
+      <Stack direction="row" spacing={1} sx={{ alignItems: 'center', justifyContent: 'center' }}>
+        {icon}
+        <Typography sx={{ fontWeight: 700 }}>{title}</Typography>
+      </Stack>
+    </Box>
   )
 }
 

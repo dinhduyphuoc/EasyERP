@@ -9,6 +9,7 @@ import { ListToolbar } from '@/shared/ui/list/list-toolbar'
 import type {
   ListColumn,
   ListFilterConfig,
+  ListLoadingState,
   ListPaginationConfig,
   ListRowClickHandler,
   ListRowSelectionConfig,
@@ -45,6 +46,7 @@ type CommonListLayoutProps<T> = {
   onRowClick?: ListRowClickHandler<T>
   rowSelection?: ListRowSelectionConfig<T>
   loading?: boolean
+  loadingState?: ListLoadingState
   emptyState?: ReactNode
   pagination?: ListPaginationConfig
   helper?: ReactNode
@@ -73,6 +75,7 @@ export function CommonListLayout<T>({
   onRowClick,
   rowSelection,
   loading = false,
+  loadingState,
   emptyState,
   pagination,
   helper,
@@ -141,6 +144,7 @@ export function CommonListLayout<T>({
             onRowClick={onRowClick}
             rowSelection={rowSelection}
             loading={loading}
+            loadingState={loadingState}
             emptyState={emptyState ?? <ListEmptyState title="Chưa có dữ liệu" />}
           />
 

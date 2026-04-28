@@ -48,18 +48,18 @@ export function CreateStoreModal({ open, onClose }: CreateStoreModalProps): Reac
 
   return (
     <Dialog open={open} onClose={isSubmitting ? undefined : onClose} fullWidth maxWidth="sm">
-      <DialogTitle>Create store</DialogTitle>
+      <DialogTitle>Tạo cửa hàng</DialogTitle>
       <DialogContent>
         <Stack spacing={2} sx={{ pt: 1 }}>
           <StackedTextField
             fullWidth
-            label="Store name"
+            label="Tên cửa hàng"
             value={name}
             onChange={(event) => setName(event.target.value)}
           />
           <StackedDropdown
             fullWidth
-            label="Currency"
+            label="Tiền tệ"
             value={currency}
             onChange={(event) => setCurrency(String(event.target.value))}
           >
@@ -71,7 +71,7 @@ export function CreateStoreModal({ open, onClose }: CreateStoreModalProps): Reac
           </StackedDropdown>
           <StackedDropdown
             fullWidth
-            label="Timezone"
+            label="Múi giờ"
             value={timezone}
             onChange={(event) => setTimezone(String(event.target.value))}
           >
@@ -85,10 +85,10 @@ export function CreateStoreModal({ open, onClose }: CreateStoreModalProps): Reac
       </DialogContent>
       <DialogActions sx={{ px: 3, pb: 3 }}>
         <Button onClick={onClose} disabled={isSubmitting}>
-          Cancel
+          Hủy
         </Button>
         <Button variant="contained" onClick={() => void handleSubmit()} disabled={isSubmitting || !name.trim()}>
-          {isSubmitting ? 'Creating...' : 'Create store'}
+          {isSubmitting ? 'Đang tạo...' : 'Tạo cửa hàng'}
         </Button>
       </DialogActions>
     </Dialog>

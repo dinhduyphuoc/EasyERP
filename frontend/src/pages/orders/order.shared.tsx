@@ -16,6 +16,7 @@ import { ListEmptyState } from '@/shared/ui/list/list-empty-state'
 import type { ListColumn, ListFilterConfig, ListTabConfig } from '@/shared/ui/list/common-list.types'
 import { appToast } from '@/shared/ui/toast/toast.helpers'
 import { orderApi, type OrderListItem } from './order.api'
+import { OrdersListTableSkeleton } from './order-skeletons'
 import { formatCurrency, formatDateTime, getPaymentStatusMeta, getProcessingStatusMeta } from './order.utils'
 
 type OrdersCollectionPageProps = {
@@ -83,9 +84,13 @@ export function OrdersCollectionPage({
     ordersCollectionCache?.view === view ? ordersCollectionCache?.rows ?? [] : [],
   )
   const [isLoading, setIsLoading] = useState(rows.length === 0)
+  const [hasResolvedInitialLoad, setHasResolvedInitialLoad] = useState(
+    ordersCollectionCache?.view === view && (ordersCollectionCache?.rows.length ?? 0) > 0,
+  )
 
   const fetchOrders = useCallback(async () => {
-    setIsLoading(ordersCollectionCache?.view !== view || (ordersCollectionCache?.rows.length ?? 0) === 0)
+    const hasCachedRows = ordersCollectionCache?.view === view && (ordersCollectionCache?.rows.length ?? 0) > 0
+    setIsLoading(!hasCachedRows)
 
     try {
       const data = await orderApi.getOrders(view === 'all' ? undefined : { view })
@@ -95,6 +100,7 @@ export function OrdersCollectionPage({
       appToast.error('Không thể tải dữ liệu đơn hàng.')
     } finally {
       setIsLoading(false)
+      setHasResolvedInitialLoad(true)
     }
   }, [view])
 
@@ -103,6 +109,10 @@ export function OrdersCollectionPage({
   }, [fetchOrders])
 
   useEffect(() => {
+    if (!hasResolvedInitialLoad) {
+      return
+    }
+
     ordersCollectionCache = {
       view,
       searchValue,
@@ -111,7 +121,7 @@ export function OrdersCollectionPage({
       pageSize,
       rows,
     }
-  }, [activeTab, filterValues, page, pageSize, rows, searchValue, view])
+  }, [activeTab, filterValues, hasResolvedInitialLoad, page, pageSize, rows, searchValue, view])
 
   const filters = useMemo<ListFilterConfig[]>(
     () => [
@@ -167,14 +177,14 @@ export function OrdersCollectionPage({
         row.customer_info.phone.toLowerCase().includes(keyword) ||
         (row.customer_info.customer_code ?? '').toLowerCase().includes(keyword)
 
-      const matchesPayment =
-        !filterValues.payment_status || row.payment_status === filterValues.payment_status
-      const matchesProcessing =
-        !filterValues.processing_status || row.processing_status === filterValues.processing_status
+      const matchesPayment = !filterValues.payment_status || row.payment_status === filterValues.payment_status
+      const matchesProcessing = !filterValues.processing_status || row.processing_status === filterValues.processing_status
 
       return matchesKeyword && matchesPayment && matchesProcessing && matchesTab(row, activeTab)
     })
   }, [activeTab, filterValues.payment_status, filterValues.processing_status, rows, searchValue])
+
+  const shouldShowInitialSkeleton = (!hasResolvedInitialLoad || isLoading) && rows.length === 0
 
   const pagedRows = useMemo(() => {
     const start = (page - 1) * pageSize
@@ -185,7 +195,7 @@ export function OrdersCollectionPage({
     () => [
       {
         key: 'order_code',
-        title: 'Mã DH',
+        title: 'Mã đơn hàng',
         render: (row) => (
           <Stack spacing={0.5}>
             <Typography sx={{ fontWeight: 700, color: '#0f172a' }}>{row.order_code}</Typography>
@@ -202,7 +212,7 @@ export function OrdersCollectionPage({
           <Stack spacing={0.5} sx={{ minWidth: 220 }}>
             <Typography sx={{ fontWeight: 600 }}>{row.customer_info.name}</Typography>
             <Typography variant="body2" color="text.secondary">
-              {row.customer_info.customer_code ?? 'Khách lẻ'} • {row.customer_info.phone}
+              {row.customer_info.customer_code ?? 'Khách lẻ'} · {row.customer_info.phone}
             </Typography>
           </Stack>
         ),
@@ -218,7 +228,6 @@ export function OrdersCollectionPage({
         title: 'Thanh toán',
         render: (row) => {
           const meta = getPaymentStatusMeta(row.payment_status)
-
           return <Chip size="small" label={meta.label} color={meta.color} variant="outlined" />
         },
       },
@@ -227,7 +236,6 @@ export function OrdersCollectionPage({
         title: 'Xử lý',
         render: (row) => {
           const meta = getProcessingStatusMeta(row.processing_status)
-
           return <Chip size="small" label={meta.label} color={meta.color} variant="outlined" />
         },
       },
@@ -301,16 +309,17 @@ export function OrdersCollectionPage({
       }
       metaBar={
         <Alert severity="info" sx={{ borderRadius: 3 }}>
-          `payment_status`: unpaid là chưa có giao dịch, deposit là đã thu cọc và còn công nợ,
-          paid là đã thu đủ. `processing_status` phản ánh luồng xử lý từ đặt hàng tới hoàn
-          thành hoặc trả hàng.
+          `payment_status`: `unpaid` là chưa có giao dịch, `deposit` là đã thu cọc và còn công nợ,
+          `paid` là đã thu đủ. `processing_status` phản ánh luồng xử lý từ đặt hàng tới hoàn thành
+          hoặc trả hàng.
         </Alert>
       }
       columns={columns}
       rows={pagedRows}
       rowKey={(row) => String(row.id)}
       onRowClick={(row) => navigate(`/orders/${row.id}`)}
-      loading={isLoading && rows.length === 0}
+      loading={shouldShowInitialSkeleton}
+      loadingState={<OrdersListTableSkeleton />}
       emptyState={
         <ListEmptyState
           title="Không tìm thấy đơn hàng phù hợp"
@@ -358,6 +367,3 @@ export function OrdersCollectionPage({
     />
   )
 }
-
-
-

@@ -11,6 +11,8 @@ const orderRouter = Router();
 
 const resolveOrderActionPermissions = (action: string | undefined) => {
   switch (action) {
+    case "add_payment":
+    case "confirm_full_payment":
     case "mark_paid":
       return ["payments.capture"];
     case "cancel":

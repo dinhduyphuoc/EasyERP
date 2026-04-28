@@ -34,31 +34,29 @@ import {
   TableCell,
   TableHead,
   TableRow,
-  TextField,
   Typography,
 } from '@mui/material'
 import { appToast } from '@/shared/ui/toast/toast.helpers'
 import { borderedCardSx } from '@/shared/ui/paper'
 import { StackedTextField } from '@/shared/ui/form/stacked-text-field'
+import { generalSettingsApi, type VietQrGenerateResponse } from '@/pages/settings/general-settings.api'
 import { orderApi, type OrderActionName, type OrderListItem, type OrderProcessingStatus } from './order.api'
 import {
-  buildPaymentNoteContent,
-  getNextPaymentStatus,
-  getNormalizedDepositAmount,
-  getNormalizedPaidAmount,
+  buildPaymentHistoryEntries,
+} from './payment-display.helpers'
+import { PaymentEntryDialog } from './payment-entry-dialog'
+import { PaymentHistorySection } from './payment-history-section'
+import { PaymentSummarySection } from './payment-summary-section'
+import { usePaymentConfigDraft } from './use-payment-config-draft'
+import { usePaymentEntryFlow } from './use-payment-entry-flow'
+import {
   getPaymentMethodFromTypeId,
-  getPaymentValidationErrors,
   parsePaymentNoteContent,
   PaymentInformationCard,
-  PAYMENT_METHOD_LABELS,
-  PAYMENT_METHOD_TYPE_IDS,
-  type DepositInputMode,
-  type PaymentMethod,
 } from './order-payment'
 import {
   formatCurrency,
   formatDateTime,
-  getPaymentStatusMeta,
   getProcessingStatusMeta,
 } from './order.utils'
 
@@ -105,14 +103,26 @@ const escapeHtml = (value: string) =>
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#39;')
 
-const buildOrderQrValue = (order: OrderListItem) =>
-  [
-    `order_code=${order.order_code}`,
-    `customer=${order.customer_info.name}`,
-    `phone=${order.customer_info.phone}`,
-    `total=${order.total_amount}`,
-    `outstanding=${order.outstanding_amount}`,
-  ].join('\n')
+const getOrderHistoryPaymentAmount = (entry: OrderListItem['order_history'][number]): string | null => {
+  const metadata = entry.metadata ?? {}
+  const paymentStatus = typeof metadata.payment_status === 'string' ? metadata.payment_status : null
+
+  if (paymentStatus !== 'deposit' && paymentStatus !== 'paid') {
+    return null
+  }
+
+  const amountCandidates = [metadata.payment_amount, metadata.paid_amount, metadata.deposit_amount]
+
+  for (const candidate of amountCandidates) {
+    const amount = Number(candidate)
+
+    if (Number.isFinite(amount) && amount > 0) {
+      return formatCurrency(amount)
+    }
+  }
+
+  return null
+}
 
 const openPrintWindow = (content: string) => {
   const printWindow = window.open('', '_blank', 'noopener,noreferrer,width=1024,height=768')
@@ -170,7 +180,7 @@ const buildPackingSlipMarkup = (order: OrderListItem) => {
             <p>Đơn hàng ${escapeHtml(order.order_code)}</p>
           </div>
           <div>
-            <div class="label">Ngay in</div>
+            <div class="label">Ngày in</div>
             <div class="value">${escapeHtml(formatDateTime(new Date().toISOString()))}</div>
           </div>
         </div>
@@ -234,22 +244,8 @@ export function OrdersDetailPage(): ReactElement {
   const [invoiceCodeDraft, setInvoiceCodeDraft] = useState('')
   const [isInvoiceDialogOpen, setIsInvoiceDialogOpen] = useState(false)
   const [isQrDialogOpen, setIsQrDialogOpen] = useState(false)
-  const [isPaymentDialogOpen, setIsPaymentDialogOpen] = useState(false)
-  const [isSavingPayment, setIsSavingPayment] = useState(false)
-  const [hasAttemptedPaymentSave, setHasAttemptedPaymentSave] = useState(false)
-  const [paymentMethodDraft, setPaymentMethodDraft] = useState<PaymentMethod>('unpaid')
-  const [paymentStatusDraft, setPaymentStatusDraft] = useState<'unpaid' | 'paid' | 'deposit'>('unpaid')
-  const [paymentNotesDraft, setPaymentNotesDraft] = useState('')
-  const [paymentDueDateDraft, setPaymentDueDateDraft] = useState('')
-  const [depositInputModeDraft, setDepositInputModeDraft] = useState<DepositInputMode>('amount')
-  const [depositPercentDraft, setDepositPercentDraft] = useState('')
-  const [depositAmountDraft, setDepositAmountDraft] = useState('0')
-  const [bankNameDraft, setBankNameDraft] = useState('')
-  const [bankAccountNumberDraft, setBankAccountNumberDraft] = useState('')
-  const [bankAccountHolderDraft, setBankAccountHolderDraft] = useState('')
-  const [transferReferenceDraft, setTransferReferenceDraft] = useState('')
-  const [taxAmountDraft, setTaxAmountDraft] = useState('0')
-
+  const [isGeneratingQr, setIsGeneratingQr] = useState(false)
+  const [paymentQr, setPaymentQr] = useState<VietQrGenerateResponse | null>(null)
   const fetchOrder = useCallback(async () => {
     if (!params.id) {
       return
@@ -271,44 +267,6 @@ export function OrdersDetailPage(): ReactElement {
   useEffect(() => {
     void fetchOrder()
   }, [fetchOrder])
-
-  const syncPaymentDraftFromOrder = useCallback((nextOrder: OrderListItem) => {
-    const parsedPaymentDetails = parsePaymentNoteContent(nextOrder.payment_notes)
-    const inferredPaymentMethod =
-      parsedPaymentDetails.method ?? getPaymentMethodFromTypeId(nextOrder.payment_type_id, nextOrder.payment_status)
-
-    setPaymentMethodDraft(inferredPaymentMethod)
-    setPaymentStatusDraft(nextOrder.payment_status)
-    setPaymentNotesDraft(parsedPaymentDetails.note)
-    setPaymentDueDateDraft(parsedPaymentDetails.dueDate)
-    setDepositInputModeDraft(parsedPaymentDetails.depositMode)
-    setDepositPercentDraft(parsedPaymentDetails.depositPercent)
-    setDepositAmountDraft(String(Number(nextOrder.deposit_amount || 0)))
-    setBankNameDraft(parsedPaymentDetails.bankName)
-    setBankAccountNumberDraft(parsedPaymentDetails.accountNumber)
-    setBankAccountHolderDraft(parsedPaymentDetails.accountHolder)
-    setTransferReferenceDraft(parsedPaymentDetails.transferReference)
-    setTaxAmountDraft(String(Number(nextOrder.tax_amount || 0)))
-    setHasAttemptedPaymentSave(false)
-  }, [])
-
-  const openPaymentDialog = useCallback(() => {
-    if (!order) {
-      return
-    }
-
-    syncPaymentDraftFromOrder(order)
-    setIsPaymentDialogOpen(true)
-  }, [order, syncPaymentDraftFromOrder])
-
-  const closePaymentDialog = useCallback(() => {
-    if (isSavingPayment) {
-      return
-    }
-
-    setIsPaymentDialogOpen(false)
-    setHasAttemptedPaymentSave(false)
-  }, [isSavingPayment])
 
   const nextAction = useMemo(() => {
     if (!order) {
@@ -363,7 +321,7 @@ export function OrdersDetailPage(): ReactElement {
   }, [order])
 
   const runAction = useCallback(
-    async (action: OrderActionName, payload: Record<string, string> = {}) => {
+    async (action: OrderActionName, payload: Record<string, string | number | null | undefined> = {}) => {
       if (!params.id || !order) {
         return
       }
@@ -382,12 +340,6 @@ export function OrdersDetailPage(): ReactElement {
       }
     },
     [order, params.id],
-  )
-
-  const qrValue = useMemo(() => (order ? buildOrderQrValue(order) : ''), [order])
-  const qrImageUrl = useMemo(
-    () => (qrValue ? `https://quickchart.io/qr?size=240&text=${encodeURIComponent(qrValue)}` : ''),
-    [qrValue],
   )
 
   const openShippingActionDialog = useCallback(
@@ -468,17 +420,115 @@ export function OrdersDetailPage(): ReactElement {
   }, [order])
 
   const handleCopyQrValue = useCallback(async () => {
-    if (!qrValue) {
+    if (!paymentQr?.transfer_content) {
       return
     }
 
     try {
-      await navigator.clipboard.writeText(qrValue)
-      appToast.success('Đã copy nội dung QR.')
+      await navigator.clipboard.writeText(paymentQr.transfer_content)
+      appToast.success('Đã copy thông tin chuyển khoản.')
     } catch {
-      appToast.error('Không thể copy nội dung QR trên trình duyệt này.')
+      appToast.error('Không thể copy thông tin chuyển khoản trên trình duyệt này.')
     }
-  }, [qrValue])
+  }, [paymentQr])
+
+  const processingMeta = getProcessingStatusMeta(order?.processing_status ?? 'draft')
+  const parsedOrderPaymentDetails = parsePaymentNoteContent(order?.payment_notes)
+  const currentPaymentMethod =
+    parsedOrderPaymentDetails.method ?? getPaymentMethodFromTypeId(order?.payment_type_id, order?.payment_status)
+  const orderPaidAmount = Number(order?.paid_amount || 0)
+  const orderTotalAmount = Number(order?.total_amount || 0)
+  const orderRemainingAmount = Math.max(orderTotalAmount - orderPaidAmount, 0)
+  const paymentHistoryEntries = order ? buildPaymentHistoryEntries(order, currentPaymentMethod) : []
+  const orderItemCount = order?.order_items.reduce((sum, item) => sum + Number(item.quantity || 0), 0) ?? 0
+  const orderSubTotal = Number(order?.sub_total || 0)
+  const orderDiscountAmount = Math.max(Number(order?.tax_amount || 0) * -1, 0)
+  const orderShippingFee = Number(order?.shipping_fee || 0)
+  const progressIndex = stepperStages.findIndex((stage) => stage.matches.includes(order?.processing_status ?? 'draft'))
+  const orderTypeLabel = order?.order_type === 'return' ? 'Đơn trả hàng' : 'Đơn bán hàng'
+  const invoiceStatusLabel = order?.invoice_code ? 'Đã tạo e-invoice' : 'Chưa xuất hóa đơn'
+  const invoiceStatusColor = order?.invoice_code ? 'success' : 'default'
+  const sourceLabel = order?.sales_channel ?? 'Admin'
+  const customerGroup = order?.customer_id ? 'Khách thành viên' : 'Khách lẻ'
+  const canEditOrder = ['draft', 'placed'].includes(order?.processing_status ?? 'draft')
+  const canAddPayment = orderRemainingAmount > 0 && !['cancelled', 'returned'].includes(order?.processing_status ?? '')
+  const canGeneratePaymentQr = orderRemainingAmount > 0
+  const canCancelOrder =
+    ['draft', 'placed', 'confirmed', 'picked_up'].includes(order?.processing_status ?? '') && order?.payment_status !== 'paid'
+  const canReturnOrder = order?.processing_status === 'completed'
+
+  const handleOpenPaymentQr = useCallback(async () => {
+    if (!order || orderRemainingAmount <= 0) {
+      return
+    }
+
+    try {
+      setIsGeneratingQr(true)
+      setPaymentQr(null)
+      const transferMemo = [order.order_code, order.customer_info.name, order.customer_info.phone]
+        .map((value) => value.trim())
+        .filter(Boolean)
+        .join(' - ')
+      const qrResponse = await generalSettingsApi.generateVietQr({
+        amount: orderRemainingAmount,
+        memo: transferMemo,
+        template: 'compact2',
+      })
+
+      setPaymentQr(qrResponse)
+      setIsQrDialogOpen(true)
+    } catch (error) {
+      console.error('Lỗi khi tạo QR thanh toán:', error)
+      appToast.error(getErrorMessage(error, 'Không thể tạo QR thanh toán.'))
+    } finally {
+      setIsGeneratingQr(false)
+    }
+  }, [order, orderRemainingAmount])
+  const {
+    isPaymentDialogOpen,
+    isSavingPayment,
+    paymentMethodDraft,
+    taxAmountDraft,
+    paymentSubTotal,
+    paymentTotalAmount,
+    normalizedDepositAmount,
+    visiblePaymentErrors,
+    openPaymentDialog,
+    closePaymentDialog,
+    handlePaymentMethodChange,
+    handleSavePayment,
+    setDepositAmountDraft,
+    setTaxAmountDraft,
+  } = usePaymentConfigDraft({
+    orderId: params.id,
+    order,
+    onOrderUpdated: setOrder,
+  })
+
+  const {
+    isAddPaymentDialogOpen,
+    isConfirmPaidDialogOpen,
+    paymentEntryAmount,
+    paymentEntryMethod,
+    paymentEntryNote,
+    isSubmittingPaymentEntry,
+    setPaymentEntryAmount,
+    setPaymentEntryMethod,
+    setPaymentEntryNote,
+    openAddPaymentDialog,
+    closeAddPaymentDialog,
+    openConfirmPaidDialog,
+    closeConfirmPaidDialog,
+    submitAddPayment,
+    submitConfirmPaid,
+  } = usePaymentEntryFlow({
+    orderId: params.id,
+    order,
+    canAddPayment,
+    currentPaymentMethod,
+    orderRemainingAmount,
+    onOrderUpdated: setOrder,
+  })
 
   if (isLoading) {
     return (
@@ -494,106 +544,6 @@ export function OrdersDetailPage(): ReactElement {
         <Typography>Không tìm thấy đơn hàng.</Typography>
       </Box>
     )
-  }
-
-  const paymentMeta = getPaymentStatusMeta(order.payment_status)
-  const processingMeta = getProcessingStatusMeta(order.processing_status)
-  const parsedOrderPaymentDetails = parsePaymentNoteContent(order.payment_notes)
-  const currentPaymentMethod =
-    parsedOrderPaymentDetails.method ?? getPaymentMethodFromTypeId(order.payment_type_id, order.payment_status)
-  const progressIndex = stepperStages.findIndex((stage) => stage.matches.includes(order.processing_status))
-  const orderTypeLabel = order.order_type === 'return' ? 'Đơn trả hàng' : 'Đơn bán hàng'
-  const invoiceStatusLabel = order.invoice_code ? 'Đã tạo e-invoice' : 'Chưa xuất hóa đơn'
-  const invoiceStatusColor = order.invoice_code ? 'success' : 'default'
-  const sourceLabel = order.sales_channel ?? 'Admin'
-  const customerGroup = order.customer_id ? 'Khách thành viên' : 'Khách lẻ'
-  const canEditOrder = ['draft', 'placed'].includes(order.processing_status)
-  const canCancelOrder =
-    ['draft', 'placed', 'confirmed', 'picked_up'].includes(order.processing_status) && order.payment_status !== 'paid'
-  const canReturnOrder = order.processing_status === 'completed'
-  const paymentSubTotal = Number(order.sub_total || 0)
-  const paymentShippingFee = Number(order.shipping_fee || 0)
-  const paymentTotalAmount = paymentSubTotal + Number(taxAmountDraft || 0) + paymentShippingFee
-  const normalizedDepositAmount = getNormalizedDepositAmount({
-    paymentMethod: paymentMethodDraft,
-    depositInputMode: depositInputModeDraft,
-    depositPercent: depositPercentDraft,
-    depositAmount: depositAmountDraft,
-    totalAmount: paymentTotalAmount,
-  })
-  const normalizedPaidAmount = getNormalizedPaidAmount({
-    paymentStatus: paymentStatusDraft,
-    paymentMethod: paymentMethodDraft,
-    totalAmount: paymentTotalAmount,
-    depositAmount: normalizedDepositAmount,
-  })
-  const paymentRemainingAmount = Math.max(paymentTotalAmount - normalizedPaidAmount, 0)
-  const paymentErrors = getPaymentValidationErrors({
-    paymentMethod: paymentMethodDraft,
-    paymentStatus: paymentStatusDraft,
-    paymentDueDate: paymentDueDateDraft,
-    depositInputMode: depositInputModeDraft,
-    depositPercent: depositPercentDraft,
-    normalizedDepositAmount,
-    totalAmount: paymentTotalAmount,
-    bankName: bankNameDraft,
-    bankAccountNumber: bankAccountNumberDraft,
-    bankAccountHolder: bankAccountHolderDraft,
-    processingStatus: order.processing_status,
-  })
-  const visiblePaymentErrors = hasAttemptedPaymentSave ? paymentErrors : {}
-  const canSavePayment = !isSavingPayment && Object.keys(paymentErrors).length === 0
-
-  const handlePaymentMethodChange = (method: PaymentMethod) => {
-    setPaymentMethodDraft(method)
-    setPaymentStatusDraft((current) => getNextPaymentStatus(method, current))
-  }
-
-  const handleSavePayment = async () => {
-    if (!params.id) {
-      return
-    }
-
-    setHasAttemptedPaymentSave(true)
-
-    if (!canSavePayment) {
-      appToast.warning('Vui long kiem tra lai thong tin thanh toan truoc khi luu.')
-      return
-    }
-
-    try {
-      setIsSavingPayment(true)
-
-      const updatedOrder = await orderApi.updateOrder(params.id, {
-        payment_type_id: paymentMethodDraft === 'unpaid' ? null : PAYMENT_METHOD_TYPE_IDS[paymentMethodDraft],
-        payment_status: paymentStatusDraft,
-        payment_notes: buildPaymentNoteContent({
-          method: paymentMethodDraft,
-          note: paymentNotesDraft,
-          dueDate: paymentDueDateDraft,
-          depositMode: depositInputModeDraft,
-          depositPercent: depositPercentDraft,
-          depositAmount: normalizedDepositAmount,
-          bankName: bankNameDraft,
-          accountNumber: bankAccountNumberDraft,
-          accountHolder: bankAccountHolderDraft,
-          transferReference: transferReferenceDraft,
-        }),
-        deposit_amount: normalizedDepositAmount,
-        paid_amount: normalizedPaidAmount,
-        tax_amount: Number(taxAmountDraft || 0),
-      })
-
-      setOrder(updatedOrder)
-      syncPaymentDraftFromOrder(updatedOrder)
-      setIsPaymentDialogOpen(false)
-      appToast.success(`Da cap nhat phuong thuc thanh toan cho don ${updatedOrder.order_code}.`)
-    } catch (error) {
-      console.error('Loi khi cap nhat phuong thuc thanh toan:', error)
-      appToast.error(getErrorMessage(error, 'Khong the cap nhat phuong thuc thanh toan.'))
-    } finally {
-      setIsSavingPayment(false)
-    }
   }
 
   return (
@@ -783,73 +733,51 @@ export function OrdersDetailPage(): ReactElement {
             <CardHeader
               eyebrow="Thanh toán"
               title="Quản lý thanh toán"
-              description="Nhân viên có thể scan nhanh trạng thái thanh toán, tổng tiền và thao tác tiếp theo."
+              description="Hiển thị rõ hình thức thu, số tiền đã thu, số tiền còn lại và bước cần làm tiếp theo."
             />
 
             <Stack spacing={2} sx={{ mt: 2 }}>
-              <Stack direction="row" spacing={1} sx={{ display: 'none', flexWrap: 'wrap', alignItems: 'center' }}>
-                <Chip label={paymentMeta.label} color={paymentMeta.color} />
-                <Chip label={PAYMENT_METHOD_LABELS[currentPaymentMethod]} variant="outlined" />
-                <Chip label={`Đã thanh toán ${formatCurrency(order.paid_amount)}`} variant="outlined" />
-                <Chip label={`Nợ còn ${formatCurrency(order.outstanding_amount)}`} variant="outlined" />
-              </Stack>
+              <PaymentSummarySection
+                itemCount={orderItemCount}
+                subTotal={orderSubTotal}
+                discountAmount={orderDiscountAmount}
+                shippingFee={orderShippingFee}
+                totalAmount={orderTotalAmount}
+                paidAmount={orderPaidAmount}
+                remainingAmount={orderRemainingAmount}
+              />
 
-              <Box
-                sx={{
-                  display: 'grid',
-                  gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' },
-                  gap: 1.5,
-                }}
-              >
-                <Paper variant="outlined" sx={{ p: 2 }}>
-                  <Stack spacing={1.4}>
-                    <Typography sx={{ fontWeight: 700, color: '#0f172a' }}>{paymentMeta.label}</Typography>
-                    <SidebarLine label="Phuong thuc thanh toan" value={PAYMENT_METHOD_LABELS[currentPaymentMethod]} />
-                    <SidebarLine label="Tong tien hang" value={formatCurrency(order.sub_total)} />
-                    <SidebarLine label="San pham" value={`${order.order_items.length} san pham`} />
-                    <SidebarLine label="Thanh tien" value={formatCurrency(order.total_amount)} />
-                  </Stack>
-                </Paper>
-              </Box>
-
-              <Box
-                sx={{
-                  display: 'none',
-                  gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' },
-                  gap: 1.5,
-                }}
-              >
-                <Paper variant="outlined" sx={{ p: 1.75 }}>
-                  <Stack spacing={1.1}>
-                    <Typography variant="body2" color="text.secondary">
-                      Phuong thuc thanh toan
-                    </Typography>
-                    <Typography sx={{ fontWeight: 800, color: '#0f172a' }}>
-                      {PAYMENT_METHOD_LABELS[currentPaymentMethod]}
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      Trang thai: {paymentMeta.label}
-                    </Typography>
-                  </Stack>
-                </Paper>
-              </Box>
-
-              <Box
-                sx={{
-                  display: 'none',
-                  gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' },
-                  gap: 1.5,
-                }}
-              >
-                <MetricTile label="Tổng phụ" value={formatCurrency(order.sub_total)} />
-                <MetricTile label="Phí vận chuyển" value={formatCurrency(order.shipping_fee)} />
-                <MetricTile label="Thuế" value={formatCurrency(order.tax_amount)} />
-                <MetricTile label="Tổng" value={formatCurrency(order.total_amount)} emphasis />
-              </Box>
+              <PaymentHistorySection entries={paymentHistoryEntries} />
 
               <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.25}>
-                <Button variant="outlined" startIcon={<QrCode2OutlinedIcon />} onClick={() => setIsQrDialogOpen(true)}>
-                  Tạo QR
+                {canGeneratePaymentQr ? (
+                  <Button
+                    variant="outlined"
+                    startIcon={<QrCode2OutlinedIcon />}
+                    onClick={() => {
+                      void handleOpenPaymentQr()
+                    }}
+                    disabled={isGeneratingQr}
+                  >
+                    Tạo QR
+                  </Button>
+                ) : null}
+                <Button
+                  variant="contained"
+                  color="secondary"
+                  startIcon={<PaymentsOutlinedIcon />}
+                  onClick={openAddPaymentDialog}
+                  disabled={isActing || !canAddPayment}
+                >
+                  Thêm thanh toán
+                </Button>
+                <Button
+                  variant="outlined"
+                  startIcon={<CheckCircleOutlinedIcon />}
+                  onClick={openConfirmPaidDialog}
+                  disabled={isActing || !canAddPayment}
+                >
+                  Xác nhận đã thu đủ tiền
                 </Button>
                 <Button
                   variant="outlined"
@@ -857,16 +785,7 @@ export function OrdersDetailPage(): ReactElement {
                   onClick={openPaymentDialog}
                   disabled={isActing || !canEditOrder}
                 >
-                  Chinh sua thanh toan
-                </Button>
-                <Button
-                  variant="contained"
-                  color="secondary"
-                  startIcon={<PaymentsOutlinedIcon />}
-                  onClick={() => void runAction('mark_paid')}
-                  disabled={isActing || order.payment_status === 'paid'}
-                >
-                  Đánh dấu đã thanh toán
+                  Cấu hình thanh toán
                 </Button>
               </Stack>
             </Stack>
@@ -917,15 +836,15 @@ export function OrdersDetailPage(): ReactElement {
                 <ActivityRow
                   key={entry.id}
                   title={entry.description}
-                  subtitle={`${entry.actor_name ?? 'System'} • ${entry.event_type}`}
+                  subtitle={`${entry.actor_name ?? 'Hệ thống'}`}
                   timestamp={formatDateTime(entry.timestamp)}
                   isLast={index === order.order_history.length - 1}
                   extra={
-                    entry.metadata ? (
-                      <Typography variant="body2" color="text.secondary">
-                        {JSON.stringify(entry.metadata)}
+                    getOrderHistoryPaymentAmount(entry) ? (
+                      <Typography variant="body2" sx={{ mt: 0.35, fontWeight: 700, color: '#0f172a' }}>
+                        Số tiền: {getOrderHistoryPaymentAmount(entry)}
                       </Typography>
-                    ) : null
+                    ) : undefined
                   }
                 />
               ))}
@@ -941,32 +860,10 @@ export function OrdersDetailPage(): ReactElement {
 
           <SidebarCard icon={<PersonOutlineOutlinedIcon fontSize="small" />} title="Khách hàng">
             <Stack spacing={1.25}>
-              <OutlinedInput
-                size="small"
-                value={order.customer_info.name}
-                fullWidth
-                readOnly
-                placeholder="Tìm kiếm + chọn khách hàng"
-              />
-              <Paper
-                variant="outlined"
-                sx={{
-                  p: 1.5,
-                  bgcolor: (theme) => alpha(theme.palette.background.default, 0.7),
-                }}
-              >
-                <Typography sx={{ fontWeight: 700 }}>{order.customer_info.name}</Typography>
-                <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-                  {order.customer_info.customer_code ?? 'Khách lẻ'}
-                </Typography>
-                <Chip size="small" label={customerGroup} sx={{ mt: 1.25 }} />
-              </Paper>
+              <SidebarLine label="Mã khách hàng" value={order.customer_info.customer_code ?? 'Khách lẻ'} />
+              <SidebarLine label="Tên khách hàng" value={order.customer_info.name} />
+              <SidebarLine label="Số điện thoại" value={order.customer_info.phone} />
             </Stack>
-          </SidebarCard>
-
-          <SidebarCard title="Thông tin liên hệ">
-            <SidebarLine label="Email" value={order.customer_info.email ?? '-'} />
-            <SidebarLine label="Điện thoại" value={order.customer_info.phone} />
           </SidebarCard>
 
           <SidebarCard title="Địa chỉ giao hàng">
@@ -986,9 +883,9 @@ export function OrdersDetailPage(): ReactElement {
           </SidebarCard>
 
           <SidebarCard title="Metadata">
-            <SidebarLine label="Cửa hàng / Chi nhánh" value="Main branch" />
+            <SidebarLine label="Cửa hàng / Chi nhánh" value="Chi nhánh chính" />
             <SidebarLine label="Nhân viên được giao" value={order.confirmed_by ?? 'Chưa phân công'} />
-            <SidebarLine label="Tạo bởi" value={order.created_by ?? 'System'} />
+            <SidebarLine label="Tạo bởi" value={order.created_by ?? 'Hệ thống'} />
             <SidebarLine label="Ngày tạo" value={formatDateTime(order.created_at)} />
           </SidebarCard>
         </Stack>
@@ -1065,40 +962,67 @@ export function OrdersDetailPage(): ReactElement {
         </DialogActions>
       </Dialog>
 
+      <PaymentEntryDialog
+        open={isAddPaymentDialogOpen}
+        title="Thêm thanh toán"
+        description="Ghi nhận từng lần thu tiền để lịch sử thanh toán luôn rõ ràng và không ghi đè dữ liệu cũ."
+        amountLabel="Số tiền thanh toán"
+        amountValue={paymentEntryAmount}
+        amountEditable
+        noteLabel="Ghi chú giao dịch"
+        notePlaceholder="Ví dụ: khách chuyển khoản đợt 2"
+        noteValue={paymentEntryNote}
+        methodValue={paymentEntryMethod}
+        remainingAmount={orderRemainingAmount}
+        submitLabel="Ghi nhận thanh toán"
+        isSubmitting={isSubmittingPaymentEntry}
+        onClose={closeAddPaymentDialog}
+        onAmountChange={setPaymentEntryAmount}
+        onMethodChange={setPaymentEntryMethod}
+        onNoteChange={setPaymentEntryNote}
+        onSubmit={() => {
+          void submitAddPayment()
+        }}
+      />
+
+      <PaymentEntryDialog
+        open={isConfirmPaidDialogOpen}
+        title="Xác nhận đã thu đủ tiền"
+        description="Dùng khi khách đã thanh toán ngoài hệ thống và bạn muốn xác nhận thủ công phần còn lại. Hành động này vẫn được lưu thành một giao dịch cuối trong lịch sử thanh toán."
+        amountLabel="Số tiền xác nhận"
+        amountValue={formatCurrency(orderRemainingAmount)}
+        noteLabel="Ghi chú xác nhận"
+        notePlaceholder="Ví dụ: khách đã chuyển khoản ngoài hệ thống, đã đối soát sao kê"
+        noteValue={paymentEntryNote}
+        methodValue={paymentEntryMethod}
+        remainingAmount={orderRemainingAmount}
+        submitLabel="Xác nhận thu đủ tiền"
+        isSubmitting={isSubmittingPaymentEntry}
+        onClose={closeConfirmPaidDialog}
+        onMethodChange={setPaymentEntryMethod}
+        onNoteChange={setPaymentEntryNote}
+        onSubmit={() => {
+          void submitConfirmPaid()
+        }}
+      />
+
       <Dialog open={isPaymentDialogOpen} onClose={closePaymentDialog} fullWidth maxWidth="md">
-        <DialogTitle>Chinh sua phuong thuc thanh toan</DialogTitle>
+        <DialogTitle>Cấu hình thanh toán</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ pt: 1 }}>
             <PaymentInformationCard
+              itemCount={order.order_items.length}
               canEdit={canEditOrder}
               paymentMethod={paymentMethodDraft}
-              paymentStatus={paymentStatusDraft}
-              paymentNotes={paymentNotesDraft}
-              paymentDueDate={paymentDueDateDraft}
-              depositInputMode={depositInputModeDraft}
-              depositPercent={depositPercentDraft}
-              bankName={bankNameDraft}
-              bankAccountNumber={bankAccountNumberDraft}
-              bankAccountHolder={bankAccountHolderDraft}
-              transferReference={transferReferenceDraft}
               taxAmount={taxAmountDraft}
               subTotal={paymentSubTotal}
               totalAmount={paymentTotalAmount}
-              paidAmount={normalizedPaidAmount}
-              remainingAmount={paymentRemainingAmount}
               depositAmount={normalizedDepositAmount}
               errors={visiblePaymentErrors}
+              onPaymentStatusChange={() => undefined}
               onPaymentMethodChange={handlePaymentMethodChange}
               onTaxAmountChange={setTaxAmountDraft}
-              onPaymentNotesChange={setPaymentNotesDraft}
-              onPaymentDueDateChange={setPaymentDueDateDraft}
-              onDepositInputModeChange={setDepositInputModeDraft}
-              onDepositPercentChange={setDepositPercentDraft}
               onDepositAmountChange={setDepositAmountDraft}
-              onBankNameChange={setBankNameDraft}
-              onBankAccountNumberChange={setBankAccountNumberDraft}
-              onBankAccountHolderChange={setBankAccountHolderDraft}
-              onTransferReferenceChange={setTransferReferenceDraft}
             />
             {visiblePaymentErrors.processing_status ? (
               <Typography color="error">{visiblePaymentErrors.processing_status}</Typography>
@@ -1106,9 +1030,9 @@ export function OrdersDetailPage(): ReactElement {
           </Stack>
         </DialogContent>
         <DialogActions>
-          <Button onClick={closePaymentDialog}>Dong</Button>
+          <Button onClick={closePaymentDialog}>Đóng</Button>
           <Button variant="contained" onClick={() => void handleSavePayment()} disabled={!canEditOrder || isSavingPayment}>
-            {isSavingPayment ? 'Dang luu...' : 'Luu thanh toan'}
+            {isSavingPayment ? 'Đang lưu...' : 'Lưu thanh toán'}
           </Button>
         </DialogActions>
       </Dialog>
@@ -1138,21 +1062,43 @@ export function OrdersDetailPage(): ReactElement {
       </Dialog>
 
       <Dialog open={isQrDialogOpen} onClose={() => setIsQrDialogOpen(false)} fullWidth maxWidth="xs">
-        <DialogTitle>QR đơn hàng</DialogTitle>
+        <DialogTitle>QR thanh toán</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ pt: 1, alignItems: 'center' }}>
-            {qrImageUrl ? (
+            {paymentQr?.data.qrDataURL ? (
               <Box
                 component="img"
-                src={qrImageUrl}
-                alt={`QR ${order.order_code}`}
-                sx={{ width: 240, height: 240, borderRadius: 2, border: '1px solid #e2e8f0', bgcolor: '#fff' }}
+                src={paymentQr.data.qrDataURL}
+                alt={`QR thanh toán ${order.order_code}`}
+                sx={{ width: 240, height: "100%", borderRadius: 2, border: '1px solid #e2e8f0', bgcolor: '#fff' }}
               />
             ) : null}
-            <TextField value={qrValue} multiline minRows={5} fullWidth slotProps={{ input: { readOnly: true } }} />
-            <Typography variant="body2" color="text.secondary">
-              QR này mã hóa thông tin đơn cơ bản để đội vận hành hoặc thu ngân scan nhanh.
-            </Typography>
+            {paymentQr?.transfer_content ? (
+              <Paper
+                variant="outlined"
+                sx={{
+                  width: '100%',
+                  p: 1.5,
+                  borderRadius: 2,
+                  bgcolor: '#f8fafc',
+                }}
+              >
+                <Typography
+                  component="pre"
+                  sx={{
+                    m: 0,
+                    whiteSpace: 'pre-wrap',
+                    wordBreak: 'break-word',
+                    fontFamily: 'inherit',
+                    fontSize: 14,
+                    color: '#0f172a',
+                    lineHeight: 1.7,
+                  }}
+                >
+                  {paymentQr.transfer_content}
+                </Typography>
+              </Paper>
+            ) : null}
           </Stack>
         </DialogContent>
         <DialogActions>
@@ -1233,32 +1179,6 @@ function CardHeader({
       </Typography>
       <Typography color="text.secondary">{description}</Typography>
     </Stack>
-  )
-}
-
-function MetricTile({
-  label,
-  value,
-  emphasis = false,
-}: {
-  label: string
-  value: string
-  emphasis?: boolean
-}): ReactElement {
-  return (
-    <Paper
-      variant="outlined"
-      sx={{
-        p: 1.75,
-        bgcolor: emphasis ? 'rgba(15, 118, 110, 0.08)' : '#fff',
-        borderColor: emphasis ? 'rgba(15, 118, 110, 0.24)' : undefined,
-      }}
-    >
-      <Typography variant="body2" color="text.secondary">
-        {label}
-      </Typography>
-      <Typography sx={{ mt: 0.75, fontWeight: 800, color: '#0f172a' }}>{value}</Typography>
-    </Paper>
   )
 }
 

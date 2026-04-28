@@ -4,11 +4,11 @@ import { OrdersCollectionPage } from './order.shared'
 export function OrdersCancelledPage(): ReactElement {
   return (
     <OrdersCollectionPage
-      title="Don da huy"
-      description="Theo doi cac don bi huy rieng biet voi tra hang de doi van hanh doi soat ly do huy, cong no va ton kho da rollback."
+      title="Đơn đã hủy"
+      description="Theo dõi các đơn bị hủy riêng biệt với trả hàng để đội vận hành đối soát lý do hủy, công nợ và tồn kho đã rollback."
       view="cancelled"
-      helperTitle="Cancelled tach rieng"
-      helperDescription="Cancelled va returned la hai nghiep vu khac nhau. Tach rieng danh sach giup theo doi conversion loss, van hanh huy don va hau mai chinh xac hon."
+      helperTitle="Đơn hủy được tách riêng"
+      helperDescription="Đơn hủy và trả hàng là hai nghiệp vụ khác nhau. Tách riêng danh sách giúp theo dõi conversion loss, vận hành hủy đơn và hậu mãi chính xác hơn."
     />
   )
 }

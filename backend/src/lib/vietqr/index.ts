@@ -5,7 +5,7 @@ import type {
   VietQrGenerateInput,
   VietQrGenerateResponse,
   VietQrTemplateItem,
-} from "./settings.types";
+} from "@/modules/settings/settings.types";
 import type { VietQR as VietQrCtor } from "vietqr";
 
 type VietQrLibraryResponse<T> = {
@@ -81,6 +81,43 @@ let cachedClient: VietQrLibraryClient | null = null;
 const toTrimmedString = (value: unknown): string =>
   typeof value === "string" ? value.trim() : "";
 
+const formatTransferAmount = (amount: string): string => {
+  if (!amount) {
+    return "";
+  }
+
+  const parsedAmount = Number(amount);
+
+  if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+    return "";
+  }
+
+  return `${new Intl.NumberFormat("vi-VN").format(parsedAmount)} VND`;
+};
+
+const buildTransferContent = (params: {
+  bankName: string;
+  accountNumber: string;
+  accountName: string;
+  amount: string;
+  memo: string;
+}) => {
+  const bankName = toTrimmedString(params.bankName);
+  const accountNumber = toTrimmedString(params.accountNumber);
+  const accountName = toTrimmedString(params.accountName);
+  const amount = formatTransferAmount(params.amount);
+  const memo = toTrimmedString(params.memo);
+
+  return [
+    "THÔNG TIN CHUYỂN KHOẢN",
+    `Ngân hàng: ${bankName}`,
+    `Số tài khoản: ${accountNumber}`,
+    `Chủ tài khoản: ${accountName}`,
+    `Số tiền: ${amount}`,
+    `Nội dung: ${memo}`,
+  ].join("\n");
+};
+
 const toAmountString = (value: unknown): string => {
   if (value === undefined || value === null || value === "") {
     return "";
@@ -139,8 +176,7 @@ const unwrapResponse = <T>(result: { data?: T } | T): T => {
 export const VietQrService = {
   getBanks: async () => {
     const client = await getConfiguredClient();
-    const response = await client.getBanks();
-    return response;
+    return client.getBanks();
   },
 
   getTemplates: async () => {
@@ -214,6 +250,13 @@ export const VietQrService = {
         memo,
         template,
         media,
+      }),
+      transfer_content: buildTransferContent({
+        bankName: defaults.bank_name,
+        accountNumber,
+        accountName,
+        amount,
+        memo,
       }),
     };
   },

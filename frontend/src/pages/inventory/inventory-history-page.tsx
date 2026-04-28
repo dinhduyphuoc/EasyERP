@@ -16,6 +16,7 @@ import {
   type InventoryHistoryItem,
   type InventoryStockListItem,
 } from './inventory.api'
+import { InventoryHistoryTableSkeleton } from './inventory-skeletons'
 
 type InventoryHistoryLocationState = {
   stockItem?: InventoryStockListItem
@@ -74,19 +75,21 @@ export function InventoryHistoryPage() {
   const navigate = useNavigate()
   const location = useLocation()
   const locationState = location.state as InventoryHistoryLocationState | null
+  const cachedPage = inventoryHistoryPageCache?.stockItem?.product_variant_id === productVariantId ? inventoryHistoryPageCache : null
   const [filterValues, setFilterValues] = useState<Record<string, string>>(
-    inventoryHistoryPageCache?.filterValues ?? {
+    cachedPage?.filterValues ?? {
       reason_code: '',
       period: '',
     },
   )
-  const [page, setPage] = useState(inventoryHistoryPageCache?.page ?? 1)
-  const [pageSize, setPageSize] = useState(inventoryHistoryPageCache?.pageSize ?? 10)
-  const [rows, setRows] = useState<InventoryHistoryItem[]>(inventoryHistoryPageCache?.rows ?? [])
+  const [page, setPage] = useState(cachedPage?.page ?? 1)
+  const [pageSize, setPageSize] = useState(cachedPage?.pageSize ?? 10)
+  const [rows, setRows] = useState<InventoryHistoryItem[]>(cachedPage?.rows ?? [])
   const [stockItem, setStockItem] = useState<InventoryStockListItem | null>(
-    inventoryHistoryPageCache?.stockItem ?? locationState?.stockItem ?? null,
+    cachedPage?.stockItem ?? locationState?.stockItem ?? null,
   )
-  const [isLoading, setIsLoading] = useState(inventoryHistoryPageCache === null)
+  const [isLoading, setIsLoading] = useState(cachedPage === null)
+  const [hasResolvedInitialLoad, setHasResolvedInitialLoad] = useState(cachedPage !== null)
 
   useEffect(() => {
     const fetchPageData = async () => {
@@ -94,7 +97,7 @@ export function InventoryHistoryPage() {
         return
       }
 
-      setIsLoading(inventoryHistoryPageCache === null)
+      setIsLoading(cachedPage === null)
 
       try {
         const [historyResponse, stockList] = await Promise.all([
@@ -110,16 +113,21 @@ export function InventoryHistoryPage() {
           setStockItem(stockList.find((item) => item.product_variant_id === productVariantId) ?? null)
         }
       } catch (error) {
-        console.error('Loi khi tai lich su thay doi kho:', error)
+        console.error('Lỗi khi tải lịch sử thay đổi kho:', error)
       } finally {
         setIsLoading(false)
+        setHasResolvedInitialLoad(true)
       }
     }
 
     void fetchPageData()
-  }, [locationState, productVariantId])
+  }, [cachedPage, locationState, productVariantId])
 
   useEffect(() => {
+    if (!hasResolvedInitialLoad) {
+      return
+    }
+
     inventoryHistoryPageCache = {
       filterValues,
       page,
@@ -127,7 +135,7 @@ export function InventoryHistoryPage() {
       rows,
       stockItem,
     }
-  }, [filterValues, page, pageSize, rows, stockItem])
+  }, [filterValues, hasResolvedInitialLoad, page, pageSize, rows, stockItem])
 
   const historyTypeFilter = useMemo<ListFilterConfig>(() => {
     const options = Array.from(
@@ -232,6 +240,8 @@ export function InventoryHistoryPage() {
     [],
   )
 
+  const shouldShowInitialSkeleton = (!hasResolvedInitialLoad || isLoading) && rows.length === 0
+
   return (
     <Box sx={{ px: { xs: 2, md: 3, xl: 4 }, pb: 8 }}>
       <Box sx={{ mb: 2 }}>
@@ -287,7 +297,8 @@ export function InventoryHistoryPage() {
         columns={columns}
         rows={pagedRows}
         rowKey={(row) => row.id}
-        loading={isLoading}
+        loading={shouldShowInitialSkeleton}
+        loadingState={<InventoryHistoryTableSkeleton />}
         emptyState={
           <ListEmptyState
             title="Chưa có lịch sử thay đổi kho"

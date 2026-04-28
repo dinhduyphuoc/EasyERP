@@ -5,6 +5,7 @@ import { CommonListLayout } from '@/shared/ui/list/common-list-layout'
 import { ListEmptyState } from '@/shared/ui/list/list-empty-state'
 import type { ListColumn } from '@/shared/ui/list/common-list.types'
 import { productApi, type ProductCategory } from '@/pages/products/product.api'
+import { ProductCategoryListTableSkeleton } from '@/pages/products/product-skeletons'
 import { appToast } from '@/shared/ui/toast/toast.helpers'
 
 type ProductCategoryListPageCache = {
@@ -33,7 +34,7 @@ export function ProductCategoryListPage() {
         const data = await productApi.getProductCategories()
         setCategories(data)
       } catch (error) {
-        console.error('Loi khi tai danh muc san pham:', error)
+        console.error('Lỗi khi tải danh mục sản phẩm:', error)
       } finally {
         setIsLoading(false)
       }
@@ -153,6 +154,7 @@ export function ProductCategoryListPage() {
       }}
       onRowClick={(row) => navigate(`/products/categories/${row.id}/edit`)}
       loading={isLoading && categories.length === 0}
+      loadingState={<ProductCategoryListTableSkeleton />}
       emptyState={
         <ListEmptyState
           title="Chưa có danh mục sản phẩm"

@@ -1247,7 +1247,7 @@ export const ShippingService = {
         data: {
           order_id: order.id,
           event_type: "shipping_webhook_received",
-          description: "Nhan callback trang thai don hang tu GHN",
+          description: "Nhận callback trạng thái đơn hàng từ GHN",
           actor_name: "GHN Webhook",
           metadata: {
             provider: "ghn",

@@ -294,7 +294,7 @@ export function StoreSwitcherDropdown({
           <ListItemIcon sx={{ minWidth: 0 }}>
             <AddRoundedIcon fontSize="small" />
           </ListItemIcon>
-          <Typography sx={{ fontWeight: 600 }}>Create store</Typography>
+          <Typography sx={{ fontWeight: 600 }}>Tạo cửa hàng</Typography>
         </MenuItem>
 
         <Divider />

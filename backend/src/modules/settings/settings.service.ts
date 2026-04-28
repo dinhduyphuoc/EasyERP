@@ -1,12 +1,12 @@
 import { BadRequestError } from "@/common";
 import { prisma } from "@lib/prisma";
+import { VietQrService } from "@/lib/vietqr";
 import type {
   GeneralSettingsResponse,
   UpdateGeneralSettingsInput,
   VietQrGenerateInput,
   VietQrGenerateResponse,
 } from "./settings.types";
-import { VietQrService } from "./settings.vietqr";
 
 const toRecord = (value: unknown): Record<string, unknown> =>
   value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};

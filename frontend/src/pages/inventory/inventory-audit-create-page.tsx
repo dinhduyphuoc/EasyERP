@@ -25,6 +25,8 @@ import {
 import { inventoryApi, type InventoryAuditItem, type InventoryAuditPayload, type InventoryStockListItem } from './inventory.api'
 import { defaultCardSx } from '@/shared/ui/paper'
 import { appToast } from '@/shared/ui/toast/toast.helpers'
+import { formatCurrency as sharedFormatCurrency } from '@/shared/utils/currency'
+import { InventoryAuditPageSkeleton } from './inventory-skeletons'
 
 type AuditLineDraft = {
   product_variant_id: string
@@ -70,6 +72,7 @@ function sanitizeActualQtyInput(value: string) {
 }
 
 function formatCurrency(value: number) {
+  return sharedFormatCurrency(value)
   return `${value.toLocaleString('vi-VN')} đ`
 }
 
@@ -163,7 +166,7 @@ export function InventoryAuditCreatePage(): ReactElement {
       }
     }
 
-    fetchPageData()
+    void fetchPageData()
   }, [id, isEditMode])
 
   useEffect(() => {
@@ -409,6 +412,10 @@ export function InventoryAuditCreatePage(): ReactElement {
     } finally {
       setIsSaving(false)
     }
+  }
+
+  if (isLoading) {
+    return <InventoryAuditPageSkeleton />
   }
 
   return (
