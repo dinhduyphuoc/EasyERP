@@ -54,6 +54,41 @@ const parseOptionalNonNegativeInt = (value: unknown, fieldName: string) => {
   return parsed;
 };
 
+const DEFAULT_GHN_WEIGHT = 500;
+const DEFAULT_GHN_LENGTH = 20;
+const DEFAULT_GHN_WIDTH = 15;
+const DEFAULT_GHN_HEIGHT = 10;
+
+const resolvePositiveMetric = (
+  value: unknown,
+  fieldName: string,
+  fallback: number,
+) => {
+  const parsed = parseOptionalNonNegativeInt(value, fieldName);
+
+  if (parsed === undefined || parsed <= 0) {
+    return fallback;
+  }
+
+  return parsed;
+};
+
+const toProviderRequestError = (
+  error: unknown,
+  fallbackMessage: string,
+) => {
+  if (error instanceof BadRequestError || error instanceof NotFoundError) {
+    return error;
+  }
+
+  const message =
+    error instanceof Error && error.message.trim()
+      ? error.message
+      : fallbackMessage;
+
+  return new BadRequestError(message);
+};
+
 const getConnectedProviderClient = async (
   providerCode: string,
   storeId: string,
@@ -772,48 +807,56 @@ export const ShippingService = {
           throw new BadRequestError("to_ward_code is required");
         }
 
-        const response = await client.fee.calculateFee({
-          from_district_id: parseOptionalNonNegativeInt(
-            input.from_district_id,
-            "from_district_id",
-          ),
-          from_ward_code:
-            typeof input.from_ward_code === "string" && input.from_ward_code.trim()
-              ? input.from_ward_code.trim()
+        let response;
+        try {
+          response = await client.fee.calculateFee({
+            from_district_id: parseOptionalNonNegativeInt(
+              input.from_district_id,
+              "from_district_id",
+            ),
+            from_ward_code:
+              typeof input.from_ward_code === "string" && input.from_ward_code.trim()
+                ? input.from_ward_code.trim()
+                : undefined,
+            service_id: parseOptionalNonNegativeInt(input.service_id, "service_id"),
+            service_type_id: parseOptionalNonNegativeInt(
+              input.service_type_id,
+              "service_type_id",
+            ),
+            to_district_id: toDistrictId,
+            to_ward_code: toWardCode,
+            height: resolvePositiveMetric(input.height, "height", DEFAULT_GHN_HEIGHT),
+            length: resolvePositiveMetric(input.length, "length", DEFAULT_GHN_LENGTH),
+            weight: resolvePositiveMetric(input.weight, "weight", DEFAULT_GHN_WEIGHT),
+            width: resolvePositiveMetric(input.width, "width", DEFAULT_GHN_WIDTH),
+            insurance_value: parseOptionalNonNegativeInt(
+              input.insurance_value,
+              "insurance_value",
+            ),
+            cod_value: parseOptionalNonNegativeInt(input.cod_value, "cod_value"),
+            coupon:
+              typeof input.coupon === "string" && input.coupon.trim()
+                ? input.coupon.trim()
+                : undefined,
+            items: Array.isArray(input.items)
+              ? input.items.map((item, index) => ({
+                  name: typeof item.name === "string" && item.name.trim()
+                    ? item.name.trim()
+                    : `Item ${index + 1}`,
+                  quantity: parseRequiredPositiveInt(item.quantity ?? 1, `items[${index}].quantity`),
+                  height: parseOptionalNonNegativeInt(item.height, `items[${index}].height`),
+                  weight: parseOptionalNonNegativeInt(item.weight, `items[${index}].weight`),
+                  length: parseOptionalNonNegativeInt(item.length, `items[${index}].length`),
+                  width: parseOptionalNonNegativeInt(item.width, `items[${index}].width`),
+                }))
               : undefined,
-          service_id: parseOptionalNonNegativeInt(input.service_id, "service_id"),
-          service_type_id: parseOptionalNonNegativeInt(
-            input.service_type_id,
-            "service_type_id",
-          ),
-          to_district_id: toDistrictId,
-          to_ward_code: toWardCode,
-          height: parseOptionalNonNegativeInt(input.height, "height"),
-          length: parseOptionalNonNegativeInt(input.length, "length"),
-          weight: parseOptionalNonNegativeInt(input.weight, "weight"),
-          width: parseOptionalNonNegativeInt(input.width, "width"),
-          insurance_value: parseOptionalNonNegativeInt(
-            input.insurance_value,
-            "insurance_value",
-          ),
-          cod_value: parseOptionalNonNegativeInt(input.cod_value, "cod_value"),
-          coupon:
-            typeof input.coupon === "string" && input.coupon.trim()
-              ? input.coupon.trim()
-              : undefined,
-          items: Array.isArray(input.items)
-            ? input.items.map((item, index) => ({
-                name: typeof item.name === "string" && item.name.trim()
-                  ? item.name.trim()
-                  : `Item ${index + 1}`,
-                quantity: parseRequiredPositiveInt(item.quantity ?? 1, `items[${index}].quantity`),
-                height: parseOptionalNonNegativeInt(item.height, `items[${index}].height`),
-                weight: parseOptionalNonNegativeInt(item.weight, `items[${index}].weight`),
-                length: parseOptionalNonNegativeInt(item.length, `items[${index}].length`),
-                width: parseOptionalNonNegativeInt(item.width, `items[${index}].width`),
-              }))
-            : undefined,
-        });
+          });
+        } catch (error) {
+          throw toProviderRequestError(
+            error,
+            `Không thể tính phí vận chuyển với ${provider.display_name}.`,
+          );
+        }
 
         return {
           store_id,
@@ -927,61 +970,69 @@ export const ShippingService = {
           };
         }
 
-        const response = await client.fee.calculateFee({
-          from_district_id: parseRequiredPositiveInt(
-            resolvedFrom.provider_district.external_id,
-            "from provider district external_id",
-          ),
-          from_ward_code: fromWardCode,
-          service_id: resolvedServiceId,
-          service_type_id: resolvedServiceTypeId,
-          to_district_id: parseRequiredPositiveInt(
-            resolvedTo.provider_district.external_id,
-            "to provider district external_id",
-          ),
-          to_ward_code: toWardCode,
-          height: parseOptionalNonNegativeInt(input.height, "height"),
-          length: parseOptionalNonNegativeInt(input.length, "length"),
-          weight: parseOptionalNonNegativeInt(input.weight, "weight"),
-          width: parseOptionalNonNegativeInt(input.width, "width"),
-          insurance_value: parseOptionalNonNegativeInt(
-            input.insurance_value,
-            "insurance_value",
-          ),
-          cod_value: parseOptionalNonNegativeInt(input.cod_value, "cod_value"),
-          coupon:
-            typeof input.coupon === "string" && input.coupon.trim()
-              ? input.coupon.trim()
+        let response;
+        try {
+          response = await client.fee.calculateFee({
+            from_district_id: parseRequiredPositiveInt(
+              resolvedFrom.provider_district.external_id,
+              "from provider district external_id",
+            ),
+            from_ward_code: fromWardCode,
+            service_id: resolvedServiceId,
+            service_type_id: resolvedServiceTypeId,
+            to_district_id: parseRequiredPositiveInt(
+              resolvedTo.provider_district.external_id,
+              "to provider district external_id",
+            ),
+            to_ward_code: toWardCode,
+            height: resolvePositiveMetric(input.height, "height", DEFAULT_GHN_HEIGHT),
+            length: resolvePositiveMetric(input.length, "length", DEFAULT_GHN_LENGTH),
+            weight: resolvePositiveMetric(input.weight, "weight", DEFAULT_GHN_WEIGHT),
+            width: resolvePositiveMetric(input.width, "width", DEFAULT_GHN_WIDTH),
+            insurance_value: parseOptionalNonNegativeInt(
+              input.insurance_value,
+              "insurance_value",
+            ),
+            cod_value: parseOptionalNonNegativeInt(input.cod_value, "cod_value"),
+            coupon:
+              typeof input.coupon === "string" && input.coupon.trim()
+                ? input.coupon.trim()
+                : undefined,
+            items: Array.isArray(input.items)
+              ? input.items.map((item, index) => ({
+                  name:
+                    typeof item.name === "string" && item.name.trim()
+                      ? item.name.trim()
+                      : `Item ${index + 1}`,
+                  quantity: parseRequiredPositiveInt(
+                    item.quantity ?? 1,
+                    `items[${index}].quantity`,
+                  ),
+                  height: parseOptionalNonNegativeInt(
+                    item.height,
+                    `items[${index}].height`,
+                  ),
+                  weight: parseOptionalNonNegativeInt(
+                    item.weight,
+                    `items[${index}].weight`,
+                  ),
+                  length: parseOptionalNonNegativeInt(
+                    item.length,
+                    `items[${index}].length`,
+                  ),
+                  width: parseOptionalNonNegativeInt(
+                    item.width,
+                    `items[${index}].width`,
+                  ),
+                }))
               : undefined,
-          items: Array.isArray(input.items)
-            ? input.items.map((item, index) => ({
-                name:
-                  typeof item.name === "string" && item.name.trim()
-                    ? item.name.trim()
-                    : `Item ${index + 1}`,
-                quantity: parseRequiredPositiveInt(
-                  item.quantity ?? 1,
-                  `items[${index}].quantity`,
-                ),
-                height: parseOptionalNonNegativeInt(
-                  item.height,
-                  `items[${index}].height`,
-                ),
-                weight: parseOptionalNonNegativeInt(
-                  item.weight,
-                  `items[${index}].weight`,
-                ),
-                length: parseOptionalNonNegativeInt(
-                  item.length,
-                  `items[${index}].length`,
-                ),
-                width: parseOptionalNonNegativeInt(
-                  item.width,
-                  `items[${index}].width`,
-                ),
-              }))
-            : undefined,
-        });
+          });
+        } catch (error) {
+          throw toProviderRequestError(
+            error,
+            `Không thể tính phí vận chuyển với ${provider.display_name}.`,
+          );
+        }
 
         return {
           store_id,

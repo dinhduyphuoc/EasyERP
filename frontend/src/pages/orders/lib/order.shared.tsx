@@ -10,6 +10,7 @@ import {
 import AddOutlinedIcon from '@mui/icons-material/AddOutlined'
 import SyncOutlinedIcon from '@mui/icons-material/SyncOutlined'
 import { Link as RouterLink, useNavigate } from 'react-router'
+import { useStore } from '@/modules/store/use-store'
 import { CommonListLayout } from '@/shared/ui/list/common-list-layout'
 import { ListEmptyState } from '@/shared/ui/list/list-empty-state'
 import type { ListColumn, ListFilterConfig, ListTabConfig } from '@/shared/ui/list/common-list.types'
@@ -27,6 +28,7 @@ type OrdersCollectionPageProps = {
 }
 
 type OrdersCollectionPageCache = {
+  activeStoreId: string
   view: string
   searchValue: string
   filterValues: Record<string, string>
@@ -35,11 +37,21 @@ type OrdersCollectionPageCache = {
   rows: OrderListItem[]
 }
 
-let ordersCollectionCache: OrdersCollectionPageCache | null = null
+const ordersCollectionCache = new Map<string, OrdersCollectionPageCache>()
+
+const getOrdersCollectionCacheKey = (activeStoreId: string, view: OrdersCollectionPageProps['view']) =>
+  `${activeStoreId}:${view ?? 'all'}`
 
 export function invalidateOrdersCollectionCache(view?: OrdersCollectionPageProps['view']) {
-  if (!view || ordersCollectionCache?.view === view) {
-    ordersCollectionCache = null
+  if (!view) {
+    ordersCollectionCache.clear()
+    return
+  }
+
+  for (const [key, cache] of ordersCollectionCache.entries()) {
+    if (cache.view === view) {
+      ordersCollectionCache.delete(key)
+    }
   }
 }
 
@@ -70,31 +82,26 @@ export function OrdersCollectionPage({
   helperDescription,
 }: OrdersCollectionPageProps): ReactElement {
   const navigate = useNavigate()
+  const { activeStore } = useStore()
+  const activeStoreId = activeStore?.id ?? 'no-store'
+  const cacheKey = getOrdersCollectionCacheKey(activeStoreId, view)
+  const cachedState = ordersCollectionCache.get(cacheKey) ?? null
   const [activeTab, setActiveTab] = useState(
-    ordersCollectionCache?.view === view ? ordersCollectionCache?.filterValues.activeTab ?? 'all' : 'all',
+    cachedState?.filterValues.activeTab ?? 'all',
   )
-  const [searchValue, setSearchValue] = useState(
-    ordersCollectionCache?.view === view ? ordersCollectionCache?.searchValue ?? '' : '',
-  )
+  const [searchValue, setSearchValue] = useState(cachedState?.searchValue ?? '')
   const [filterValues, setFilterValues] = useState<Record<string, string>>(
-    ordersCollectionCache?.view === view
-      ? ordersCollectionCache?.filterValues ?? { payment_status: '', processing_status: '' }
-      : { payment_status: '', processing_status: '' },
+    cachedState?.filterValues ?? { payment_status: '', processing_status: '' },
   )
-  const [page, setPage] = useState(ordersCollectionCache?.view === view ? ordersCollectionCache?.page ?? 1 : 1)
-  const [pageSize, setPageSize] = useState(
-    ordersCollectionCache?.view === view ? ordersCollectionCache?.pageSize ?? 10 : 10,
-  )
-  const [rows, setRows] = useState<OrderListItem[]>(
-    ordersCollectionCache?.view === view ? ordersCollectionCache?.rows ?? [] : [],
-  )
+  const [page, setPage] = useState(cachedState?.page ?? 1)
+  const [pageSize, setPageSize] = useState(cachedState?.pageSize ?? 10)
+  const [rows, setRows] = useState<OrderListItem[]>(cachedState?.rows ?? [])
   const [isLoading, setIsLoading] = useState(rows.length === 0)
-  const [hasResolvedInitialLoad, setHasResolvedInitialLoad] = useState(
-    ordersCollectionCache?.view === view && (ordersCollectionCache?.rows.length ?? 0) > 0,
-  )
+  const [hasResolvedInitialLoad, setHasResolvedInitialLoad] = useState((cachedState?.rows.length ?? 0) > 0)
 
   const fetchOrders = useCallback(async () => {
-    const hasCachedRows = ordersCollectionCache?.view === view && (ordersCollectionCache?.rows.length ?? 0) > 0
+    const cachedRows = ordersCollectionCache.get(cacheKey)?.rows ?? []
+    const hasCachedRows = cachedRows.length > 0
     setIsLoading(!hasCachedRows)
 
     try {
@@ -107,7 +114,7 @@ export function OrdersCollectionPage({
       setIsLoading(false)
       setHasResolvedInitialLoad(true)
     }
-  }, [view])
+  }, [cacheKey, view])
 
   useEffect(() => {
     void fetchOrders()
@@ -118,15 +125,16 @@ export function OrdersCollectionPage({
       return
     }
 
-    ordersCollectionCache = {
+    ordersCollectionCache.set(cacheKey, {
+      activeStoreId,
       view,
       searchValue,
       filterValues: { ...filterValues, activeTab },
       page,
       pageSize,
       rows,
-    }
-  }, [activeTab, filterValues, hasResolvedInitialLoad, page, pageSize, rows, searchValue, view])
+    })
+  }, [activeStoreId, activeTab, cacheKey, filterValues, hasResolvedInitialLoad, page, pageSize, rows, searchValue, view])
 
   const filters = useMemo<ListFilterConfig[]>(
     () => [

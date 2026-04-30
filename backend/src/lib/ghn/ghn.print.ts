@@ -1,3 +1,5 @@
+import { GHN_GATEWAY_ORIGIN } from "@/config";
+
 export type GHNPrintFormat = "a5" | "80x80" | "52x70";
 
 export type GHNPrintUrls = Record<GHNPrintFormat, string>;
@@ -9,7 +11,7 @@ const PRINT_PATHS: Record<GHNPrintFormat, string> = {
 };
 
 const resolveGatewayOrigin = (baseUrl?: string) => {
-  const fallback = "https://online-gateway.ghn.vn";
+  const fallback = GHN_GATEWAY_ORIGIN;
   const resolved = baseUrl ?? fallback;
   return new URL(resolved).origin;
 };

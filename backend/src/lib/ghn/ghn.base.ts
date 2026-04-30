@@ -1,4 +1,5 @@
 import { GHNNotImplementedError } from "./ghn.errors";
+import { GHN_V2_API_BASE_URL } from "@/config";
 import type { GHNClientConfig, GHNRequestOptions, GHNTransport } from "./ghn.types";
 
 export abstract class GHNBaseAPI {
@@ -8,7 +9,7 @@ export abstract class GHNBaseAPI {
   private readonly transport?: GHNTransport;
 
   constructor(config: GHNClientConfig) {
-    this.baseUrl = config.baseUrl ?? "https://online-gateway.ghn.vn/shiip/public-api/v2/";
+    this.baseUrl = config.baseUrl ?? GHN_V2_API_BASE_URL;
     this.token = config.token;
     this.shopId = config.shopId;
     this.transport = config.transport;

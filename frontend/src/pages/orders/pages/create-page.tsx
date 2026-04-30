@@ -155,6 +155,8 @@ export function OrdersCreatePage(): ReactElement {
     customerModalMode,
     customerModalForm,
     isCustomerModalSaving,
+    serviceId,
+    serviceTypeId,
     shippingService,
     setShippingService,
     shippingFee,
@@ -445,8 +447,8 @@ export function OrdersCreatePage(): ReactElement {
     }
 
     if (
-      vatChangedByUser &&
-      !window.confirm('Changing VAT will update order total and may affect payment status.')
+      vatChangedByUser && 
+      !window.confirm('Thay đổi VAT sẽ thể ảnh hưởng đến đơn hàng hiện tại. Bạn có chắc chắn muốn tiếp tục?.')
     ) {
       return
     }
@@ -506,8 +508,8 @@ export function OrdersCreatePage(): ReactElement {
         width: Number(parcelWidth || 0) || null,
         height: Number(parcelHeight || 0) || null,
         insurance_value: Number(insuranceValue || 0),
-        service_id: null,
-        service_type_id: null,
+        service_id: serviceId,
+        service_type_id: serviceTypeId,
         discount_amount: normalizedDiscountAmount,
         vat_enabled: vatEnabled,
         tax_amount: normalizedTaxAmount,

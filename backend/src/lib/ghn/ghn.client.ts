@@ -5,12 +5,13 @@ import { GHNStoreClient } from "./ghn.store";
 import { GHNTicketClient } from "./ghn.ticket";
 import { createGHNTransport } from "./ghn.transport";
 import { GHNWebhookClient } from "./ghn.webhook";
+import { GHN_V2_API_BASE_URL } from "@/config";
 import type { GHNClient, GHNClientConfig } from "./ghn.types";
 
 export const createGHNClient = (config: GHNClientConfig): GHNClient => {
   const nextConfig: GHNClientConfig = {
     ...config,
-    baseUrl: config.baseUrl ?? "https://online-gateway.ghn.vn/shiip/public-api/v2/",
+    baseUrl: config.baseUrl ?? GHN_V2_API_BASE_URL,
     transport: config.transport ?? createGHNTransport(config),
   };
 

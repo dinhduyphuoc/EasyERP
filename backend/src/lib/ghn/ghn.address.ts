@@ -1,4 +1,5 @@
 import { GHNBaseAPI } from "./ghn.base";
+import { GHN_PUBLIC_API_BASE_URL } from "@/config";
 import type {
   GHNAddressAPI,
   GHNClientConfig,
@@ -17,7 +18,7 @@ export class GHNAddressClient extends GHNBaseAPI implements GHNAddressAPI {
   getProvince() {
     return this.request<GHNProvinceResponse>({
       method: "GET",
-      baseUrl: "https://online-gateway.ghn.vn/shiip/public-api/",
+      baseUrl: GHN_PUBLIC_API_BASE_URL,
       path: "master-data/province",
     });
   }
@@ -25,7 +26,7 @@ export class GHNAddressClient extends GHNBaseAPI implements GHNAddressAPI {
   getDistrict(input: GHNDistrictInput) {
     return this.request<GHNDistrictResponse, GHNDistrictInput>({
       method: "POST",
-      baseUrl: "https://online-gateway.ghn.vn/shiip/public-api/",
+      baseUrl: GHN_PUBLIC_API_BASE_URL,
       path: "master-data/district",
       data: input,
     });
@@ -34,7 +35,7 @@ export class GHNAddressClient extends GHNBaseAPI implements GHNAddressAPI {
   getWard(input: GHNWardInput) {
     return this.request<GHNWardResponse, GHNWardInput>({
       method: "POST",
-      baseUrl: "https://online-gateway.ghn.vn/shiip/public-api/",
+      baseUrl: GHN_PUBLIC_API_BASE_URL,
       path: "master-data/ward",
       data: input,
     });

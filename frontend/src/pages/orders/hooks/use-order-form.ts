@@ -238,6 +238,8 @@ export function useOrderForm({
   const [customerModalPrefill, setCustomerModalPrefill] = useState<ParsedCustomerAddress | null>(null)
   const [isCustomerModalSaving, setIsCustomerModalSaving] = useState(false)
 
+  const [serviceId, setServiceId] = useState<number | null>(null)
+  const [serviceTypeId, setServiceTypeId] = useState<number | null>(null)
   const [shippingService, setShippingService] = useState('')
   const [shippingFee, setShippingFee] = useState('0')
   const [fromContactName, setFromContactName] = useState('')
@@ -637,8 +639,15 @@ export function useOrderForm({
     ]
   }, [customerSearch, options?.customers])
 
+  const clearResolvedShippingSelection = () => {
+    setServiceId(null)
+    setServiceTypeId(null)
+  }
+
   const applyCustomerShippingAddress = async (address: AddressDetailInput | null | undefined) => {
     try {
+      clearResolvedShippingSelection()
+
       if (!address) {
         setToState(null)
         setToCity(null)
@@ -705,7 +714,19 @@ export function useOrderForm({
     setFromDistrict(selection.district)
   }
 
-  const applyOrderData = async (orderData: OrderListItem, statesData: LocationItem[]) => {
+  const applyOrderFormSnapshot = async ({
+    orderData,
+    statesData,
+    preservePaymentStatus,
+    resetOperationalShippingFields,
+    preserveShippingSelection,
+  }: {
+    orderData: OrderListItem
+    statesData: LocationItem[]
+    preservePaymentStatus: boolean
+    resetOperationalShippingFields: boolean
+    preserveShippingSelection: boolean
+  }) => {
     const parsedPaymentDetails = parsePaymentNoteContent(orderData.payment_notes)
     const inferredPaymentMethod =
       parsedPaymentDetails.method ?? getPaymentMethodFromTypeId(orderData.payment_type_id, orderData.payment_status)
@@ -720,8 +741,12 @@ export function useOrderForm({
         .filter(Boolean)
         .join(' • '),
     )
-    setPaymentStatus(orderData.payment_status)
+    setPaymentStatus(
+      preservePaymentStatus ? orderData.payment_status : inferredPaymentMethod === 'deposit' ? 'deposit' : 'unpaid',
+    )
     setPaymentMethod(inferredPaymentMethod)
+    setServiceId(preserveShippingSelection ? orderData.service_id ?? null : null)
+    setServiceTypeId(preserveShippingSelection ? orderData.service_type_id ?? null : null)
     setShippingService(orderData.shipping_service ?? '')
     setShippingFee(orderData.shipping_fee)
 
@@ -746,13 +771,13 @@ export function useOrderForm({
     setParcelWidth(orderData.width ? String(orderData.width) : '15')
     setParcelHeight(orderData.height ? String(orderData.height) : '10')
     setInsuranceValue(orderData.insurance_value ?? '0')
-    setCodAmount(orderData.cod_amount ?? '0')
+    setCodAmount(resetOperationalShippingFields ? '0' : orderData.cod_amount ?? '0')
     setOrderDiscountAmount(orderData.discount_amount)
     setVatEnabled(orderData.vat_enabled)
     setVatRatePercent(String(Number(orderData.vat_rate_percent || 0)))
     setInitialVatEnabled(orderData.vat_enabled)
     setInitialVatRatePercent(String(Number(orderData.vat_rate_percent || 0)))
-    setDepositAmount(orderData.deposit_amount)
+    setDepositAmount(resetOperationalShippingFields ? '0' : orderData.deposit_amount)
     setPaymentDueDate(parsedPaymentDetails.dueDate)
     setDepositInputMode(parsedPaymentDetails.depositMode)
     setDepositPercent(parsedPaymentDetails.depositPercent)
@@ -760,71 +785,35 @@ export function useOrderForm({
     setBankAccountNumber(parsedPaymentDetails.accountNumber)
     setBankAccountHolder(parsedPaymentDetails.accountHolder)
     setTransferReference(parsedPaymentDetails.transferReference)
-    setWarehouseStatus(orderData.warehouse_status ?? '')
-    setTrackingCode(orderData.tracking_code ?? '')
-    setShippingStatus(orderData.shipping_status ?? '')
+    setWarehouseStatus(resetOperationalShippingFields ? '' : orderData.warehouse_status ?? '')
+    setTrackingCode(resetOperationalShippingFields ? '' : orderData.tracking_code ?? '')
+    setShippingStatus(resetOperationalShippingFields ? '' : orderData.shipping_status ?? '')
     setPaymentNotes(parsedPaymentDetails.note)
   }
 
+  const applyOrderData = async (orderData: OrderListItem, statesData: LocationItem[]) => {
+    await applyOrderFormSnapshot({
+      orderData,
+      statesData,
+      preservePaymentStatus: true,
+      resetOperationalShippingFields: false,
+      preserveShippingSelection: true,
+    })
+  }
+
   const applyDuplicateOrderData = async (orderData: OrderListItem, statesData: LocationItem[]) => {
-    const parsedPaymentDetails = parsePaymentNoteContent(orderData.payment_notes)
-    const inferredPaymentMethod =
-      parsedPaymentDetails.method ?? getPaymentMethodFromTypeId(orderData.payment_type_id, orderData.payment_status)
+    await applyOrderFormSnapshot({
+      orderData,
+      statesData,
+      preservePaymentStatus: false,
+      resetOperationalShippingFields: true,
+      preserveShippingSelection: false,
+    })
+  }
 
-    setCustomerId(orderData.customer_id ? String(orderData.customer_id) : '')
-    setCustomerCode(orderData.customer_info.customer_code ?? '')
-    setCustomerName(orderData.customer_info.name)
-    setCustomerPhone(orderData.customer_info.phone)
-    setCustomerAddress(orderData.customer_info.address ?? '')
-    setCustomerSearch(
-      [orderData.customer_info.name, orderData.customer_info.phone, orderData.customer_info.customer_code]
-        .filter(Boolean)
-        .join(' • '),
-    )
-    setPaymentStatus(inferredPaymentMethod === 'deposit' ? 'deposit' : 'unpaid')
-    setPaymentMethod(inferredPaymentMethod)
-    setShippingService(orderData.shipping_service ?? '')
-    setShippingFee(orderData.shipping_fee)
-
-    const [fromSelection, toSelection] = await Promise.all([
-      hydrateAddressSelection(orderData.from_address_detail, statesData),
-      hydrateAddressSelection(orderData.to_address_detail, statesData),
-    ])
-
-    setFromState(fromSelection.state)
-    setFromCity(fromSelection.city)
-    setFromDistrict(fromSelection.district)
-    setToState(toSelection.state)
-    setToCity(toSelection.city)
-    setToDistrict(toSelection.district)
-    setFromContactName(orderData.from_name ?? '')
-    setFromContactPhone(orderData.from_phone ?? '')
-    setFromAddressLine(orderData.from_address_detail?.address_line ?? orderData.from_address ?? '')
-    setToAddressLine(orderData.to_address_detail?.address_line ?? orderData.customer_info.address ?? '')
-    setParcelContent(orderData.content ?? '')
-    setParcelWeight(orderData.weight ? String(orderData.weight) : '500')
-    setParcelLength(orderData.length ? String(orderData.length) : '20')
-    setParcelWidth(orderData.width ? String(orderData.width) : '15')
-    setParcelHeight(orderData.height ? String(orderData.height) : '10')
-    setInsuranceValue(orderData.insurance_value ?? '0')
-    setCodAmount('0')
-    setOrderDiscountAmount(orderData.discount_amount)
-    setVatEnabled(orderData.vat_enabled)
-    setVatRatePercent(String(Number(orderData.vat_rate_percent || 0)))
-    setInitialVatEnabled(orderData.vat_enabled)
-    setInitialVatRatePercent(String(Number(orderData.vat_rate_percent || 0)))
-    setDepositAmount('0')
-    setPaymentDueDate(parsedPaymentDetails.dueDate)
-    setDepositInputMode(parsedPaymentDetails.depositMode)
-    setDepositPercent(parsedPaymentDetails.depositPercent)
-    setBankName(parsedPaymentDetails.bankName)
-    setBankAccountNumber(parsedPaymentDetails.accountNumber)
-    setBankAccountHolder(parsedPaymentDetails.accountHolder)
-    setTransferReference(parsedPaymentDetails.transferReference)
-    setWarehouseStatus('')
-    setTrackingCode('')
-    setShippingStatus('')
-    setPaymentNotes(parsedPaymentDetails.note)
+  const handleShippingServiceChange = (value: string) => {
+    setShippingService(value)
+    clearResolvedShippingSelection()
   }
 
   const handleCustomerSelect = (value: OrderOptionLookup['customers'][number] | null) => {
@@ -1109,33 +1098,79 @@ export function useOrderForm({
   }
 
   const handleFromStateChange = (_event: unknown, value: LocationItem | null) => {
+    clearResolvedShippingSelection()
     setFromState(value)
     setFromCity(null)
     setFromDistrict(null)
   }
 
   const handleFromCityChange = (_event: unknown, value: CityItem | null) => {
+    clearResolvedShippingSelection()
     setFromCity(value)
     setFromDistrict(null)
   }
 
   const handleFromDistrictChange = (_event: unknown, value: DistrictItem | null) => {
+    clearResolvedShippingSelection()
     setFromDistrict(value)
   }
 
   const handleToStateChange = (_event: unknown, value: LocationItem | null) => {
+    clearResolvedShippingSelection()
     setToState(value)
     setToCity(null)
     setToDistrict(null)
   }
 
   const handleToCityChange = (_event: unknown, value: CityItem | null) => {
+    clearResolvedShippingSelection()
     setToCity(value)
     setToDistrict(null)
   }
 
   const handleToDistrictChange = (_event: unknown, value: DistrictItem | null) => {
+    clearResolvedShippingSelection()
     setToDistrict(value)
+  }
+
+  const handleFromAddressLineChange = (value: string) => {
+    clearResolvedShippingSelection()
+    setFromAddressLine(value)
+  }
+
+  const handleToAddressLineChange = (value: string) => {
+    clearResolvedShippingSelection()
+    setToAddressLine(value)
+  }
+
+  const handleParcelWeightChange = (value: string) => {
+    clearResolvedShippingSelection()
+    setParcelWeight(value)
+  }
+
+  const handleParcelLengthChange = (value: string) => {
+    clearResolvedShippingSelection()
+    setParcelLength(value)
+  }
+
+  const handleParcelWidthChange = (value: string) => {
+    clearResolvedShippingSelection()
+    setParcelWidth(value)
+  }
+
+  const handleParcelHeightChange = (value: string) => {
+    clearResolvedShippingSelection()
+    setParcelHeight(value)
+  }
+
+  const handleInsuranceValueChange = (value: string) => {
+    clearResolvedShippingSelection()
+    setInsuranceValue(value)
+  }
+
+  const handleCodAmountChange = (value: string) => {
+    clearResolvedShippingSelection()
+    setCodAmount(value)
   }
 
   const handlePaymentMethodChange = (method: PaymentMethod) => {
@@ -1175,8 +1210,10 @@ export function useOrderForm({
     customerModalMode,
     customerModalForm,
     isCustomerModalSaving,
+    serviceId,
+    serviceTypeId,
     shippingService,
-    setShippingService,
+    setShippingService: handleShippingServiceChange,
     shippingFee,
     setShippingFee,
     fromContactName,
@@ -1184,12 +1221,12 @@ export function useOrderForm({
     fromContactPhone,
     setFromContactPhone,
     fromAddressLine,
-    setFromAddressLine,
+    setFromAddressLine: handleFromAddressLineChange,
     fromState,
     fromCity,
     fromDistrict,
     toAddressLine,
-    setToAddressLine,
+    setToAddressLine: handleToAddressLineChange,
     toState,
     toCity,
     toDistrict,
@@ -1204,17 +1241,17 @@ export function useOrderForm({
     parcelContent,
     setParcelContent,
     parcelWeight,
-    setParcelWeight,
+    setParcelWeight: handleParcelWeightChange,
     parcelLength,
-    setParcelLength,
+    setParcelLength: handleParcelLengthChange,
     parcelWidth,
-    setParcelWidth,
+    setParcelWidth: handleParcelWidthChange,
     parcelHeight,
-    setParcelHeight,
+    setParcelHeight: handleParcelHeightChange,
     insuranceValue,
-    setInsuranceValue,
+    setInsuranceValue: handleInsuranceValueChange,
     codAmount,
-    setCodAmount,
+    setCodAmount: handleCodAmountChange,
     warehouseStatus,
     setWarehouseStatus,
     trackingCode,

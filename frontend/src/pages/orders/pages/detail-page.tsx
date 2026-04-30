@@ -2,14 +2,13 @@ import { useCallback, useEffect, useMemo, useState, type ReactElement, type Reac
 import { Link as RouterLink, useNavigate, useParams } from 'react-router'
 import MoreHorizIcon from '@mui/icons-material/MoreHoriz'
 import LocalShippingOutlinedIcon from '@mui/icons-material/LocalShippingOutlined'
-import PaymentsOutlinedIcon from '@mui/icons-material/PaymentsOutlined'
-import QrCode2OutlinedIcon from '@mui/icons-material/QrCode2Outlined'
 import ReceiptLongOutlinedIcon from '@mui/icons-material/ReceiptLongOutlined'
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined'
 import PrintOutlinedIcon from '@mui/icons-material/PrintOutlined'
 import CheckCircleOutlinedIcon from '@mui/icons-material/CheckCircleOutlined'
 import PersonOutlineOutlinedIcon from '@mui/icons-material/PersonOutlineOutlined'
 import Inventory2OutlinedIcon from '@mui/icons-material/Inventory2Outlined'
+import InfoIcon from '@mui/icons-material/Info';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 import {
   alpha,
@@ -17,10 +16,6 @@ import {
   Box,
   Button,
   Chip,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
   Menu,
   MenuItem,
   Paper,
@@ -39,24 +34,21 @@ import {
 } from '@mui/material'
 import { appToast } from '@/shared/ui/toast/toast.helpers'
 import { borderedCardSx } from '@/shared/ui/paper'
-import { StackedTextField } from '@/shared/ui/form/stacked-text-field'
 import { useStore } from '@/modules/store/use-store'
 import { useAuth } from '@/modules/auth/use-auth'
 import { generalSettingsApi, type VietQrGenerateResponse } from '@/pages/settings/general-settings.api'
-import { shippingApi } from '@/pages/shipping/shipping.api'
 import { orderApi, type OrderActionName, type OrderListItem, type OrderProcessingStatus } from '../api'
 import {
   DetailPageSkeleton,
-  PaymentEntryDialog,
-  PaymentHistorySection,
-  PaymentSummarySection,
+  OrderShippingMeasurementsForm,
+  OrderDetailDialogs,
+  OrderDetailPaymentPanel,
 } from '../components'
-import { usePaymentConfigDraft, usePaymentEntryFlow } from '../hooks'
+import { useOrderCustomerEditor, useOrderShipping, usePaymentConfigDraft, usePaymentEntryFlow } from '../hooks'
 import {
   buildPaymentHistoryEntries,
   getPaymentMethodFromTypeId,
   parsePaymentNoteContent,
-  PaymentInformationCard,
 } from '../lib'
 import {
   formatCurrency,
@@ -79,13 +71,6 @@ const getErrorMessage = (error: unknown, fallback: string) => {
     : fallback
 }
 
-const normalizeShippingProviderName = (value: string | null | undefined) => {
-  if (!value) {
-    return ''
-  }
-
-  return value.split(' - ')[0]?.trim() ?? ''
-}
 
 const stepperStages: Array<{
   key: string
@@ -99,24 +84,6 @@ const stepperStages: Array<{
   { key: 'shipping', timelineKey: 'delivering', label: 'Giao hàng', matches: ['delivering'] },
   { key: 'completed', timelineKey: 'completed', label: 'Hoàn thành', matches: ['completed'] },
 ]
-
-type ShippingActionDialogState = {
-  action: 'confirm_shipping' | 'push_to_delivery'
-  shippingService: string
-  trackingCode: string
-  shippingStatus: string
-}
-
-type ShippingServiceOption = {
-  key: string
-  providerCode: string
-  providerDisplayName: string
-  providerLogoUrl: string | null
-  serviceId: number
-  serviceTypeId: number
-  serviceName: string
-  fee: number
-}
 
 const escapeHtml = (value: string) =>
   value
@@ -146,12 +113,6 @@ const getOrderHistoryPaymentAmount = (entry: OrderListItem['order_history'][numb
 
   return null
 }
-
-const hasResolvedAddress = (address?: {
-  state_id: number
-  city_id: number
-  district_id: number | null
-} | null) => Boolean(address?.state_id && address.city_id && address.district_id)
 
 const openPrintWindow = (content: string) => {
   if (typeof window === 'undefined' || !window.document?.body) {
@@ -314,22 +275,24 @@ export function OrdersDetailPage(): ReactElement {
   const [isLoading, setIsLoading] = useState(true)
   const [isActing, setIsActing] = useState(false)
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null)
-  const [shippingDialog, setShippingDialog] = useState<ShippingActionDialogState | null>(null)
   const [invoiceCodeDraft, setInvoiceCodeDraft] = useState('')
   const [isInvoiceDialogOpen, setIsInvoiceDialogOpen] = useState(false)
   const [isQrDialogOpen, setIsQrDialogOpen] = useState(false)
   const [isGeneratingQr, setIsGeneratingQr] = useState(false)
+  const [isSavingShippingMeasurements, setIsSavingShippingMeasurements] = useState(false)
   const [paymentQr, setPaymentQr] = useState<VietQrGenerateResponse | null>(null)
+  const [shippingWeightDraft, setShippingWeightDraft] = useState('')
+  const [shippingWeightUnit, setShippingWeightUnit] = useState<'g' | 'kg'>('g')
+  const [shippingLengthDraft, setShippingLengthDraft] = useState('')
+  const [shippingWidthDraft, setShippingWidthDraft] = useState('')
+  const [shippingHeightDraft, setShippingHeightDraft] = useState('')
+  const [shippingDimensionUnit, setShippingDimensionUnit] = useState<'cm' | 'm'>('cm')
   const [storeShippingAddress, setStoreShippingAddress] = useState<{
     state_id: number | null
     city_id: number | null
     district_id: number | null
     address_line: string
   } | null>(null)
-  const [shippingOptions, setShippingOptions] = useState<ShippingServiceOption[]>([])
-  const [isShippingOptionsLoading, setIsShippingOptionsLoading] = useState(false)
-  const [isSavingShippingOption, setIsSavingShippingOption] = useState(false)
-  const [shippingOptionsError, setShippingOptionsError] = useState('')
   const fetchOrder = useCallback(async () => {
     if (!params.id) {
       return
@@ -364,140 +327,6 @@ export function OrdersDetailPage(): ReactElement {
 
     void loadVatSettings()
   }, [])
-
-  useEffect(() => {
-    if (!order) {
-      setShippingOptions([])
-      setShippingOptionsError('')
-      return
-    }
-
-    const hasStoreAddress =
-      Boolean(storeShippingAddress?.state_id) &&
-      Boolean(storeShippingAddress?.city_id) &&
-      Boolean(storeShippingAddress?.district_id)
-    const hasCustomerAddress = hasResolvedAddress(order.to_address_detail)
-
-    if (!hasStoreAddress || !hasCustomerAddress) {
-      setShippingOptions([])
-      setShippingOptionsError('')
-      return
-    }
-
-    let cancelled = false
-
-    const fetchShippingOptions = async () => {
-      try {
-        setIsShippingOptionsLoading(true)
-        setShippingOptionsError('')
-
-        const providersResponse = await shippingApi.listProviders(activeStore?.id)
-        const connectedProviders = providersResponse.items.filter((item) => item.status.code === 'connected')
-
-        const optionGroups = await Promise.all(
-          connectedProviders.map(async (provider) => {
-            try {
-              const servicesResponse = await shippingApi.listAvailableServicesByLocation(provider.code, {
-                store_id: activeStore?.id,
-                from_location: {
-                  state_id: storeShippingAddress?.state_id ?? null,
-                  city_id: storeShippingAddress?.city_id ?? null,
-                  district_id: storeShippingAddress?.district_id ?? null,
-                },
-                to_location: {
-                  address_id: order.to_address_detail?.id ?? null,
-                  state_id: order.to_address_detail?.state_id ?? null,
-                  city_id: order.to_address_detail?.city_id ?? null,
-                  district_id: order.to_address_detail?.district_id ?? null,
-                },
-              })
-
-              const feeResults = await Promise.all(
-                servicesResponse.items.map(async (service) => {
-                  try {
-                    const feeResponse = await shippingApi.calculateFeeByLocation(provider.code, {
-                      store_id: activeStore?.id,
-                      from_location: {
-                        state_id: storeShippingAddress?.state_id ?? null,
-                        city_id: storeShippingAddress?.city_id ?? null,
-                        district_id: storeShippingAddress?.district_id ?? null,
-                      },
-                      to_location: {
-                        address_id: order.to_address_detail?.id ?? null,
-                        state_id: order.to_address_detail?.state_id ?? null,
-                        city_id: order.to_address_detail?.city_id ?? null,
-                        district_id: order.to_address_detail?.district_id ?? null,
-                      },
-                      service_id: service.service_id,
-                      service_type_id: service.service_type_id,
-                      weight: order.weight ?? null,
-                      length: order.length ?? null,
-                      width: order.width ?? null,
-                      height: order.height ?? null,
-                      insurance_value: order.insurance_value ? Number(order.insurance_value) : null,
-                      cod_value: order.cod_amount ? Number(order.cod_amount) : null,
-                      items: order.order_items.map((item) => ({
-                        name: item.product_name,
-                        quantity: item.quantity,
-                      })),
-                    })
-
-                    return {
-                      key: `${provider.code}:${service.service_id}:${service.service_type_id}`,
-                      providerCode: provider.code,
-                      providerDisplayName: provider.display_name,
-                      providerLogoUrl: provider.logo_url,
-                      serviceId: service.service_id,
-                      serviceTypeId: service.service_type_id,
-                      serviceName: service.short_name,
-                      fee: Number(feeResponse.quote?.total ?? 0),
-                    } satisfies ShippingServiceOption
-                  } catch (error) {
-                    console.error(`Không thể tính phí cho ${provider.code}/${service.short_name}:`, error)
-                    return null
-                  }
-                }),
-              )
-
-              return feeResults.filter((item): item is ShippingServiceOption => Boolean(item))
-            } catch (error) {
-              console.error(`Không thể tải dịch vụ vận chuyển cho ${provider.code}:`, error)
-              return []
-            }
-          }),
-        )
-
-        if (cancelled) {
-          return
-        }
-
-        const nextOptions = optionGroups.flat().sort((left, right) => left.fee - right.fee)
-        setShippingOptions(nextOptions)
-
-        if (nextOptions.length === 0) {
-          setShippingOptionsError('Chưa lấy được dịch vụ vận chuyển phù hợp cho địa chỉ hiện tại.')
-        }
-      } catch (error) {
-        if (cancelled) {
-          return
-        }
-
-        console.error('Lỗi khi tải danh sách dịch vụ vận chuyển:', error)
-        setShippingOptions([])
-        setShippingOptionsError('Không thể tải danh sách dịch vụ vận chuyển.')
-      } finally {
-        if (!cancelled) {
-          setIsShippingOptionsLoading(false)
-        }
-      }
-    }
-
-    void fetchShippingOptions()
-
-    return () => {
-      cancelled = true
-    }
-  }, [activeStore?.id, order, storeShippingAddress])
 
   const nextAction = useMemo(() => {
     if (!order) {
@@ -573,44 +402,31 @@ export function OrdersDetailPage(): ReactElement {
     [order, params.id],
   )
 
-  const openShippingActionDialog = useCallback(
-    (action: 'confirm_shipping' | 'push_to_delivery') => {
-      if (!order) {
-        return
-      }
-
-      const selectedOption =
-        shippingOptions.find(
-          (item) => item.serviceId === order.service_id && item.serviceTypeId === order.service_type_id,
-        ) ?? null
-      const nextShippingService =
-        selectedOption
-          ? selectedOption.providerDisplayName
-          : normalizeShippingProviderName(order.shipping_service) || 'GHN'
-
-      setShippingDialog({
-        action,
-        shippingService: nextShippingService,
-        trackingCode: order.tracking_code ?? '',
-        shippingStatus:
-          action === 'push_to_delivery' ? order.shipping_status ?? 'delivering' : order.shipping_status ?? '',
-      })
-    },
-    [order, shippingOptions],
-  )
-
-  const submitShippingAction = useCallback(async () => {
-    if (!shippingDialog) {
-      return
-    }
-
-    await runAction(shippingDialog.action, {
-      shipping_service: shippingDialog.shippingService.trim(),
-      tracking_code: shippingDialog.trackingCode.trim(),
-      shipping_status: shippingDialog.shippingStatus.trim(),
-    })
-    setShippingDialog(null)
-  }, [runAction, shippingDialog])
+  const {
+    shippingDialog,
+    shippingOptions,
+    isShippingOptionsLoading,
+    isSavingShippingOption,
+    shippingOptionsError,
+    hasStoreShippingAddress,
+    hasCustomerShippingAddress,
+    selectedShippingOptionKey,
+    isNextActionBlockedByShippingService,
+    handleSelectShippingOption,
+    openShippingActionDialog,
+    submitShippingAction,
+    updateShippingDialog,
+    closeShippingDialog,
+  } = useOrderShipping({
+    order,
+    orderId: params.id,
+    activeStoreId: activeStore?.id,
+    storeShippingAddress,
+    nextActionAction: nextAction?.action ?? null,
+    onOrderUpdated: setOrder,
+    runAction,
+    getErrorMessage,
+  })
 
   const submitInvoiceRequest = useCallback(async () => {
     await runAction('request_invoice', {
@@ -670,6 +486,19 @@ export function OrdersDetailPage(): ReactElement {
     }
   }, [paymentQr])
 
+  useEffect(() => {
+    if (!order) {
+      return
+    }
+
+    setShippingWeightDraft(order.weight ? String(order.weight) : '500')
+    setShippingWeightUnit('g')
+    setShippingLengthDraft(order.length ? String(order.length) : '20')
+    setShippingWidthDraft(order.width ? String(order.width) : '15')
+    setShippingHeightDraft(order.height ? String(order.height) : '10')
+    setShippingDimensionUnit('cm')
+  }, [order])
+
   const processingMeta = getProcessingStatusMeta(order?.processing_status ?? 'draft')
   const parsedOrderPaymentDetails = parsePaymentNoteContent(order?.payment_notes)
   const currentPaymentMethod =
@@ -712,31 +541,60 @@ export function OrdersDetailPage(): ReactElement {
     order?.processing_status ?? '',
   )
   const canExportInvoice = order?.payment_status === 'paid'
-  const hasStoreShippingAddress =
-    Boolean(storeShippingAddress?.state_id) &&
-    Boolean(storeShippingAddress?.city_id) &&
-    Boolean(storeShippingAddress?.district_id)
-  const hasCustomerShippingAddress = hasResolvedAddress(order?.to_address_detail)
-  const selectedShippingOptionKey =
-    shippingOptions.find(
-      (item) =>
-        item.serviceId === order?.service_id &&
-        item.serviceTypeId === order?.service_type_id &&
-        item.providerDisplayName.toLowerCase() ===
-          normalizeShippingProviderName(order?.shipping_service).toLowerCase(),
-    )?.key ??
-    shippingOptions.find(
-      (item) => item.serviceId === order?.service_id && item.serviceTypeId === order?.service_type_id,
-    )?.key ??
-    ''
-  const selectedShippingOption =
-    shippingOptions.find((item) => item.key === selectedShippingOptionKey) ?? null
-  const hasSelectedShippingService =
-    Boolean(selectedShippingOption) ||
-    Boolean(order?.service_id && order?.service_type_id && order?.shipping_service)
-  const requiresSelectedShippingService =
-    nextAction?.action === 'confirm_shipping' || nextAction?.action === 'push_to_delivery'
-  const isNextActionBlockedByShippingService = requiresSelectedShippingService && !hasSelectedShippingService
+  const isMissingStoreShippingAddress = !hasStoreShippingAddress
+  const isMissingCustomerShippingAddress = !hasCustomerShippingAddress
+  const shippingAddressWarningTitle =
+    isMissingStoreShippingAddress && isMissingCustomerShippingAddress
+      ? 'Chưa cập nhật địa chỉ khách/cửa hàng'
+      : isMissingStoreShippingAddress
+        ? 'Chưa cập nhật địa chỉ cửa hàng'
+        : 'Chưa cập nhật địa chỉ khách'
+  const shippingAddressCtaLabel = isMissingStoreShippingAddress
+    ? 'Cập nhật địa chỉ cửa hàng'
+    : order?.customer_id
+      ? 'Cập nhật địa chỉ khách'
+      : 'Chỉnh sửa đơn hàng'
+  const {
+    customerModalOpen,
+    customerModalForm,
+    customerModalStates,
+    customerModalCities,
+    customerModalDistricts,
+    isCustomerModalStatesLoading,
+    isCustomerModalCitiesLoading,
+    isCustomerModalDistrictsLoading,
+    isCustomerModalSaving,
+    handleCustomerModalFieldChange,
+    handleCustomerModalDefaultAddressChange,
+    handleCustomerModalStateChange,
+    handleCustomerModalCityChange,
+    handleCustomerModalDistrictChange,
+    handleCloseCustomerModal,
+    handleOpenEditCustomerModal,
+    handleSaveCustomerModal,
+  } = useOrderCustomerEditor({
+    order,
+    orderId: params.id,
+    onOrderUpdated: setOrder,
+    getErrorMessage,
+  })
+  const handleShippingAddressCta = useCallback(() => {
+    if (!order) {
+      return
+    }
+
+    if (isMissingStoreShippingAddress) {
+      navigate('/settings/address-management', { state: { overlayFrom: '/' } })
+      return
+    }
+
+    if (order.customer_id) {
+      void handleOpenEditCustomerModal()
+      return
+    }
+
+    navigate(`/orders/${order.id}/edit`)
+  }, [handleOpenEditCustomerModal, isMissingStoreShippingAddress, navigate, order])
 
   const handleOpenPaymentQr = useCallback(async () => {
     if (!order || orderRemainingAmount <= 0) {
@@ -765,6 +623,57 @@ export function OrdersDetailPage(): ReactElement {
       setIsGeneratingQr(false)
     }
   }, [order, orderRemainingAmount])
+
+  const handleSaveShippingMeasurements = useCallback(async () => {
+    if (!order) {
+      return
+    }
+
+    const parsedWeight = Number(shippingWeightDraft)
+    const parsedLength = Number(shippingLengthDraft)
+    const parsedWidth = Number(shippingWidthDraft)
+    const parsedHeight = Number(shippingHeightDraft)
+
+    if (
+      !Number.isFinite(parsedWeight) || parsedWeight <= 0 ||
+      !Number.isFinite(parsedLength) || parsedLength <= 0 ||
+      !Number.isFinite(parsedWidth) || parsedWidth <= 0 ||
+      !Number.isFinite(parsedHeight) || parsedHeight <= 0
+    ) {
+      appToast.error('Vui lòng nhập khối lượng và kích thước lớn hơn 0.')
+      return
+    }
+
+    const normalizedWeight = shippingWeightUnit === 'kg' ? Math.round(parsedWeight * 1000) : Math.round(parsedWeight)
+    const dimensionMultiplier = shippingDimensionUnit === 'm' ? 100 : 1
+
+    try {
+      setIsSavingShippingMeasurements(true)
+      const updatedOrder = await orderApi.updateOrder(String(order.id), {
+        weight: normalizedWeight,
+        length: Math.round(parsedLength * dimensionMultiplier),
+        width: Math.round(parsedWidth * dimensionMultiplier),
+        height: Math.round(parsedHeight * dimensionMultiplier),
+      })
+
+      setOrder(updatedOrder)
+      appToast.success('Đã cập nhật khối lượng và kích thước đơn hàng.')
+    } catch (error) {
+      console.error('Lỗi khi cập nhật khối lượng và kích thước:', error)
+      appToast.error(getErrorMessage(error, 'Không thể cập nhật khối lượng và kích thước.'))
+    } finally {
+      setIsSavingShippingMeasurements(false)
+    }
+  }, [
+    getErrorMessage,
+    order,
+    shippingDimensionUnit,
+    shippingHeightDraft,
+    shippingLengthDraft,
+    shippingWeightDraft,
+    shippingWeightUnit,
+    shippingWidthDraft,
+  ])
   const {
     isPaymentDialogOpen,
     isSavingPayment,
@@ -816,61 +725,6 @@ export function OrdersDetailPage(): ReactElement {
     orderRemainingAmount,
     onOrderUpdated: setOrder,
   })
-
-  const handleSelectShippingOption = useCallback(
-    async (option: ShippingServiceOption) => {
-      if (!params.id || !order) {
-        return
-      }
-
-      if (
-        order.service_id === option.serviceId &&
-        order.service_type_id === option.serviceTypeId &&
-        normalizeShippingProviderName(order.shipping_service).toLowerCase() ===
-          option.providerDisplayName.toLowerCase()
-      ) {
-        return
-      }
-
-      try {
-        setIsSavingShippingOption(true)
-        const updatedOrder = await orderApi.updateOrder(params.id, {
-          service_id: option.serviceId,
-          service_type_id: option.serviceTypeId,
-          shipping_fee: option.fee,
-          shipping_service: option.providerDisplayName,
-        })
-
-        setOrder(updatedOrder)
-        appToast.success('Đã cập nhật dịch vụ vận chuyển cho đơn hàng.')
-      } catch (error) {
-        console.error('Lỗi khi cập nhật dịch vụ vận chuyển:', error)
-        appToast.error(getErrorMessage(error, 'Không thể cập nhật dịch vụ vận chuyển.'))
-      } finally {
-        setIsSavingShippingOption(false)
-      }
-    },
-    [order, params.id],
-  )
-
-  useEffect(() => {
-    if (!order || isShippingOptionsLoading || isSavingShippingOption) {
-      return
-    }
-
-    if (hasSelectedShippingService || shippingOptions.length === 0) {
-      return
-    }
-
-    void handleSelectShippingOption(shippingOptions[0])
-  }, [
-    handleSelectShippingOption,
-    hasSelectedShippingService,
-    isSavingShippingOption,
-    isShippingOptionsLoading,
-    order,
-    shippingOptions,
-  ])
 
   if (isLoading) {
     return <DetailPageSkeleton />
@@ -1061,105 +915,38 @@ export function OrdersDetailPage(): ReactElement {
             </Stack>
           </Paper>
 
-          <Paper sx={borderedCardSx}>
-            <CardHeader
-              eyebrow="Thanh toán"
-              title="Thanh toán"
-              description=""
-            />
-
-            <Stack spacing={2} sx={{ mt: 2 }}>
-              <PaymentSummarySection
-                itemCount={orderItemCount}
-                subTotal={orderSubTotal}
-                discountAmount={orderDiscountAmount}
-                taxAmount={orderTaxAmount}
-                vatRatePercent={orderVatRatePercent}
-                shippingFee={orderShippingFee}
-                totalAmount={orderTotalAmount}
-                paidAmount={orderPaidAmount}
-                remainingAmount={orderRemainingAmount}
-                forceShowTaxLine={shouldShowLockedVatLine}
-              />
-
-              <PaymentHistorySection entries={paymentHistoryEntries} />
-
-              <Stack
-                direction={{ xs: 'column', md: 'row' }}
-                spacing={1.5}
-                sx={{
-                  justifyContent: 'space-between',
-                  alignItems: { md: 'center' },
-                  p: 1.5,
-                  borderRadius: 2,
-                  border: '1px solid',
-                  borderColor: 'divider',
-                  bgcolor: (theme) => alpha(theme.palette.background.default, 0.5),
-                }}
-              >
-                <Stack spacing={1}>
-                  <Chip label={invoiceStatusLabel} color={invoiceStatusColor} sx={{ alignSelf: 'flex-start' }} />
-                  <Typography color="text.secondary">
-                    Mã hóa đơn: {order.invoice_code ?? 'Chưa có mã hóa đơn điện tử'}
-                  </Typography>
-                </Stack>
-
-                {canExportInvoice ? (
-                  <Button
-                    variant="outlined"
-                    startIcon={<ReceiptLongOutlinedIcon />}
-                    onClick={() => {
-                      setInvoiceCodeDraft(order.invoice_code ?? '')
-                      setIsInvoiceDialogOpen(true)
-                    }}
-                    disabled={isActing}
-                  >
-                    Xuất hóa đơn điện tử
-                  </Button>
-                ) : null}
-              </Stack>
-
-              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.25}>
-                {canGeneratePaymentQr ? (
-                  <Button
-                    variant="outlined"
-                    startIcon={<QrCode2OutlinedIcon />}
-                    onClick={() => {
-                      void handleOpenPaymentQr()
-                    }}
-                    disabled={isGeneratingQr}
-                  >
-                    Tạo QR
-                  </Button>
-                ) : null}
-                <Button
-                  variant="contained"
-                  color="secondary"
-                  startIcon={<PaymentsOutlinedIcon />}
-                  onClick={openAddPaymentDialog}
-                  disabled={isActing || !canAddPayment}
-                >
-                  Thêm thanh toán
-                </Button>
-                <Button
-                  variant="outlined"
-                  startIcon={<CheckCircleOutlinedIcon />}
-                  onClick={openConfirmPaidDialog}
-                  disabled={isActing || !canAddPayment}
-                >
-                  Xác nhận đã thu đủ tiền
-                </Button>
-                <Button
-                  variant="outlined"
-                  startIcon={<EditOutlinedIcon />}
-                  onClick={openPaymentDialog}
-                  disabled={isActing || !canEditOrder}
-                >
-                  Cấu hình thanh toán
-                </Button>
-              </Stack>
-            </Stack>
-          </Paper>
+          <OrderDetailPaymentPanel
+            itemCount={orderItemCount}
+            subTotal={orderSubTotal}
+            discountAmount={orderDiscountAmount}
+            taxAmount={orderTaxAmount}
+            vatRatePercent={orderVatRatePercent}
+            shippingFee={orderShippingFee}
+            totalAmount={orderTotalAmount}
+            paidAmount={orderPaidAmount}
+            remainingAmount={orderRemainingAmount}
+            forceShowTaxLine={shouldShowLockedVatLine}
+            paymentHistoryEntries={paymentHistoryEntries}
+            invoiceStatusLabel={invoiceStatusLabel}
+            invoiceStatusColor={invoiceStatusColor}
+            invoiceCode={order.invoice_code}
+            canExportInvoice={canExportInvoice}
+            canGeneratePaymentQr={canGeneratePaymentQr}
+            canAddPayment={canAddPayment}
+            canEditOrder={canEditOrder}
+            isActing={isActing}
+            isGeneratingQr={isGeneratingQr}
+            onOpenInvoiceDialog={() => {
+              setInvoiceCodeDraft(order.invoice_code ?? '')
+              setIsInvoiceDialogOpen(true)
+            }}
+            onOpenPaymentQr={() => {
+              void handleOpenPaymentQr()
+            }}
+            onOpenAddPaymentDialog={openAddPaymentDialog}
+            onOpenConfirmPaidDialog={openConfirmPaidDialog}
+            onOpenPaymentDialog={openPaymentDialog}
+          />
 
           <Paper sx={borderedCardSx}>
             <CardHeader
@@ -1198,24 +985,28 @@ export function OrdersDetailPage(): ReactElement {
                   variant="outlined"
                   sx={{
                     p: 1.5,
-                    borderRadius: 2,
                     bgcolor: '#fffaf0',
                     borderColor: '#fed7aa',
                   }}
                 >
                   <Stack spacing={1.25}>
-                    <Typography sx={{ fontWeight: 700, color: '#9a3412' }}>
-                      Khách hàng chưa có địa chỉ giao hàng đầy đủ
-                    </Typography>
-                    <Typography variant="body2" sx={{ color: '#9a3412' }}>
-                      Cần có địa chỉ giao hàng của khách để hiển thị dịch vụ và tính phí.
-                    </Typography>
+                    <Stack direction="row" spacing={1} sx={{ fontSize: '1rem', alignItems: 'center' }}>
+                      <InfoIcon sx={{ color: '#9a3412' }} />
+                      <Stack spacing={0.25}>
+                        <Typography variant="body2" sx={{ color: '#9a3412', fontWeight: 700 }}>
+                          {shippingAddressWarningTitle}
+                        </Typography>
+                        <Typography variant="body2" sx={{ color: '#9a3412' }}>
+                          Cập nhật địa chỉ giao hàng để lựa chọn đơn vị vận chuyển.
+                        </Typography>
+                      </Stack>
+                    </Stack>
                     <Button
                       variant="contained"
                       color="secondary"
-                      onClick={() => navigate(order.customer_id ? `/customers/${order.customer_id}` : `/orders/${order.id}/edit`)}
+                      onClick={handleShippingAddressCta}
                     >
-                      {order.customer_id ? 'Cập nhật địa chỉ khách' : 'Chỉnh sửa đơn hàng'}
+                      {shippingAddressCtaLabel}
                     </Button>
                   </Stack>
                 </Paper>
@@ -1223,6 +1014,24 @@ export function OrdersDetailPage(): ReactElement {
 
               {hasStoreShippingAddress && hasCustomerShippingAddress ? (
                 <Stack spacing={1}>
+                  <OrderShippingMeasurementsForm
+                    weight={shippingWeightDraft}
+                    weightUnit={shippingWeightUnit}
+                    length={shippingLengthDraft}
+                    width={shippingWidthDraft}
+                    height={shippingHeightDraft}
+                    dimensionUnit={shippingDimensionUnit}
+                    isSaving={isSavingShippingMeasurements}
+                    onWeightChange={setShippingWeightDraft}
+                    onWeightUnitChange={(value) => setShippingWeightUnit(value as 'g' | 'kg')}
+                    onLengthChange={setShippingLengthDraft}
+                    onWidthChange={setShippingWidthDraft}
+                    onHeightChange={setShippingHeightDraft}
+                    onSubmit={() => {
+                      void handleSaveShippingMeasurements()
+                    }}
+                  />
+
                   {isShippingOptionsLoading ? (
                     <Stack direction="row" spacing={1.25} sx={{ alignItems: 'center', py: 1 }}>
                       <CircularProgress size={18} />
@@ -1236,86 +1045,10 @@ export function OrdersDetailPage(): ReactElement {
                     </Typography>
                   ) : null}
 
-                  {!isShippingOptionsLoading && !shippingOptionsError && shippingOptions.length > 0 ? (
+                  {!isShippingOptionsLoading && !shippingOptionsError && shippingOptions.filter((option) => option.fee !== null).length > 0 ? (
                     <Stack spacing={1}>
-                      {selectedShippingOption ? (
-                        <Paper
-                          variant="outlined"
-                          sx={{
-                            p: 1.25,
-                            borderRadius: 2,
-                            borderColor: '#bfdbfe',
-                            bgcolor: '#eff6ff',
-                          }}
-                        >
-                          <Typography sx={{ fontWeight: 700, color: '#1d4ed8' }}>
-                            Đang chọn: {selectedShippingOption.providerDisplayName} - {selectedShippingOption.serviceName}
-                          </Typography>
-                          <Typography variant="body2" sx={{ mt: 0.35, color: '#1e3a8a' }}>
-                            Phí vận chuyển: {formatCurrency(selectedShippingOption.fee)}
-                          </Typography>
-                          <Box
-                            sx={{
-                              mt: 1.25,
-                              display: 'grid',
-                              gap: 0.75,
-                              gridTemplateColumns: { xs: '1fr', sm: 'repeat(3, minmax(0, 1fr))' },
-                            }}
-                          >
-                            <Paper
-                              variant="outlined"
-                              sx={{
-                                p: 1,
-                                borderRadius: 1.5,
-                                borderColor: '#bfdbfe',
-                                bgcolor: '#ffffff',
-                              }}
-                            >
-                              <Typography variant="caption" sx={{ color: '#475467' }}>
-                                Nhà vận chuyển
-                              </Typography>
-                              <Typography sx={{ mt: 0.35, fontWeight: 700, color: '#101828' }}>
-                                {selectedShippingOption.providerDisplayName}
-                              </Typography>
-                            </Paper>
-                            <Paper
-                              variant="outlined"
-                              sx={{
-                                p: 1,
-                                borderRadius: 1.5,
-                                borderColor: '#bfdbfe',
-                                bgcolor: '#ffffff',
-                              }}
-                            >
-                              <Typography variant="caption" sx={{ color: '#475467' }}>
-                                Gói dịch vụ
-                              </Typography>
-                              <Typography sx={{ mt: 0.35, fontWeight: 700, color: '#101828' }}>
-                                {selectedShippingOption.serviceName}
-                              </Typography>
-                            </Paper>
-                            <Paper
-                              variant="outlined"
-                              sx={{
-                                p: 1,
-                                borderRadius: 1.5,
-                                borderColor: '#bfdbfe',
-                                bgcolor: '#ffffff',
-                              }}
-                            >
-                              <Typography variant="caption" sx={{ color: '#475467' }}>
-                                Phí vận chuyển
-                              </Typography>
-                              <Typography sx={{ mt: 0.35, fontWeight: 700, color: '#101828' }}>
-                                {formatCurrency(selectedShippingOption.fee)}
-                              </Typography>
-                            </Paper>
-                          </Box>
-                        </Paper>
-                      ) : null}
-                      {shippingOptions.map((option) => {
+                      {shippingOptions.filter((option) => option.fee !== null).map((option) => {
                         const selected = selectedShippingOptionKey === option.key
-                        const isCheapest = shippingOptions[0]?.key === option.key
 
                         return (
                           <Box
@@ -1329,7 +1062,7 @@ export function OrdersDetailPage(): ReactElement {
                             sx={{
                               width: '100%',
                               p: 1.5,
-                              borderRadius: 2,
+                              borderRadius: 1,
                               border: selected ? '1px solid #2563eb' : '1px solid #d0d5dd',
                               background: selected ? '#eff6ff' : '#ffffff',
                               display: 'grid',
@@ -1374,19 +1107,6 @@ export function OrdersDetailPage(): ReactElement {
                                   <Typography sx={{ fontWeight: 700, color: '#101828' }}>
                                     {option.providerDisplayName}
                                   </Typography>
-                                  {isCheapest ? (
-                                    <Chip
-                                      label="Tiết kiệm nhất"
-                                      size="small"
-                                      sx={{
-                                        height: 22,
-                                        bgcolor: '#ecfdf3',
-                                        color: '#027a48',
-                                        fontWeight: 700,
-                                        border: '1px solid #abefc6',
-                                      }}
-                                    />
-                                  ) : null}
                                 </Stack>
                                 <Typography variant="body2" sx={{ color: '#475467' }}>
                                   {option.serviceName}
@@ -1396,7 +1116,7 @@ export function OrdersDetailPage(): ReactElement {
 
                             <Stack spacing={0.5} sx={{ alignItems: 'flex-end' }}>
                               <Typography sx={{ fontWeight: 700, color: '#101828' }}>
-                                {formatCurrency(option.fee)}
+                                {formatCurrency(option.fee ?? 0)}
                               </Typography>
                               {selected && isSavingShippingOption ? (
                                 <Typography variant="caption" sx={{ color: '#475467' }}>
@@ -1500,198 +1220,74 @@ export function OrdersDetailPage(): ReactElement {
         </MenuItem>
       </Menu>
 
-      <Dialog open={Boolean(shippingDialog)} onClose={() => setShippingDialog(null)} fullWidth maxWidth="sm">
-        <DialogTitle>{shippingDialog?.action === 'confirm_shipping' ? 'Xác nhận đóng gói' : 'Đẩy sang vận chuyển'}</DialogTitle>
-        <DialogContent>
-          <Stack spacing={2} sx={{ pt: 1 }}>
-            <StackedTextField
-              label="Đơn vị vận chuyển"
-              value={shippingDialog?.shippingService ?? ''}
-              onChange={(event) =>
-                setShippingDialog((current) => (current ? { ...current, shippingService: event.target.value } : current))
-              }
-              fullWidth
-            />
-            <StackedTextField
-              label="Mã tracking"
-              value={shippingDialog?.trackingCode ?? ''}
-              onChange={(event) =>
-                setShippingDialog((current) => (current ? { ...current, trackingCode: event.target.value } : current))
-              }
-              fullWidth
-            />
-            <StackedTextField
-              label="Trạng thái giao hàng"
-              value={shippingDialog?.shippingStatus ?? ''}
-              onChange={(event) =>
-                setShippingDialog((current) => (current ? { ...current, shippingStatus: event.target.value } : current))
-              }
-              fullWidth
-              placeholder={shippingDialog?.action === 'push_to_delivery' ? 'delivering' : 'packed'}
-            />
-          </Stack>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setShippingDialog(null)}>Đóng</Button>
-          <Button variant="contained" onClick={() => void submitShippingAction()} disabled={isActing}>
-            {shippingDialog?.action === 'confirm_shipping' ? 'Xác nhận đóng gói' : 'Đẩy sang vận chuyển'}
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      <PaymentEntryDialog
-        open={isAddPaymentDialogOpen}
-        title="Thêm thanh toán"
-        description="Ghi nhận từng lần thu tiền để lịch sử thanh toán luôn rõ ràng và không ghi đè dữ liệu cũ."
-        amountLabel="Số tiền thanh toán"
-        amountValue={paymentEntryAmount}
-        amountEditable
-        noteLabel="Ghi chú giao dịch"
-        notePlaceholder="Ví dụ: khách chuyển khoản đợt 2"
-        noteValue={paymentEntryNote}
-        methodValue={paymentEntryMethod}
-        remainingAmount={orderRemainingAmount}
-        submitLabel="Ghi nhận thanh toán"
-        isSubmitting={isSubmittingPaymentEntry}
-        onClose={closeAddPaymentDialog}
-        onAmountChange={setPaymentEntryAmount}
-        onMethodChange={setPaymentEntryMethod}
-        onNoteChange={setPaymentEntryNote}
-        onSubmit={() => {
-          void submitAddPayment()
-        }}
+      <OrderDetailDialogs
+        shippingDialog={shippingDialog}
+        onCloseShippingDialog={closeShippingDialog}
+        onShippingDialogChange={updateShippingDialog}
+        onSubmitShippingDialog={() => void submitShippingAction()}
+        isActing={isActing}
+        isAddPaymentDialogOpen={isAddPaymentDialogOpen}
+        isConfirmPaidDialogOpen={isConfirmPaidDialogOpen}
+        paymentEntryAmount={paymentEntryAmount}
+        paymentEntryMethod={paymentEntryMethod}
+        paymentEntryNote={paymentEntryNote}
+        isSubmittingPaymentEntry={isSubmittingPaymentEntry}
+        orderRemainingAmount={orderRemainingAmount}
+        onCloseAddPaymentDialog={closeAddPaymentDialog}
+        onPaymentEntryAmountChange={setPaymentEntryAmount}
+        onPaymentEntryMethodChange={setPaymentEntryMethod}
+        onPaymentEntryNoteChange={setPaymentEntryNote}
+        onSubmitAddPayment={() => void submitAddPayment()}
+        onCloseConfirmPaidDialog={closeConfirmPaidDialog}
+        onSubmitConfirmPaid={() => void submitConfirmPaid()}
+        isPaymentDialogOpen={isPaymentDialogOpen}
+        onClosePaymentDialog={closePaymentDialog}
+        canEditOrder={canEditOrder}
+        isSavingPayment={isSavingPayment}
+        order={order}
+        paymentMethodDraft={paymentMethodDraft}
+        discountAmountDraft={discountAmountDraft}
+        normalizedTaxAmount={normalizedTaxAmount}
+        paymentSubTotal={paymentSubTotal}
+        paymentShippingFee={paymentShippingFee}
+        paymentTotalAmount={paymentTotalAmount}
+        normalizedDepositAmount={normalizedDepositAmount}
+        vatEnabledDraft={vatEnabledDraft}
+        vatRatePercentDraft={vatRatePercentDraft}
+        canEditVat={canEditVat}
+        visiblePaymentErrors={visiblePaymentErrors}
+        onPaymentMethodChange={handlePaymentMethodChange}
+        onDiscountAmountDraftChange={setDiscountAmountDraft}
+        onDepositAmountDraftChange={setDepositAmountDraft}
+        onVatEnabledDraftChange={setVatEnabledDraft}
+        onVatRatePercentDraftChange={setVatRatePercentDraft}
+        onSavePayment={() => void handleSavePayment()}
+        isInvoiceDialogOpen={isInvoiceDialogOpen}
+        invoiceCodeDraft={invoiceCodeDraft}
+        onInvoiceCodeDraftChange={setInvoiceCodeDraft}
+        onCloseInvoiceDialog={() => setIsInvoiceDialogOpen(false)}
+        onSubmitInvoiceRequest={() => void submitInvoiceRequest()}
+        isQrDialogOpen={isQrDialogOpen}
+        paymentQr={paymentQr}
+        onCloseQrDialog={() => setIsQrDialogOpen(false)}
+        onCopyQrValue={() => void handleCopyQrValue()}
+        customerModalOpen={customerModalOpen}
+        customerModalForm={customerModalForm}
+        customerModalStates={customerModalStates}
+        customerModalCities={customerModalCities}
+        customerModalDistricts={customerModalDistricts}
+        isCustomerModalStatesLoading={isCustomerModalStatesLoading}
+        isCustomerModalCitiesLoading={isCustomerModalCitiesLoading}
+        isCustomerModalDistrictsLoading={isCustomerModalDistrictsLoading}
+        isCustomerModalSaving={isCustomerModalSaving}
+        onCloseCustomerModal={handleCloseCustomerModal}
+        onSaveCustomerModal={() => void handleSaveCustomerModal()}
+        onCustomerModalFieldChange={handleCustomerModalFieldChange}
+        onCustomerModalDefaultAddressChange={handleCustomerModalDefaultAddressChange}
+        onCustomerModalStateChange={handleCustomerModalStateChange}
+        onCustomerModalCityChange={handleCustomerModalCityChange}
+        onCustomerModalDistrictChange={handleCustomerModalDistrictChange}
       />
-
-      <PaymentEntryDialog
-        open={isConfirmPaidDialogOpen}
-        title="Xác nhận đã thu đủ tiền"
-        description="Dùng khi khách đã thanh toán ngoài hệ thống và bạn muốn xác nhận thủ công phần còn lại. Hành động này vẫn được lưu thành một giao dịch cuối trong lịch sử thanh toán."
-        amountLabel="Số tiền xác nhận"
-        amountValue={formatCurrency(orderRemainingAmount)}
-        noteLabel="Ghi chú xác nhận"
-        notePlaceholder="Ví dụ: khách đã chuyển khoản ngoài hệ thống, đã đối soát sao kê"
-        noteValue={paymentEntryNote}
-        methodValue={paymentEntryMethod}
-        remainingAmount={orderRemainingAmount}
-        submitLabel="Xác nhận thu đủ tiền"
-        isSubmitting={isSubmittingPaymentEntry}
-        onClose={closeConfirmPaidDialog}
-        onMethodChange={setPaymentEntryMethod}
-        onNoteChange={setPaymentEntryNote}
-        onSubmit={() => {
-          void submitConfirmPaid()
-        }}
-      />
-
-      <Dialog open={isPaymentDialogOpen} onClose={closePaymentDialog} fullWidth maxWidth="md">
-        <DialogTitle>Cấu hình thanh toán</DialogTitle>
-        <DialogContent>
-          <Stack spacing={2} sx={{ pt: 1 }}>
-            <PaymentInformationCard
-              itemCount={order.order_items.length}
-              canEdit={canEditOrder}
-              paymentMethod={paymentMethodDraft}
-              discountAmount={discountAmountDraft}
-              taxAmount={normalizedTaxAmount}
-              subTotal={paymentSubTotal}
-              shippingFee={paymentShippingFee}
-              totalAmount={paymentTotalAmount}
-              depositAmount={normalizedDepositAmount}
-              vatEnabled={vatEnabledDraft}
-              vatRatePercent={Math.max(Number(vatRatePercentDraft || 0), 0)}
-              canEditVat={canEditVat}
-              errors={visiblePaymentErrors}
-              onPaymentStatusChange={() => undefined}
-              onPaymentMethodChange={handlePaymentMethodChange}
-              onDiscountAmountChange={setDiscountAmountDraft}
-              onDepositAmountChange={setDepositAmountDraft}
-              onVatEnabledChange={setVatEnabledDraft}
-              onVatRatePercentChange={setVatRatePercentDraft}
-            />
-            {visiblePaymentErrors.processing_status ? (
-              <Typography color="error">{visiblePaymentErrors.processing_status}</Typography>
-            ) : null}
-          </Stack>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={closePaymentDialog}>Đóng</Button>
-          <Button variant="contained" onClick={() => void handleSavePayment()} disabled={!canEditOrder || isSavingPayment}>
-            {isSavingPayment ? 'Đang lưu...' : 'Lưu thanh toán'}
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      <Dialog open={isInvoiceDialogOpen} onClose={() => setIsInvoiceDialogOpen(false)} fullWidth maxWidth="sm">
-        <DialogTitle>Xuất hóa đơn điện tử</DialogTitle>
-        <DialogContent>
-          <Stack spacing={2} sx={{ pt: 1 }}>
-            <StackedTextField
-              label="Mã hóa đơn"
-              value={invoiceCodeDraft}
-              onChange={(event) => setInvoiceCodeDraft(event.target.value)}
-              fullWidth
-              placeholder="Nếu để trống, backend sẽ tạo mã mặc định"
-            />
-            <Typography variant="body2" color="text.secondary">
-              Mã hóa đơn sẽ được lưu vào lịch sử đơn hàng để đội vận hành đối soát sau này.
-            </Typography>
-          </Stack>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setIsInvoiceDialogOpen(false)}>Đóng</Button>
-          <Button variant="contained" onClick={() => void submitInvoiceRequest()} disabled={isActing}>
-            Lưu mã hóa đơn
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      <Dialog open={isQrDialogOpen} onClose={() => setIsQrDialogOpen(false)} fullWidth maxWidth="xs">
-        <DialogTitle>QR thanh toán</DialogTitle>
-        <DialogContent>
-          <Stack spacing={2} sx={{ pt: 1, alignItems: 'center' }}>
-            {paymentQr?.data.qrDataURL ? (
-              <Box
-                component="img"
-                src={paymentQr.data.qrDataURL}
-                alt={`QR thanh toán ${order.order_code}`}
-                sx={{ width: 240, height: "100%", borderRadius: 2, border: '1px solid #e2e8f0', bgcolor: '#fff' }}
-              />
-            ) : null}
-            {paymentQr?.transfer_content ? (
-              <Paper
-                variant="outlined"
-                sx={{
-                  width: '100%',
-                  p: 1.5,
-                  borderRadius: 2,
-                  bgcolor: '#f8fafc',
-                }}
-              >
-                <Typography
-                  component="pre"
-                  sx={{
-                    m: 0,
-                    whiteSpace: 'pre-wrap',
-                    wordBreak: 'break-word',
-                    fontFamily: 'inherit',
-                    fontSize: 14,
-                    color: '#0f172a',
-                    lineHeight: 1.7,
-                  }}
-                >
-                  {paymentQr.transfer_content}
-                </Typography>
-              </Paper>
-            ) : null}
-          </Stack>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setIsQrDialogOpen(false)}>Đóng</Button>
-          <Button variant="contained" onClick={() => void handleCopyQrValue()}>
-            Copy nội dung
-          </Button>
-        </DialogActions>
-      </Dialog>
     </Box>
   )
 }
@@ -1745,6 +1341,7 @@ function OrderProgressCard({
 }
 
 function CardHeader({
+  eyebrow,
   title,
   description,
 }: {
@@ -1754,6 +1351,12 @@ function CardHeader({
 }): ReactElement {
   return (
     <Box>
+      <Typography
+        variant="caption"
+        sx={{ display: 'block', color: '#98a2b3', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.8 }}
+      >
+        {eyebrow}
+      </Typography>
       <Typography variant="h6" sx={{ fontWeight: 600, color: '#101828' }}>
         {title}
       </Typography>
@@ -1807,6 +1410,7 @@ function ActivityRow({
 
 function SidebarCard({
   title,
+  icon,
   description,
   children,
 }: {
@@ -1819,9 +1423,12 @@ function SidebarCard({
     <Paper sx={borderedCardSx}>
       <Stack spacing={1.5}>
         <Box>
-          <Typography variant="h6" sx={{ fontWeight: 600, color: '#101828' }}>
-            {title}
-          </Typography>
+          <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+            {icon ? <Box sx={{ color: '#667085', display: 'grid', placeItems: 'center' }}>{icon}</Box> : null}
+            <Typography variant="h6" sx={{ fontWeight: 600, color: '#101828' }}>
+              {title}
+            </Typography>
+          </Stack>
           {description ? <Typography sx={{ color: '#667085', mt: 0.5 }}>{description}</Typography> : null}
         </Box>
         {children}
