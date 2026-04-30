@@ -272,7 +272,7 @@ async function ensureDemoProducts(storeId: string, categoryId: number) {
   if (!mugVariant) {
     await ProductService.createProduct(storeId, {
       product_name: "Ly su EasyERP",
-      sku: "MUG-EE",
+      default_variant_sku: "MUG-EE",
       unit: "cai",
       base_price: 79000,
       category_id: categoryId,

@@ -72,9 +72,7 @@ const productInclude = {
   attributes: { include: { values: true } },
   variants: {
     where: {
-      status: {
-        not: "deleted",
-      },
+      status: "active",
     },
     include: {
       attribute_values: {
@@ -197,7 +195,7 @@ const ensureUniqueValues = (values: string[], fieldName: string) => {
 
 const toProductData = (data: ProductInput) => ({
   product_name: data.product_name,
-  sku: data.sku,
+  default_variant_sku: data.default_variant_sku,
   unit: data.unit,
   base_price: data.base_price,
   cogs: data.cogs,
@@ -382,13 +380,34 @@ const syncVariants = async (
 ) => {
   const existingVariants = await tx.productVariant.findMany({
     where: { product_id: productId },
-    select: { sku: true },
+    select: {
+      sku: true,
+      kind: true,
+    },
   });
   const existingSkuSet = new Set(existingVariants.map((variant) => variant.sku));
   const nextSkuSet = new Set(variants.map((variant) => variant.sku));
+  const hasGeneratedVariants = variants.some((variant) => variant.combinations.length > 0);
+  const disabledDefaultVariantSkus =
+    hasGeneratedVariants
+      ? existingVariants
+          .filter(
+            (variant) => variant.kind === "default" && !nextSkuSet.has(variant.sku),
+          )
+          .map((variant) => variant.sku)
+      : [];
   const removedSkus = existingVariants
     .map((variant) => variant.sku)
-    .filter((sku) => !nextSkuSet.has(sku));
+    .filter(
+      (sku) => !nextSkuSet.has(sku) && !disabledDefaultVariantSkus.includes(sku),
+    );
+
+  if (disabledDefaultVariantSkus.length > 0) {
+    await tx.productVariant.updateMany({
+      where: { sku: { in: disabledDefaultVariantSkus } },
+      data: { status: "inactive" },
+    });
+  }
 
   if (removedSkus.length > 0) {
     await resetInventoryStocks(tx, removedSkus);
@@ -413,6 +432,7 @@ const syncVariants = async (
           selling_price: variant.selling_price,
           cogs: variant.cogs,
           image_url: variant.image_url,
+          kind: variant.kind,
           status: "active",
           attribute_values: {
             deleteMany: {},
@@ -432,6 +452,7 @@ const syncVariants = async (
         selling_price: variant.selling_price,
         cogs: variant.cogs,
         image_url: variant.image_url,
+        kind: variant.kind,
         status: "active",
         attribute_values: createVariantAttributeValues(attributeValueIds),
       },
@@ -491,7 +512,8 @@ const normalizeProductInput = async (
     throw new BadRequestError("product_name is required");
   }
 
-  const sku = toOptionalTrimmedString(payload.sku);
+  const defaultVariantSku =
+    toOptionalTrimmedString(payload.default_variant_sku);
   const attributes = normalizeAttributeInputs(payload.attributes);
   const categoryId = await resolveCategoryId(tx, storeId, payload);
 
@@ -504,8 +526,8 @@ const normalizeProductInput = async (
             toOptionalNumber(payload.variants?.[0]?.price) ??
             0;
 
-          if (!sku) {
-            throw new BadRequestError("sku is required for products without variants");
+          if (!defaultVariantSku) {
+            throw new BadRequestError("default_variant_sku is required for products without variants");
           }
 
           const singleVariantImage =
@@ -514,7 +536,8 @@ const normalizeProductInput = async (
 
           return [
             {
-              sku,
+              sku: defaultVariantSku,
+              kind: "default" as const,
               selling_price: sellingPrice,
               cogs:
                 toOptionalNumber(payload.variants?.[0]?.cogs) ??
@@ -544,6 +567,7 @@ const normalizeProductInput = async (
 
           return {
             sku: variantSku,
+            kind: "generated" as const,
             selling_price: sellingPrice,
             cogs:
               toOptionalNumber(variant.cogs) ??
@@ -565,13 +589,13 @@ const normalizeProductInput = async (
 
   return {
     product_name: productName,
-    sku,
+    default_variant_sku: attributes.length === 0 ? variants[0]?.sku ?? defaultVariantSku ?? null : null,
     unit: toOptionalTrimmedString(payload.unit),
     base_price: attributes.length === 0 ? variants[0]?.selling_price ?? null : null,
     cogs:
       attributes.length === 0
         ? variants[0]?.cogs ?? toOptionalNumber(payload.cogs) ?? null
-        : toOptionalNumber(payload.cogs) ?? null,
+        : null,
     image_url: normalizePersistedImageUrl(payload.image_url),
     status: normalizeProductStatus(payload.status),
     description: toNullableTrimmedString(payload.description),
@@ -666,12 +690,12 @@ export const ProductService = {
     const { product, oldImageUrlToDelete } = await prisma.$transaction(async (tx) => {
       const data = await normalizeProductInput(tx, storeId, payload);
 
-      // Restore soft-deleted product when the root SKU matches.
+      // Restore soft-deleted product when the default simple-variant SKU matches.
       let existingProduct = null;
-      if (data.sku) {
+      if (data.default_variant_sku) {
         existingProduct = await tx.product.findFirst({
           where: {
-            sku: data.sku,
+            default_variant_sku: data.default_variant_sku,
             status: "deleted",
             store_id: storeId,
           },

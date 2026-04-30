@@ -16,7 +16,7 @@ export type CustomerListItem = {
   id: number;
   client_code: string;
   full_name: string;
-  phone: string | null;
+  phone: string;
   email: string | null;
   birth_date: string | null;
   gender: "male" | "female" | "other" | null;

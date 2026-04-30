@@ -17,7 +17,10 @@ export const SettingsController = {
       throw new UnauthorizedError();
     }
 
-    const data = await SettingsService.getGeneralSettings(req.auth.user.tenant_id);
+    const data = await SettingsService.getGeneralSettings(
+      req.auth.user.tenant_id,
+      req.auth.user.active_store_id,
+    );
     return res.status(200).json(data);
   },
 
@@ -31,6 +34,7 @@ export const SettingsController = {
 
     const data = await SettingsService.updateGeneralSettings(
       req.auth.user.tenant_id,
+      req.auth.user.active_store_id,
       parseBody<UpdateGeneralSettingsInput>(req.body),
     );
 

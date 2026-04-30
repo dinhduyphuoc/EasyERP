@@ -20,6 +20,7 @@ export type ProductVariantAttributeValue = {
 export type ProductVariant = {
   sku: string
   product_id: number
+  kind?: 'default' | 'generated'
   selling_price: string
   cogs: string
   image_url: string | null
@@ -29,7 +30,7 @@ export type ProductVariant = {
 export type ProductListItem = {
   id: number
   product_name: string
-  sku: string | null
+  default_variant_sku: string | null
   unit: string | null
   base_price?: string | null
   cogs?: string | null
@@ -46,7 +47,7 @@ export type ProductListItem = {
 export const productSkeleton: ProductListItem = {
   id: 0,
   product_name: '',
-  sku: null,
+  default_variant_sku: null,
   unit: null,
   image_url: null,
   status: 'draft',

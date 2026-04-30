@@ -347,7 +347,7 @@ model Product {
   id           Int      @id @default(autoincrement())
   store_id     String
   product_name String
-  sku          String?
+  default_variant_sku String?
   unit         String?   
   base_price   Decimal?  @db.Decimal(12, 2)
   cogs         Decimal?  @db.Decimal(12, 2)
@@ -364,8 +364,8 @@ model Product {
   variants   ProductVariant[]
   order_items OrderItem[]
 
-  @@unique([store_id, sku])
   @@index([store_id])
+  @@index([default_variant_sku])
 }
 
 model Attribute {
@@ -397,6 +397,7 @@ model ProductVariant {
   selling_price    Decimal                 @db.Decimal(12, 2)
   cogs             Decimal                 @default(0) @db.Decimal(12, 2)
   image_url        String?
+  kind             ProductVariantKind      @default(generated)
   status           ProductVariantStatus    @default(active)
   created_at       DateTime                @default(now())
   updated_at       DateTime                @default(now()) @updatedAt
@@ -409,6 +410,12 @@ model ProductVariant {
 
   @@index([store_id])
   @@index([store_id, status])
+  @@index([product_id, kind, status])
+}
+
+enum ProductVariantKind {
+  default
+  generated
 }
 
 enum InventoryTransactionType {
@@ -492,7 +499,7 @@ model Customer {
   store_id             String
   client_code          String
   full_name            String
-  phone                String?
+  phone                String
   email                String?
   birth_date           DateTime?
   gender               CustomerGender?
@@ -683,7 +690,12 @@ model Order {
   coupon                    String?
   pick_shift                Int[]                 @default([])
   sub_total                 Decimal               @default(0) @db.Decimal(12, 2)
+  discount_amount           Decimal               @default(0) @db.Decimal(12, 2)
+  vat_enabled               Boolean               @default(false)
   tax_amount                Decimal               @default(0) @db.Decimal(12, 2)
+  vat_rate_percent          Decimal               @default(0) @db.Decimal(5, 2)
+  vat_changed_by_user       Boolean               @default(false)
+  pricing_version           Int                   @default(1)
   shipping_fee              Decimal               @default(0) @db.Decimal(12, 2)
   total_amount              Decimal               @default(0) @db.Decimal(12, 2)
   deposit_amount            Decimal               @default(0) @db.Decimal(12, 2)
@@ -880,6 +892,7 @@ model Tenant {
   status      String      @default("active")
   default_shipping_address_json Json @default("{}")
   default_bank_account_json     Json @default("{}")
+  default_vat_json              Json @default("{}")
   created_at  DateTime    @default(now())
   updated_at  DateTime    @default(now()) @updatedAt
 

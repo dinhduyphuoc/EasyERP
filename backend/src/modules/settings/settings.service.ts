@@ -28,12 +28,58 @@ const toOptionalInt = (value: unknown, fieldName: string): number | null => {
   return parsed;
 };
 
+const toBoolean = (value: unknown): boolean => value === true;
+
+const toNonNegativeNumber = (value: unknown, fieldName: string): number => {
+  if (value === undefined || value === null || value === "") {
+    return 0;
+  }
+
+  const parsed = Number(value);
+
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    throw new BadRequestError(`${fieldName} must be a non-negative number`);
+  }
+
+  return parsed;
+};
+
+const isShippingAddressEmpty = (value: {
+  contact_name: string;
+  phone: string;
+  state_id: number | null;
+  city_id: number | null;
+  district_id: number | null;
+  address_line: string;
+}) =>
+  !value.contact_name &&
+  !value.phone &&
+  !value.state_id &&
+  !value.city_id &&
+  !value.district_id &&
+  !value.address_line;
+
+const buildShippingAddressFromStoreProfile = (profileJson: unknown) => {
+  const profile = toRecord(profileJson);
+
+  return {
+    contact_name: "",
+    phone: toTrimmedString(profile.contact_phone),
+    state_id: toOptionalInt(profile.state_id, "store.profile.state_id"),
+    city_id: toOptionalInt(profile.city_id, "store.profile.city_id"),
+    district_id: toOptionalInt(profile.district_id, "store.profile.district_id"),
+    address_line: toTrimmedString(profile.address_line),
+  };
+};
+
 const buildDefaultsPayload = (
   shippingAddressJson: unknown,
   bankAccountJson: unknown,
+  vatJson: unknown,
 ): GeneralSettingsResponse["defaults"] => {
   const shippingAddress = toRecord(shippingAddressJson);
   const bankAccount = toRecord(bankAccountJson);
+  const vat = toRecord(vatJson);
 
   return {
     shipping_address: {
@@ -52,15 +98,22 @@ const buildDefaultsPayload = (
       account_holder: toTrimmedString(bankAccount.account_holder),
       qr_template: toTrimmedString(bankAccount.qr_template) || "compact",
     },
+    vat: {
+      enabled: toBoolean(vat.enabled),
+      rate_percent: toNonNegativeNumber(vat.rate_percent, "defaults.vat.rate_percent"),
+    },
   };
 };
 
 export const SettingsService = {
-  getGeneralSettings: async (tenantId: string | null): Promise<GeneralSettingsResponse> => {
+  getGeneralSettings: async (
+    tenantId: string | null,
+    activeStoreId?: string | null,
+  ): Promise<GeneralSettingsResponse> => {
     if (!tenantId) {
       return {
         tenant_id: null,
-        defaults: buildDefaultsPayload({}, {}),
+        defaults: buildDefaultsPayload({}, {}, {}),
       };
     }
 
@@ -70,34 +123,56 @@ export const SettingsService = {
         id: true,
         default_shipping_address_json: true,
         default_bank_account_json: true,
+        default_vat_json: true,
       },
     });
 
     if (!tenant) {
       return {
         tenant_id: tenantId,
-        defaults: buildDefaultsPayload({}, {}),
+        defaults: buildDefaultsPayload({}, {}, {}),
       };
+    }
+
+    const defaults = buildDefaultsPayload(
+      tenant.default_shipping_address_json,
+      tenant.default_bank_account_json,
+      tenant.default_vat_json,
+    );
+
+    if (isShippingAddressEmpty(defaults.shipping_address) && activeStoreId) {
+      const store = await prisma.store.findFirst({
+        where: {
+          id: activeStoreId,
+          tenant_id: tenantId,
+          deleted_at: null,
+        },
+        select: {
+          profile_json: true,
+        },
+      });
+
+      if (store) {
+        defaults.shipping_address = buildShippingAddressFromStoreProfile(store.profile_json);
+      }
     }
 
     return {
       tenant_id: tenant.id,
-      defaults: buildDefaultsPayload(
-        tenant.default_shipping_address_json,
-        tenant.default_bank_account_json,
-      ),
+      defaults,
     };
   },
 
   updateGeneralSettings: async (
     tenantId: string | null,
+    activeStoreId: string | null | undefined,
     input: UpdateGeneralSettingsInput,
   ): Promise<GeneralSettingsResponse> => {
     if (!tenantId) {
       throw new BadRequestError("Current user is not assigned to a tenant");
     }
 
-    const current = await SettingsService.getGeneralSettings(tenantId);
+    const current = await SettingsService.getGeneralSettings(tenantId, activeStoreId);
     const defaults = input.defaults ?? {};
 
     const nextShippingAddress = {
@@ -107,6 +182,10 @@ export const SettingsService = {
     const nextBankAccount = {
       ...current.defaults.bank_account,
       ...toRecord(defaults.bank_account),
+    };
+    const nextVat = {
+      ...current.defaults.vat,
+      ...toRecord(defaults.vat),
     };
 
     const normalizedShippingAddress = {
@@ -126,25 +205,64 @@ export const SettingsService = {
       account_holder: toTrimmedString(nextBankAccount.account_holder),
       qr_template: toTrimmedString(nextBankAccount.qr_template) || "compact",
     };
+    const normalizedVat = {
+      enabled: toBoolean(nextVat.enabled),
+      rate_percent: toNonNegativeNumber(nextVat.rate_percent, "defaults.vat.rate_percent"),
+    };
 
     const updated = await prisma.tenant.update({
       where: { id: tenantId },
       data: {
         default_shipping_address_json: normalizedShippingAddress,
         default_bank_account_json: normalizedBankAccount,
+        default_vat_json: normalizedVat,
       },
       select: {
         id: true,
         default_shipping_address_json: true,
         default_bank_account_json: true,
+        default_vat_json: true,
       },
     });
+
+    if (activeStoreId) {
+      const store = await prisma.store.findFirst({
+        where: {
+          id: activeStoreId,
+          tenant_id: tenantId,
+          deleted_at: null,
+        },
+        select: {
+          profile_json: true,
+        },
+      });
+
+      if (store) {
+        const profile = toRecord(store.profile_json);
+
+        await prisma.store.update({
+          where: { id: activeStoreId },
+          data: {
+            profile_json: {
+              ...profile,
+              contact_phone:
+                normalizedShippingAddress.phone || toTrimmedString(profile.contact_phone),
+              state_id: normalizedShippingAddress.state_id,
+              city_id: normalizedShippingAddress.city_id,
+              district_id: normalizedShippingAddress.district_id,
+              address_line: normalizedShippingAddress.address_line,
+            },
+          },
+        });
+      }
+    }
 
     return {
       tenant_id: updated.id,
       defaults: buildDefaultsPayload(
         updated.default_shipping_address_json,
         updated.default_bank_account_json,
+        updated.default_vat_json,
       ),
     };
   },

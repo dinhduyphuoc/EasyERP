@@ -45,6 +45,10 @@ export function SettingsPaymentMethodsPage(): ReactElement {
     district_id: null as number | null,
     address_line: '',
   })
+  const [vatSnapshot, setVatSnapshot] = useState({
+    enabled: false,
+    rate_percent: 0,
+  })
   const [bankOptions, setBankOptions] = useState<VietQrBankItem[]>([])
 
   useEffect(() => {
@@ -62,6 +66,7 @@ export function SettingsPaymentMethodsPage(): ReactElement {
         setAccountNumber(settings.defaults.bank_account.account_number)
         setAccountHolder(settings.defaults.bank_account.account_holder)
         setShippingSnapshot(settings.defaults.shipping_address)
+        setVatSnapshot(settings.defaults.vat)
         setBankOptions(banksResponse.data)
       } catch (error) {
         appToast.error(getErrorMessage(error, 'Không thể tải tài khoản ngân hàng mặc định.'))
@@ -96,6 +101,7 @@ export function SettingsPaymentMethodsPage(): ReactElement {
             account_holder: accountHolder,
             qr_template: 'compact',
           },
+          vat: vatSnapshot,
         },
       })
       appToast.success('Đã cập nhật tài khoản ngân hàng mặc định.')

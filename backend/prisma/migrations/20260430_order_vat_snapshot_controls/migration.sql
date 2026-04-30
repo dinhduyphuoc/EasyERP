@@ -1,0 +1,4 @@
+ALTER TABLE "Order"
+ADD COLUMN "vat_enabled" BOOLEAN NOT NULL DEFAULT false,
+ADD COLUMN "vat_changed_by_user" BOOLEAN NOT NULL DEFAULT false,
+ADD COLUMN "pricing_version" INTEGER NOT NULL DEFAULT 1;

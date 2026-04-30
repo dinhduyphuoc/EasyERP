@@ -52,6 +52,10 @@ export function SettingsAddressManagementPage(): ReactElement {
     account_holder: '',
     qr_template: 'compact',
   })
+  const [vatSnapshot, setVatSnapshot] = useState({
+    enabled: false,
+    rate_percent: 0,
+  })
 
   useEffect(() => {
     const load = async () => {
@@ -70,6 +74,7 @@ export function SettingsAddressManagementPage(): ReactElement {
         setDistrictId(settings.defaults.shipping_address.district_id ?? '')
         setAddressLine(settings.defaults.shipping_address.address_line)
         setBankSnapshot(settings.defaults.bank_account)
+        setVatSnapshot(settings.defaults.vat)
       } catch (error) {
         appToast.error(getErrorMessage(error, 'Không thể tải địa chỉ gửi mặc định.'))
       } finally {
@@ -140,6 +145,7 @@ export function SettingsAddressManagementPage(): ReactElement {
             address_line: addressLine,
           },
           bank_account: bankSnapshot,
+          vat: vatSnapshot,
         },
       })
       appToast.success('Đã cập nhật địa chỉ gửi mặc định.')

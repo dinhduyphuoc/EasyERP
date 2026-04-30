@@ -76,6 +76,14 @@ export const OrderController = {
     const order = await OrderService.createOrder(
       req.store.id,
       parsePayload<OrderRequestInput>(req.body),
+      req.auth
+        ? {
+            userId: req.auth.user.id,
+            tenantId: req.auth.user.tenant_id,
+            fullName: req.auth.user.full_name,
+            permissions: req.auth.permissions,
+          }
+        : undefined,
     );
     return res.status(201).json(order);
   },
@@ -91,6 +99,14 @@ export const OrderController = {
       req.store.id,
       parseId(req.params.id),
       parsePayload<UpdateOrderRequestInput>(req.body),
+      req.auth
+        ? {
+            userId: req.auth.user.id,
+            tenantId: req.auth.user.tenant_id,
+            fullName: req.auth.user.full_name,
+            permissions: req.auth.permissions,
+          }
+        : undefined,
     );
     return res.status(200).json(order);
   },
@@ -108,6 +124,14 @@ export const OrderController = {
       req.body && typeof req.body === "object"
         ? (req.body as DuplicateOrderRequestInput)
         : {},
+      req.auth
+        ? {
+            userId: req.auth.user.id,
+            tenantId: req.auth.user.tenant_id,
+            fullName: req.auth.user.full_name,
+            permissions: req.auth.permissions,
+          }
+        : undefined,
     );
     return res.status(201).json(order);
   },
@@ -128,6 +152,14 @@ export const OrderController = {
       parseId(req.params.id),
       req.params.action as OrderActionName,
       parsePayload<OrderActionRequestInput>(req.body),
+      req.auth
+        ? {
+            userId: req.auth.user.id,
+            tenantId: req.auth.user.tenant_id,
+            fullName: req.auth.user.full_name,
+            permissions: req.auth.permissions,
+          }
+        : undefined,
     );
     return res.status(200).json(order);
   },

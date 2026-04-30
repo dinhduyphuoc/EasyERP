@@ -128,7 +128,12 @@ export interface OrderRequestInput {
   coupon?: string | null;
   pick_shift?: number[] | null;
   sub_total?: number | string | null;
+  discount_amount?: number | string | null;
+  vat_enabled?: boolean | null;
   tax_amount?: number | string | null;
+  vat_rate_percent?: number | string | null;
+  vat_changed_by_user?: boolean | null;
+  pricing_version?: number | null;
   shipping_fee?: number | string | null;
   total_amount?: number | string | null;
   deposit_amount?: number | string | null;
@@ -158,6 +163,9 @@ export interface OrderActionRequestInput {
   note?: string;
   payment_amount?: number | string | null;
   payment_method?: string | null;
+  vat_enabled?: boolean | null;
+  vat_rate_percent?: number | string | null;
+  vat_changed_by_user?: boolean | null;
   shipping_service?: string | null;
   tracking_code?: string | null;
   shipping_status?: string | null;

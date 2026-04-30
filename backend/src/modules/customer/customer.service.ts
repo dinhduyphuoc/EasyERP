@@ -27,6 +27,7 @@ const CUSTOMER_ADDRESS_TYPES: CustomerAddressTypeInput[] = [
 const CUSTOMER_CODE_PREFIX = "KH";
 const CUSTOMER_CODE_NUMBER_LENGTH = 4;
 const CUSTOMER_CODE_GENERATION_RETRIES = 5;
+const ARCHIVED_PHONE_PREFIX = "__archived__";
 
 const toOptionalTrimmedString = (value: unknown) => {
   if (typeof value !== "string") {
@@ -61,6 +62,18 @@ const normalizePhone = (value: unknown, fieldName = "phone") => {
   }
 
   return normalized;
+};
+
+const archivePhone = (customerId: number, phone: string) => `${ARCHIVED_PHONE_PREFIX}${customerId}__${phone}`;
+
+const restoreArchivedPhone = (value: string) => {
+  if (!value.startsWith(ARCHIVED_PHONE_PREFIX)) {
+    return value;
+  }
+
+  const parts = value.split("__");
+  const originalPhone = parts[parts.length - 1]?.trim();
+  return originalPhone || undefined;
 };
 
 const parseOptionalPositiveInt = (value: unknown, fieldName: string) => {
@@ -311,7 +324,7 @@ const mapCustomer = (customer: Prisma.CustomerGetPayload<{
   id: customer.id,
   client_code: customer.client_code,
   full_name: customer.full_name,
-  phone: customer.phone,
+  phone: restoreArchivedPhone(customer.phone ?? "") ?? customer.phone ?? "",
   email: customer.email,
   birth_date: customer.birth_date?.toISOString() ?? null,
   gender: customer.gender,
@@ -427,7 +440,7 @@ const ensurePhoneIsAvailable = async (
   });
 
   if (existingPhone) {
-    throw new BadRequestError(`Phone "${phone}" already belongs to an active customer`);
+    throw new BadRequestError("Số điện thoại này đã được sử dụng bởi khách hàng khác");
   }
 };
 
@@ -505,7 +518,7 @@ export const CustomerService = {
           }
 
           if (existingPhone) {
-            throw new BadRequestError(`Phone "${phone}" already belongs to an active customer`);
+            throw new BadRequestError("Số điện thoại này đã được sử dụng bởi khách hàng khác");
           }
 
           if (customerCategoryId && !category) {
@@ -597,9 +610,7 @@ export const CustomerService = {
     const phone =
       input.phone === undefined
         ? existingCustomer.phone
-        : input.phone === null
-          ? null
-          : normalizePhone(input.phone);
+        : normalizePhone(input.phone);
     const email =
       input.email === undefined
         ? existingCustomer.email
@@ -711,7 +722,7 @@ export const CustomerService = {
     return prisma.$transaction(async (tx) => {
       const existingCustomers = await tx.customer.findMany({
         where: { id: { in: uniqueIds }, store_id: storeId },
-        select: { id: true },
+        select: { id: true, phone: true },
       });
 
       if (existingCustomers.length !== uniqueIds.length) {
@@ -720,10 +731,19 @@ export const CustomerService = {
 
       const customerIds = existingCustomers.map((customer) => customer.id);
 
-      await tx.customer.updateMany({
-        where: { id: { in: customerIds } },
-        data: { status: "soft_deleted", phone: null },
-      });
+      for (const customer of existingCustomers) {
+        if (!customer.phone) {
+          throw new BadRequestError(`Customer ${customer.id} is missing phone and cannot be soft deleted safely`);
+        }
+
+        await tx.customer.update({
+          where: { id: customer.id },
+          data: {
+            status: "soft_deleted",
+            phone: archivePhone(customer.id, customer.phone),
+          },
+        });
+      }
 
       return {
         deleted_ids: customerIds,
@@ -739,22 +759,24 @@ export const CustomerService = {
     }
 
     const restoredCustomer = await prisma.$transaction(async (tx) => {
-      let restoredPhone = existingCustomer.phone;
+      const restoredPhone = restoreArchivedPhone(existingCustomer.phone ?? "");
 
-      if (restoredPhone) {
-        const conflictingCustomer = await tx.customer.findFirst({
-          where: {
-            store_id: storeId,
-            phone: restoredPhone,
-            status: { in: LIVE_CUSTOMER_STATUSES },
-            id: { not: id },
-          },
-          select: { id: true },
-        });
+      if (!restoredPhone) {
+        throw new BadRequestError("Customer phone could not be restored from archived data");
+      }
 
-        if (conflictingCustomer) {
-          restoredPhone = null;
-        }
+      const conflictingCustomer = await tx.customer.findFirst({
+        where: {
+          store_id: storeId,
+          phone: restoredPhone,
+          status: { in: LIVE_CUSTOMER_STATUSES },
+          id: { not: id },
+        },
+        select: { id: true },
+      });
+
+      if (conflictingCustomer) {
+        throw new BadRequestError("Số điện thoại này đã được sử dụng bởi khách hàng khác");
       }
 
       return tx.customer.update({

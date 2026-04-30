@@ -22,7 +22,7 @@ export interface CustomerRequestInput {
 
 export interface UpdateCustomerRequestInput extends Partial<Omit<CustomerRequestInput, "full_name" | "phone">> {
   full_name?: string;
-  phone?: string | null;
+  phone?: string;
 }
 
 export type CustomerAddressTypeInput = "billing" | "shipping" | "office" | "warehouse" | "other";

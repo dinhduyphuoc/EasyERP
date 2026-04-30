@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { extname } from "node:path";
-import { DeleteObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { BadRequestError } from "@/common";
 
 const AWS_REGION = process.env.AWS_REGION;
@@ -102,6 +102,33 @@ export const uploadProductImageToS3 = async (input: {
   return {
     key: objectKey,
     image_url: buildObjectUrl(objectKey),
+  };
+};
+
+export const getManagedProductImageBufferFromUrl = async (imageUrl: string) => {
+  const key = getManagedS3KeyFromUrl(imageUrl);
+
+  if (!key) {
+    throw new BadRequestError("image_url must reference a managed product image");
+  }
+
+  const client = createS3Client();
+  const response = await client.send(
+    new GetObjectCommand({
+      Bucket: AWS_S3_BUCKET,
+      Key: key,
+    }),
+  );
+
+  if (!response.Body) {
+    throw new BadRequestError("Managed product image could not be read");
+  }
+
+  const bytes = await response.Body.transformToByteArray();
+  return {
+    key,
+    buffer: Buffer.from(bytes),
+    mimeType: response.ContentType ?? "image/png",
   };
 };
 

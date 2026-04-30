@@ -18,13 +18,15 @@ import { ProductCreatePage } from '@/pages/products/product-create-page'
 import { ProductListPage } from '@/pages/products/product-list-page'
 import { CustomerCreatePage } from '@/pages/customers/customer-create-page'
 import { CustomerListPage } from '@/pages/customers/customer-list-page'
-import { OrdersCreatePage } from '@/pages/orders/orders-create-page'
-import { OrdersCancelledPage } from '@/pages/orders/orders-cancelled-page'
-import { OrdersDetailPage } from '@/pages/orders/orders-detail-page'
-import { OrdersDraftsPage } from '@/pages/orders/orders-drafts-page'
-import { OrdersIncompletePage } from '@/pages/orders/orders-incomplete-page'
-import { OrdersListPage } from '@/pages/orders/orders-list-page'
-import { OrdersReturnsPage } from '@/pages/orders/orders-returns-page'
+import {
+  OrdersCreatePage,
+  OrdersCancelledPage,
+  OrdersDetailPage,
+  OrdersDraftsPage,
+  OrdersIncompletePage,
+  OrdersListPage,
+  OrdersReturnsPage,
+} from '@/pages/orders'
 import { PagePlaceholder } from '@/shared/ui/page/page-placeholder'
 import { InventoryAuditCreatePage } from '@/pages/inventory/inventory-audit-create-page'
 import { SettingsAccountsPage } from '@/pages/settings/settings-accounts-page'

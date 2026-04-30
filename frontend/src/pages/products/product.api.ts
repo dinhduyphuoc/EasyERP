@@ -5,7 +5,7 @@ const ENDPOINT = '/products'
 
 export type ProductUpsertPayload = {
   product_name: string
-  sku?: string
+  default_variant_sku?: string
   unit?: string
   image_url?: string | null
   description?: string
@@ -21,9 +21,11 @@ export type ProductUpsertPayload = {
   }>
   variants: Array<{
     sku: string
+    kind?: 'default' | 'generated'
     name?: string
     selling_price: number
     cogs: number
+    image_url?: string | null
     combinations: string[]
   }>
 }
@@ -36,6 +38,16 @@ export type ProductCategory = {
 export type ProductImageUploadResult = {
   key: string
   image_url: string
+}
+
+export type ProductImageCropPayload = {
+  image_url: string
+  crop: {
+    x: number
+    y: number
+    width: number
+    height: number
+  }
 }
 
 type BulkDeletePayload = {
@@ -65,7 +77,7 @@ export const productApi = {
     return apiClient.get(`${ENDPOINT}/${id}`)
   },
 
-  uploadProductImage: async (file: File): Promise<ProductImageUploadResult> => {
+  uploadProductImage: async (file: File, onProgress?: (progress: number) => void): Promise<ProductImageUploadResult> => {
     const formData = new FormData()
     formData.append('image', file)
 
@@ -73,7 +85,18 @@ export const productApi = {
       headers: {
         'Content-Type': 'multipart/form-data',
       },
+      onUploadProgress: (event) => {
+        if (!onProgress || !event.total) {
+          return
+        }
+
+        onProgress(Math.min(100, Math.max(0, Math.round((event.loaded / event.total) * 100))))
+      },
     })
+  },
+
+  cropProductImage: async (payload: ProductImageCropPayload): Promise<ProductImageUploadResult> => {
+    return apiClient.post(`${ENDPOINT}/crop-image`, payload)
   },
 
   getProductCategories: async (forceRefresh = false): Promise<ProductCategory[]> => {

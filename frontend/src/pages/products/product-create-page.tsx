@@ -1,13 +1,16 @@
-﻿import { useEffect, useMemo, useRef, useState, type ChangeEvent, type KeyboardEvent, type ReactElement } from 'react'
+﻿import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactElement } from 'react'
 import { useNavigate, useParams } from 'react-router'
 import CloudUploadOutlinedIcon from '@mui/icons-material/CloudUploadOutlined'
+import CropOutlinedIcon from '@mui/icons-material/CropOutlined'
 import DeleteOutlineOutlinedIcon from '@mui/icons-material/DeleteOutlineOutlined'
+import ImageOutlinedIcon from '@mui/icons-material/ImageOutlined'
 import SaveOutlinedIcon from '@mui/icons-material/SaveOutlined'
 import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 import {
   Alert,
   Box,
   Button,
+  Chip,
   CircularProgress,
   Dialog,
   DialogActions,
@@ -32,7 +35,9 @@ import { defaultCardSx } from '@/shared/ui/paper'
 import { appToast } from '@/shared/ui/toast/toast.helpers'
 import { StackedTextField } from '@/shared/ui/form/stacked-text-field'
 import { StackedDropdown } from '@/shared/ui/form/stacked-dropdown'
+import { ManagedImageField, type ManagedImageFieldHandle } from '@/shared/ui/image'
 import { formatCurrencyInput as formatCurrency } from '@/shared/utils/currency'
+import { isObjectUrl } from '@/shared/utils/image'
 import { ProductPageSkeleton } from '@/pages/products/product-skeletons'
 
 type AttributeRow = {
@@ -48,7 +53,9 @@ type VariantRow = {
   sku: string
   price: string
   cogs: string
+  image_url: string
 }
+
 
 function sanitizeSku(value: string) {
   return value
@@ -76,10 +83,6 @@ function formatVariantSkuToken(value: string) {
 
 function parseCurrency(value: string) {
   return Number(value.replace(/\D/g, '')) || 0
-}
-
-function isObjectUrl(value: string) {
-  return value.startsWith('blob:')
 }
 
 function createAttribute(): AttributeRow {
@@ -113,11 +116,12 @@ function buildVariants(attributes: AttributeRow[], baseSku: string): VariantRow[
     sku: [baseSku || 'VAR', ...combination.map((item) => formatVariantSkuToken(item.value)).filter(Boolean)].join('-'),
     price: formatCurrency(0, { zeroAsEmpty: false }),
     cogs: formatCurrency(0, { zeroAsEmpty: false }),
+    image_url: '',
   }))
 }
 
 function buildVariantSeedMap(product: ProductListItem) {
-  const seeds: Record<string, Pick<VariantRow, 'sku' | 'price' | 'cogs'>> = {}
+  const seeds: Record<string, Pick<VariantRow, 'sku' | 'price' | 'cogs' | 'image_url'>> = {}
   const attributeNameById = new Map(product.attributes.map((attribute) => [attribute.id, attribute.name]))
 
   product.variants.forEach((variant) => {
@@ -133,6 +137,7 @@ function buildVariantSeedMap(product: ProductListItem) {
         sku: variant.sku,
         price: formatCurrency(variant.selling_price, { zeroAsEmpty: false }),
         cogs: formatCurrency(variant.cogs, { zeroAsEmpty: false }),
+        image_url: variant.image_url ?? '',
       }
       return
     }
@@ -148,6 +153,7 @@ function buildVariantSeedMap(product: ProductListItem) {
         sku: variant.sku,
         price: formatCurrency(variant.selling_price, { zeroAsEmpty: false }),
         cogs: formatCurrency(variant.cogs, { zeroAsEmpty: false }),
+        image_url: variant.image_url ?? '',
       }
     }
   })
@@ -165,7 +171,8 @@ function getVariantCombinations(variant: VariantRow) {
 export function ProductCreatePage(): ReactElement {
   const { id } = useParams()
   const navigate = useNavigate()
-  const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const navigateTimeoutRef = useRef<number | null>(null)
+  const mainImageFieldRef = useRef<ManagedImageFieldHandle | null>(null)
   const [name, setName] = useState('')
   const [sku, setSku] = useState('')
   const [unit, setUnit] = useState('')
@@ -178,14 +185,15 @@ export function ProductCreatePage(): ReactElement {
   const [attributes, setAttributes] = useState<AttributeRow[]>([])
   const [variants, setVariants] = useState<VariantRow[]>([])
   const [imagePreview, setImagePreview] = useState('')
+  const [isMainImageBusy, setIsMainImageBusy] = useState(false)
+  const [busyVariantIds, setBusyVariantIds] = useState<string[]>([])
   const [isPageLoading, setIsPageLoading] = useState(true)
-  const [isUploading, setIsUploading] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [showExitDialog, setShowExitDialog] = useState(false)
   const [dirty, setDirty] = useState(false)
   const [hasAttemptedSave, setHasAttemptedSave] = useState(false)
-  const [variantSeedMap, setVariantSeedMap] = useState<Record<string, Pick<VariantRow, 'sku' | 'price' | 'cogs'>>>({})
+  const [variantSeedMap, setVariantSeedMap] = useState<Record<string, Pick<VariantRow, 'sku' | 'price' | 'cogs' | 'image_url'>>>({})
   const [removedVariantIds, setRemovedVariantIds] = useState<string[]>([])
 
   useEffect(() => {
@@ -195,9 +203,9 @@ export function ProductCreatePage(): ReactElement {
         const matched = current.find((row) => row.id === item.id)
         const seeded = variantSeedMap[item.id]
         return matched
-          ? { ...item, price: matched.price, cogs: matched.cogs, sku: matched.sku || item.sku }
+          ? { ...item, price: matched.price, cogs: matched.cogs, sku: matched.sku || item.sku, image_url: matched.image_url }
           : seeded
-            ? { ...item, price: seeded.price, cogs: seeded.cogs, sku: seeded.sku || item.sku }
+            ? { ...item, price: seeded.price, cogs: seeded.cogs, sku: seeded.sku || item.sku, image_url: seeded.image_url }
             : item
       })
     })
@@ -224,7 +232,7 @@ export function ProductCreatePage(): ReactElement {
         const categoryNameById = new Map(categoryData.map((item) => [item.id, item.category_name]))
 
         setName(product.product_name)
-        setSku(product.sku ?? product.variants[0]?.sku.split('-').slice(0, -1).join('-') ?? '')
+        setSku(product.default_variant_sku ?? product.variants[0]?.sku.split('-').slice(0, -1).join('-') ?? '')
         setUnit(product.unit ?? '')
         setStatus(product.status ?? 'draft')
         setCategory(product.category_id ? categoryNameById.get(product.category_id) ?? null : null)
@@ -278,8 +286,21 @@ export function ProductCreatePage(): ReactElement {
     return () => window.removeEventListener('beforeunload', beforeUnload)
   }, [dirty])
 
+  useEffect(() => {
+    return () => {
+      if (navigateTimeoutRef.current !== null) {
+        window.clearTimeout(navigateTimeoutRef.current)
+      }
+    }
+  }, [])
+
   const variantMode = variants.length > 0
   const isEditMode = Boolean(id)
+  const setVariantImageBusy = (variantId: string, busy: boolean) => {
+    setBusyVariantIds((current) =>
+      busy ? [...new Set([...current, variantId])] : current.filter((item) => item !== variantId),
+    )
+  }
   const validationErrors = useMemo(() => {
     const nextErrors: Record<string, string> = {}
 
@@ -287,7 +308,7 @@ export function ProductCreatePage(): ReactElement {
       nextErrors.name = 'Tên sản phẩm là bắt buộc.'
     }
     if (!sku.trim()) {
-      nextErrors.sku = 'Mã SKU gốc là bắt buộc.'
+      nextErrors.sku = 'SKU mặc định là bắt buộc.'
     }
 
     attributes.forEach((attribute) => {
@@ -303,12 +324,11 @@ export function ProductCreatePage(): ReactElement {
     setErrors(hasAttemptedSave ? validationErrors : {})
   }, [hasAttemptedSave, validationErrors])
 
-  const hasPendingLocalImage = imagePreview.trim().length > 0 && isObjectUrl(imagePreview.trim())
   const canSave =
     !isPageLoading &&
     !isSaving &&
-    !isUploading &&
-    !hasPendingLocalImage &&
+    !isMainImageBusy &&
+    busyVariantIds.length === 0 &&
     Object.keys(validationErrors).length === 0 &&
     (!isEditMode || dirty)
 
@@ -319,13 +339,13 @@ export function ProductCreatePage(): ReactElement {
   const handleSave = async () => {
     setHasAttemptedSave(true)
 
-    if (isUploading) {
+    if (isMainImageBusy) {
       appToast.warning('Ảnh đang được tải lên. Vui lòng đợi hoàn tất rồi lưu lại.')
       return
     }
 
-    if (hasPendingLocalImage) {
-      appToast.warning('Ảnh sản phẩm chưa tải lên hoàn tất. Vui lòng chọn lại ảnh hoặc đợi upload xong.')
+    if (busyVariantIds.length > 0) {
+      appToast.warning('Ảnh phiên bản chưa tải lên hoàn tất. Vui lòng đợi upload xong rồi lưu lại.')
       return
     }
 
@@ -345,14 +365,14 @@ export function ProductCreatePage(): ReactElement {
 
       const payload: ProductUpsertPayload = {
         product_name: name.trim(),
-        sku: sku.trim() || undefined,
+        default_variant_sku: variantMode ? undefined : sku.trim() || undefined,
         unit: unit.trim() || undefined,
         status,
         image_url: imagePreview.trim() && !isObjectUrl(imagePreview.trim()) ? imagePreview.trim() : null,
         category,
         description: description.trim() || undefined,
         base_price: variantMode ? null : parseCurrency(basePrice),
-        cogs: baseCogs.trim() ? parseCurrency(baseCogs) : null,
+        cogs: variantMode ? null : baseCogs.trim() ? parseCurrency(baseCogs) : null,
         attributes: normalizedAttributes,
         variants: variantMode
           ? variants.map((variant) => {
@@ -362,8 +382,10 @@ export function ProductCreatePage(): ReactElement {
               return {
                 name: variant.name,
                 sku: variant.sku.trim(),
+                kind: 'generated',
                 selling_price: sellingPrice,
                 cogs,
+                image_url: variant.image_url.trim() && !isObjectUrl(variant.image_url.trim()) ? variant.image_url.trim() : null,
                 combinations: getVariantCombinations(variant),
               }
             })
@@ -373,11 +395,11 @@ export function ProductCreatePage(): ReactElement {
       if (isEditMode && id) {
         await productApi.updateProduct(id, payload)
         appToast.success('Cập nhật sản phẩm thành công.')
-        window.setTimeout(() => navigate('/products'), 1000)
+        navigateTimeoutRef.current = window.setTimeout(() => navigate('/products'), 1000)
       } else {
         await productApi.createProduct(payload)
         appToast.success('Thêm sản phẩm thành công.')
-        window.setTimeout(() => navigate('/products'), 1000)
+        navigateTimeoutRef.current = window.setTimeout(() => navigate('/products'), 1000)
       }
 
       setDirty(false)
@@ -417,7 +439,7 @@ export function ProductCreatePage(): ReactElement {
           .filter(Boolean)
 
         const uniqueValues = [...new Set([...item.values, ...nextValues])]
-        return { ...item, values: uniqueValues }
+        return { ...item, values: uniqueValues, draft: '' }
       }),
     )
   }
@@ -429,50 +451,6 @@ export function ProductCreatePage(): ReactElement {
 
     event.preventDefault()
     commitAttributeValues(id)
-  }
-
-  const handleImageChange = (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0]
-    if (!file) {
-      return
-    }
-
-    setDirty(true)
-    setIsUploading(true)
-    const previewUrl = URL.createObjectURL(file)
-    setImagePreview(previewUrl)
-
-    void (async () => {
-      try {
-        const uploaded = await productApi.uploadProductImage(file)
-        setImagePreview(uploaded.image_url)
-      } catch (error) {
-        console.error('Lỗi khi tải ảnh sản phẩm:', error)
-        setImagePreview('')
-
-        const message =
-          typeof error === 'object' &&
-          error !== null &&
-          'response' in error &&
-          typeof error.response === 'object' &&
-          error.response !== null &&
-          'data' in error.response &&
-          typeof error.response.data === 'object' &&
-          error.response.data !== null &&
-          'message' in error.response.data &&
-          typeof error.response.data.message === 'string'
-            ? error.response.data.message
-            : 'Không thể tải ảnh lên. Vui lòng thử lại!'
-
-        appToast.error(message)
-      } finally {
-        URL.revokeObjectURL(previewUrl)
-        setIsUploading(false)
-        if (fileInputRef.current) {
-          fileInputRef.current.value = ''
-        }
-      }
-    })()
   }
 
   return (
@@ -502,18 +480,6 @@ export function ProductCreatePage(): ReactElement {
         </Stack>
       </Box>
 
-      {isUploading && (
-        <Alert icon={<CircularProgress size={16} color="inherit" />} severity="info" sx={{ mb: 2 }}>
-          Ðang xử lý...
-        </Alert>
-      )}
-
-      {hasPendingLocalImage && !isUploading && (
-        <Alert severity="warning" sx={{ mb: 2 }}>
-          Ảnh hiện chỉ là bản xem trước tạm thời. Vui lòng tải ảnh lên hoàn tất trước khi lưu sản phẩm.
-        </Alert>
-      )}
-
       <Box sx={{ display: 'grid', gap: 3, gridTemplateColumns: { xs: '1fr', xl: 'minmax(0, 2fr) minmax(320px, 1fr)' } }}>
         <Stack spacing={3}>
           <Paper sx={defaultCardSx}>
@@ -529,7 +495,7 @@ export function ProductCreatePage(): ReactElement {
                   <StackedTextField fullWidth label="Tên sản phẩm *" placeholder="Ví dụ: Túi deo chéo canvas" value={name} onChange={(event) => { setDirty(true); setName(event.target.value) }} error={Boolean(errors.name)} helperText={errors.name} />
                 </Box>
 
-                <StackedTextField fullWidth label="Mã SKU gốc *" placeholder="Ví dụ: TUI-CANVAS-01" value={sku} onChange={(event) => { setDirty(true); setSku(sanitizeSku(event.target.value)) }} error={Boolean(errors.sku)} helperText={errors.sku} />
+                <StackedTextField fullWidth label="SKU mặc định *" placeholder="Ví dụ: TUI-CANVAS-01" value={sku} onChange={(event) => { setDirty(true); setSku(sanitizeSku(event.target.value)) }} error={Boolean(errors.sku)} helperText={errors.sku} />
 
                 <StackedTextField fullWidth label="Đơn vị tính" placeholder="Ví dụ: cái, hộp, kg" value={unit} onChange={(event) => { setDirty(true); setUnit(event.target.value) }} />
 
@@ -582,14 +548,14 @@ export function ProductCreatePage(): ReactElement {
                       onChange={(event) => { setDirty(true); setBasePrice(formatCurrency(event.target.value, { zeroAsEmpty: false })) }}
                       error={Boolean(errors.basePrice)}
                       helperText={errors.basePrice}
-                      endAdornment={<InputAdornment sx={{ fontSize: 14 }} position="end">₫</InputAdornment>}
+                      endAdornment={<InputAdornment sx={{ fontSize: 14 }} position="end">đ</InputAdornment>}
                     />
                     <StackedTextField
                       fullWidth
                       label="Giá vốn"
                       value={baseCogs}
                       onChange={(event) => { setDirty(true); setBaseCogs(formatCurrency(event.target.value, { zeroAsEmpty: false })) }}
-                      endAdornment={<InputAdornment sx={{ fontSize: 14 }} position="end">₫</InputAdornment>}
+                      endAdornment={<InputAdornment sx={{ fontSize: 14 }} position="end">đ</InputAdornment>}
                     />
                   </Box>
                 </Paper>
@@ -609,20 +575,54 @@ export function ProductCreatePage(): ReactElement {
                 </Stack>
 
                 <Paper variant="outlined" sx={{ overflow: 'hidden', borderColor: '#eaecf0' }}>
-                  <Table>
+                  <Table sx={{ width: '100%', tableLayout: 'fixed' }}>
                     <TableHead>
                       <TableRow sx={{ bgcolor: '#f8fafc' }}>
-                        <TableCell sx={{ minWidth: 220 }}>Tên phiên bản</TableCell>
-                        <TableCell sx={{ minWidth: 220 }}>SKU *</TableCell>
-                        <TableCell sx={{ minWidth: 220 }}>Giá bán</TableCell>
-                        <TableCell sx={{ minWidth: 220 }}>Giá vốn</TableCell>
-                        <TableCell sx={{ width: 72 }} />
+                        <TableCell sx={{ width: '10%', pr: 0.5 }}></TableCell>
+                        <TableCell sx={{ width: '20%', pl: 0.5 }}>Biến thể</TableCell>
+                        <TableCell sx={{ width: '24%' }}>SKU *</TableCell>
+                        <TableCell sx={{ width: '19%' }}>Giá bán</TableCell>
+                        <TableCell sx={{ width: '19%' }}>Giá vốn</TableCell>
+                        <TableCell sx={{ width: '8%'}} />
                       </TableRow>
                     </TableHead>
                     <TableBody>
                       {variants.map((variant) => (
                         <TableRow key={variant.id} hover>
-                          <TableCell sx={{ fontWeight: 600, color: '#0f172a' }}>{variant.name}</TableCell>
+                          <TableCell sx={{ pl: 2, pr: 0.5 }}>
+                            <ManagedImageField
+                              value={variant.image_url}
+                              onChange={(nextValue) => {
+                                setDirty(true)
+                                setVariants((current) =>
+                                  current.map((item) => (item.id === variant.id ? { ...item, image_url: nextValue } : item)),
+                                )
+                              }}
+                              onBusyChange={(busy) => setVariantImageBusy(variant.id, busy)}
+                              uploadImage={productApi.uploadProductImage}
+                              cropImage={productApi.cropProductImage}
+                              placeholder={<ImageOutlinedIcon sx={{ color: '#667085' }} />}
+                              holderWidth={56}
+                              holderHeight={56}
+                              useTooltip
+                              cropLabel="Cắt"
+                              removeLabel="Xóa"
+                              cropDialogTitle={`Cắt ảnh phiên bản ${variant.name}`}
+                              uploadErrorMessage="Không thể tải ảnh phiên bản lên. Vui lòng thử lại!"
+                              cropErrorMessage="Không thể crop ảnh phiên bản. Vui lòng thử lại!"
+                              holderSx={{
+                                borderRadius: 2.5,
+                                border: '1px dashed #cbd5e1',
+                                bgcolor: '#f8fafc',
+                              }}
+                              onRemove={() => {
+                                setDirty(true)
+                              }}
+                            />
+                          </TableCell>
+                          <TableCell sx={{ pl: 0.5, pr: 2 }}>
+                            <Typography sx={{ fontWeight: 600, color: '#0f172a' }}>{variant.name}</Typography>
+                          </TableCell>
                           <TableCell>
                             <TextField fullWidth size="small" value={variant.sku} onChange={(event) => { setDirty(true); setVariants((current) => current.map((item) => item.id === variant.id ? { ...item, sku: sanitizeSku(event.target.value) } : item)) }} />
                           </TableCell>
@@ -634,7 +634,7 @@ export function ProductCreatePage(): ReactElement {
                               onChange={(event) => { setDirty(true); setVariants((current) => current.map((item) => item.id === variant.id ? { ...item, price: formatCurrency(event.target.value) } : item)) }}
                               slotProps={{
                                 input: {
-                                  endAdornment: <InputAdornment position="end">₫</InputAdornment>,
+                                  endAdornment: <InputAdornment position="end">đ</InputAdornment>,
                                 },
                               }}
                             />
@@ -647,14 +647,24 @@ export function ProductCreatePage(): ReactElement {
                               onChange={(event) => { setDirty(true); setVariants((current) => current.map((item) => item.id === variant.id ? { ...item, cogs: formatCurrency(event.target.value, { zeroAsEmpty: false }) } : item)) }}
                               slotProps={{
                                 input: {
-                                  endAdornment: <InputAdornment position="end">₫</InputAdornment>,
+                                  endAdornment: <InputAdornment position="end">đ</InputAdornment>,
                                 },
                               }}
                             />
                           </TableCell>
-                          <TableCell align="right">
-                            <IconButton color="error" onClick={() => { setDirty(true); setRemovedVariantIds((current) => [...new Set([...current, variant.id])]) }}>
-                              <DeleteOutlineOutlinedIcon />
+                          <TableCell align="center">
+                            <IconButton
+                              color="error"
+                              size="small"
+                              aria-label={`Xóa phiên bản ${variant.name}`}
+                              onClick={() => { setDirty(true); setRemovedVariantIds((current) => [...new Set([...current, variant.id])]) }}
+                              sx={{
+                                border: '1px solid #f3d0d0',
+                                borderRadius: 2,
+                                bgcolor: '#fff5f5',
+                              }}
+                            >
+                              <DeleteOutlineOutlinedIcon fontSize="small" />
                             </IconButton>
                           </TableCell>
                         </TableRow>
@@ -687,25 +697,87 @@ export function ProductCreatePage(): ReactElement {
               ) : (
                 <Stack spacing={1.5}>
                   {attributes.map((attribute) => (
-                      <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', md: '1fr 1.4fr auto' } }}>
+                      <Box key={attribute.id} sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', md: '1fr 1.4fr auto' } }}>
                         <StackedTextField label="Tên thuộc tính" placeholder="Ví dụ: Màu sắc" value={attribute.name} onChange={(event) => { setDirty(true); setAttributes((current) => current.map((item) => item.id === attribute.id ? { ...item, name: event.target.value } : item)) }} />
 
                         <Box>
-                          <StackedTextField fullWidth label="Giá trị" placeholder="Nhập giá trị rồi nhấn Enter" value={attribute.draft} onChange={(event) => { setDirty(true); setAttributes((current) => current.map((item) => item.id === attribute.id ? { ...item, draft: event.target.value } : item)) }} onKeyDown={(event: KeyboardEvent<HTMLInputElement>) => handleAttributeKeyDown(event, attribute.id)} onBlur={() => commitAttributeValues(attribute.id)} error={Boolean(errors[`attr-${attribute.id}`])} helperText={errors[`attr-${attribute.id}`] || 'Ví dụ: Đỏ, Xanh, Đen'} />
-                          <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', mt: 1 }} useFlexGap>
-                            {attribute.values.map((value) => (
-                              <Box key={value} sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, px: 1.25, py: 0.75, borderRadius: '999px', bgcolor: '#eef4ff', color: '#284b9b', fontSize: 14, fontWeight: 600 }}>
-                                {value}
-                                <IconButton size="small" sx={{ p: 0.25, color: 'inherit' }} onClick={() => { setDirty(true); setAttributes((current) => current.map((item) => item.id === attribute.id ? { ...item, values: item.values.filter((entry) => entry !== value) } : item)) }}>
-                                  <DeleteOutlineOutlinedIcon sx={{ fontSize: 16 }} />
-                                </IconButton>
-                              </Box>
-                            ))}
-                          </Stack>
+                          <StackedTextField
+                            fullWidth
+                            label="Giá trị"
+                            placeholder={attribute.values.length === 0 ? 'Nhập giá trị rồi nhấn Enter' : 'Nhập thêm giá trị'}
+                            value={attribute.draft}
+                            onChange={(event) => {
+                              setDirty(true)
+                              setAttributes((current) => current.map((item) => item.id === attribute.id ? { ...item, draft: event.target.value } : item))
+                            }}
+                            onKeyDown={(event: KeyboardEvent<HTMLInputElement>) => handleAttributeKeyDown(event, attribute.id)}
+                            onBlur={() => commitAttributeValues(attribute.id)}
+                            error={Boolean(errors[`attr-${attribute.id}`])}
+                            helperText={errors[`attr-${attribute.id}`] || 'Nhấn Enter để thêm từng giá trị. Ví dụ: Đỏ, Xanh, Đen'}
+                            startAdornment={
+                              attribute.values.length > 0 ? (
+                                <Box sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 0.75, mr: 0.75, py: 0.5 }}>
+                                  {attribute.values.map((value) => (
+                                    <Chip
+                                      key={value}
+                                      label={value}
+                                      size="small"
+                                      onDelete={() => {
+                                        setDirty(true)
+                                        setAttributes((current) =>
+                                          current.map((item) =>
+                                            item.id === attribute.id
+                                              ? { ...item, values: item.values.filter((entry) => entry !== value) }
+                                              : item,
+                                          ),
+                                        )
+                                      }}
+                                      sx={{
+                                        bgcolor: '#eef4ff',
+                                        color: '#284b9b',
+                                        fontWeight: 600,
+                                        '& .MuiChip-deleteIcon': {
+                                          color: '#284b9b',
+                                        },
+                                      }}
+                                    />
+                                  ))}
+                                </Box>
+                              ) : undefined
+                            }
+                            inputSx={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              flexWrap: 'wrap',
+                              gap: 0.75,
+                              py: 0.5,
+                              '& .MuiOutlinedInput-input': {
+                                minWidth: 120,
+                                flex: 1,
+                                py: 1,
+                              },
+                            }}
+                          />
                         </Box>
-                        <Button color="error" onClick={() => { setDirty(true); setAttributes((current) => current.filter((item) => item.id !== attribute.id)) }}>
-                          <DeleteOutlineOutlinedIcon sx={{ fontSize: 16 }} />
-                        </Button>
+                        <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'flex-start', pt: { md: 3.5 } }}>
+                          <IconButton
+                            color="error"
+                            size="small"
+                            aria-label={`Xóa thuộc tính ${attribute.name || 'mới'}`}
+                            onClick={() => { setDirty(true); setAttributes((current) => current.filter((item) => item.id !== attribute.id)) }}
+                            sx={{
+                              width: 32,
+                              height: 32,
+                              flex: '0 0 auto',
+                              alignSelf: 'flex-start',
+                              border: '1px solid #f3d0d0',
+                              borderRadius: 2,
+                              bgcolor: '#fff5f5',
+                            }}
+                          >
+                            <DeleteOutlineOutlinedIcon fontSize="small" />
+                          </IconButton>
+                        </Box>
                       </Box>
                   ))}
                 </Stack>
@@ -722,14 +794,25 @@ export function ProductCreatePage(): ReactElement {
                   Hình ảnh
                 </Typography>
                 <Typography sx={{ color: '#667085', mt: 0.5 }}>
-                  Chọn ảnh hoặc kéo thả. Ảnh sẽ được nén trước khi tải lên.
+                  Chọn hoặc kéo thả ảnh vào đây để tải ảnh.
                 </Typography>
               </Box>
 
-              <Box onClick={() => fileInputRef.current?.click()} sx={{ minHeight: { xs: 240, md: 300 }, borderRadius: '18px', border: '1.5px dashed #b8c5db', background: 'linear-gradient(180deg,#f8fbff 0%,#eef4ff 100%)', display: 'grid', placeItems: 'center', cursor: 'pointer', overflow: 'hidden', p: 2, textAlign: 'center', color: '#3658a7' }}>
-                {imagePreview ? (
-                  <Box component="img" src={imagePreview} alt="Preview hình ảnh sản phẩm" sx={{ width: '100%', height: '100%', minHeight: 268, objectFit: 'cover', borderRadius: '14px' }} />
-                ) : (
+              <ManagedImageField
+                ref={mainImageFieldRef}
+                value={imagePreview}
+                onChange={(nextValue) => {
+                  setDirty(true)
+                  setImagePreview(nextValue)
+                }}
+                onRemove={() => {
+                  setDirty(true)
+                  setImagePreview('')
+                }}
+                onBusyChange={setIsMainImageBusy}
+                uploadImage={productApi.uploadProductImage}
+                cropImage={productApi.cropProductImage}
+                placeholder={(
                   <Stack spacing={1} sx={{ alignItems: 'center' }}>
                     <CloudUploadOutlinedIcon sx={{ fontSize: 40 }} />
                     <Typography sx={{ fontWeight: 700 }}>Chọn hoặc kéo thả ảnh sản phẩm</Typography>
@@ -738,17 +821,47 @@ export function ProductCreatePage(): ReactElement {
                     </Typography>
                   </Stack>
                 )}
-              </Box>
+                holderWidth="100%"
+                holderHeight="same-as-width"
+                cropPreviewToHolder
+                useTooltip={false}
+                cropDialogTitle="Cắt ảnh sản phẩm"
+                uploadErrorMessage="Không thể tải ảnh lên. Vui lòng thử lại!"
+                holderSx={{
+                  borderRadius: '18px',
+                  border: '1.5px dashed #b8c5db',
+                  background: 'linear-gradient(180deg,#f8fbff 0%,#eef4ff 100%)',
+                  textAlign: 'center',
+                  color: '#3658a7',
+                }}
+                imageSx={{ borderRadius: '14px' }}
+                overlaySx={{ bgcolor: 'rgba(15, 23, 42, 0.12)' }}
+              />
 
-              <input ref={fileInputRef} hidden type="file" accept="image/*" onChange={handleImageChange} />
-
-              {imagePreview && (
-                <Stack direction="row" sx={{ justifyContent: 'flex-end' }}>
-                  <Button variant="outlined" size="small" startIcon={<DeleteOutlineOutlinedIcon />} onClick={() => { setDirty(true); setImagePreview('') }}>
-                    Xóa ảnh
-                  </Button>
-                </Stack>
-              )}
+              <Stack direction="row" spacing={1} sx={{ justifyContent: 'flex-end' }}>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  startIcon={<CropOutlinedIcon fontSize="small" />}
+                  onClick={() => mainImageFieldRef.current?.openCrop()}
+                  disabled={!imagePreview || isMainImageBusy}
+                >
+                  Cắt
+                </Button>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  startIcon={<DeleteOutlineOutlinedIcon fontSize="small" />}
+                  onClick={() => {
+                    setDirty(true)
+                    setImagePreview('')
+                    mainImageFieldRef.current?.remove()
+                  }}
+                  disabled={!imagePreview || isMainImageBusy}
+                >
+                  Xóa
+                </Button>
+              </Stack>
             </Stack>
           </Paper>
         </Stack>

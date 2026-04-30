@@ -21,6 +21,10 @@ export type GeneralSettings = {
       account_holder: string
       qr_template: string
     }
+    vat: {
+      enabled: boolean
+      rate_percent: number
+    }
   }
 }
 
@@ -41,6 +45,10 @@ export type UpdateGeneralSettingsPayload = {
       account_number: string
       account_holder: string
       qr_template: string
+    }
+    vat: {
+      enabled: boolean
+      rate_percent: number
     }
   }
 }

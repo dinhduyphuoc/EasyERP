@@ -15,6 +15,7 @@ productRouter.delete("/categories", requirePermission("products.delete"), Produc
 productRouter.get("/categories/:id", requirePermission("products.read"), ProductController.getCategoryById);
 productRouter.put("/categories/:id", requirePermission("products.update"), ProductController.editCategory);
 productRouter.post("/upload-image", requirePermission("products.update"), ProductController.uploadImage);
+productRouter.post("/crop-image", requirePermission("products.update"), ProductController.cropImage);
 productRouter.get("/", requirePermission("products.read"), ProductController.getProducts);
 productRouter.post("/", requirePermission("products.create"), ProductController.createProduct);
 productRouter.delete("/", requirePermission("products.delete"), ProductController.deleteProducts);

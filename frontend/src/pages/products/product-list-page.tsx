@@ -82,7 +82,6 @@ function matchesTab(row: ProductListItem, activeTab: string) {
 
 function formatCurrency(value: string) {
   return sharedFormatCurrency(value)
-  return `${Number(value).toLocaleString('vi-VN')} đ`
 }
 
 function getCategoryLabel(categoryId: number | null, categoryLabelMap: Record<number, string>) {
@@ -107,6 +106,22 @@ function getProductPriceLabel(product: ProductListItem) {
   }
 
   return `${formatCurrency(String(minPrice))} - ${formatCurrency(String(maxPrice))}`
+}
+
+function getProductStructureMeta(product: ProductListItem) {
+  const generatedVariants = product.variants.filter((variant) => variant.kind === 'generated')
+
+  if (generatedVariants.length === 0) {
+    return {
+      label: 'Biến thể mặc định',
+      color: 'info' as const,
+    }
+  }
+
+  return {
+    label: `${generatedVariants.length} biến thể`,
+    color: 'success' as const,
+  }
 }
 
 export function ProductListPage() {
@@ -270,7 +285,7 @@ export function ProductListPage() {
       const matchesKeyword =
         keyword.length === 0 ||
         row.product_name.toLowerCase().includes(keyword) ||
-        row.sku?.toLowerCase().includes(keyword) ||
+        row.default_variant_sku?.toLowerCase().includes(keyword) ||
         row.variants.some((variant) => variant.sku.toLowerCase().includes(keyword))
 
       const matchesCategory =
@@ -332,34 +347,38 @@ export function ProductListPage() {
       {
         key: 'name',
         title: 'Sản phẩm',
-        render: (row) => (
-          <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', minWidth: 280 }}>
-            <Box
-              component="img"
-              src={row.image_url ?? row.variants[0]?.image_url ?? 'https://placehold.co/80x80?text=SP'}
-              alt={row.product_name}
-              sx={{
-                width: 52,
-                height: 52,
-                borderRadius: 2,
-                objectFit: 'cover',
-                flexShrink: 0,
-                bgcolor: alpha('#132238', 0.06),
-              }}
-            />
-            <Box>
-              <Typography sx={{ fontWeight: 600 }}>{row.product_name}</Typography>
-              <Typography variant="body2" color="text.secondary" sx={{ mt: 0.25 }}>
-                {row.variants.length} phiên bản
-              </Typography>
-            </Box>
-          </Stack>
-        ),
+        render: (row) => {
+          const structureMeta = getProductStructureMeta(row)
+
+          return (
+            <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', minWidth: 280 }}>
+              <Box
+                component="img"
+                src={row.image_url ?? row.variants[0]?.image_url ?? 'https://placehold.co/80x80?text=SP'}
+                alt={row.product_name}
+                sx={{
+                  width: 52,
+                  height: 52,
+                  borderRadius: 2,
+                  objectFit: 'cover',
+                  flexShrink: 0,
+                  bgcolor: alpha('#132238', 0.06),
+                }}
+              />
+              <Box>
+                <Typography sx={{ fontWeight: 600 }}>{row.product_name}</Typography>
+                <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mt: 0.5, flexWrap: 'wrap' }} useFlexGap>
+                  <Chip size="small" color={structureMeta.color} variant="outlined" label={structureMeta.label} />
+                </Stack>
+              </Box>
+            </Stack>
+          )
+        },
       },
       {
         key: 'sku',
-        title: 'SKU',
-        render: (row) => row.sku ?? row.variants[0]?.sku ?? '-',
+        title: 'SKU mặc định',
+        render: (row) => row.default_variant_sku ?? row.variants[0]?.sku ?? '-',
       },
       {
         key: 'category',

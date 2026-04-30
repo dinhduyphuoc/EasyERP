@@ -1,8 +1,10 @@
 import { prisma } from "@lib/prisma";
 import { createGHNClient } from "@/lib/ghn";
 import { Prisma } from "../../../generated/prisma/client";
-import { BadRequestError, NotFoundError } from "@/common";
+import { BadRequestError, ForbiddenError, NotFoundError } from "@/common";
+import { AuditLogService } from "@/common/services/audit-log.service";
 import { InventoryOrderOrchestration } from "@/modules/inventory/inventory.service";
+import { SettingsService } from "@/modules/settings/settings.service";
 import type {
   AddressRequestInput,
   DuplicateOrderRequestInput,
@@ -18,6 +20,13 @@ import type {
   OrderTypeInput,
   UpdateOrderRequestInput,
 } from "./order.types";
+
+type OrderActorContext = {
+  userId: string;
+  tenantId: string | null;
+  fullName: string;
+  permissions: string[];
+};
 
 const ORDER_CODE_PREFIX = "DH";
 const ORDER_CODE_NUMBER_LENGTH = 4;
@@ -35,6 +44,7 @@ const ORDER_PROCESSING_STATUSES: OrderProcessingStatusInput[] = [
   "returned",
 ];
 const ORDER_TYPES: OrderTypeInput[] = ["sale", "return"];
+const ORDER_VAT_UPDATE_PERMISSION = "orders.vat.update";
 
 const orderProcessingStatusLabels = {
   draft: "Nháp",
@@ -176,6 +186,48 @@ const toOptionalTrimmedString = (value: unknown) => {
   return trimmed.length > 0 ? trimmed : undefined;
 };
 
+const normalizeShippingServiceName = (value: string | null | undefined) => {
+  if (!value) {
+    return value ?? null;
+  }
+
+  const [providerName] = value.split(" - ");
+  const normalized = providerName.trim();
+  return normalized.length > 0 ? normalized : value;
+};
+
+const toOptionalBoolean = (value: unknown) => {
+  if (typeof value === "boolean") {
+    return value;
+  }
+
+  return undefined;
+};
+
+const calculateVatAmount = ({
+  subTotal,
+  vatEnabled,
+  vatRatePercent,
+}: {
+  subTotal: Prisma.Decimal;
+  vatEnabled: boolean;
+  vatRatePercent: Prisma.Decimal;
+}) => {
+  if (!vatEnabled || vatRatePercent.lte(0) || subTotal.lte(0)) {
+    return new Prisma.Decimal(0);
+  }
+
+  return subTotal.mul(vatRatePercent).div(100);
+};
+
+const assertVatEditPermission = (actor: OrderActorContext | undefined) => {
+  if (!actor?.permissions.includes(ORDER_VAT_UPDATE_PERMISSION)) {
+    throw new ForbiddenError("You do not have permission to change VAT settings for orders", {
+      required_permission: ORDER_VAT_UPDATE_PERMISSION,
+    });
+  }
+};
+
 const parseOptionalPositiveInt = (value: unknown, fieldName: string) => {
   if (value === undefined || value === null || value === "") {
     return undefined;
@@ -271,6 +323,80 @@ const parseDecimalOrNull = (value: unknown, fieldName: string) => {
     throw new BadRequestError(`${fieldName} must be a valid number`);
   }
 };
+
+const ensureNonNegativeDecimal = (value: Prisma.Decimal, fieldName: string) => {
+  if (value.lt(0)) {
+    throw new BadRequestError(`${fieldName} must be a non-negative number`);
+  }
+
+  return value;
+};
+
+const normalizeOrderPricing = ({
+  subTotal,
+  discountAmount,
+  taxAmount,
+  shippingFee,
+}: {
+  subTotal: Prisma.Decimal;
+  discountAmount: Prisma.Decimal;
+  taxAmount: Prisma.Decimal;
+  shippingFee: Prisma.Decimal;
+}) => {
+  const nextDiscountAmount = ensureNonNegativeDecimal(discountAmount, "discount_amount");
+  const nextTaxAmount = ensureNonNegativeDecimal(taxAmount, "tax_amount");
+  const nextShippingFee = ensureNonNegativeDecimal(shippingFee, "shipping_fee");
+
+  if (nextDiscountAmount.gt(subTotal)) {
+    throw new BadRequestError("discount_amount cannot exceed sub_total");
+  }
+
+  const totalAmount = subTotal.minus(nextDiscountAmount).plus(nextTaxAmount).plus(nextShippingFee);
+
+  if (totalAmount.lt(0)) {
+    throw new BadRequestError("total_amount cannot be negative");
+  }
+
+  return {
+    discountAmount: nextDiscountAmount,
+    taxAmount: nextTaxAmount,
+    shippingFee: nextShippingFee,
+    totalAmount,
+  };
+};
+
+const getCompatibleOrderPricing = ({
+  discountAmount,
+  taxAmount,
+  vatRatePercent,
+}: {
+  discountAmount: Prisma.Decimal;
+  taxAmount: Prisma.Decimal;
+  vatRatePercent: Prisma.Decimal;
+}) => {
+  const isLegacyDiscountStoredInTax =
+    vatRatePercent.lte(0) && discountAmount.lte(0) && taxAmount.gt(0);
+
+  if (isLegacyDiscountStoredInTax) {
+    return {
+      discountAmount: taxAmount,
+      taxAmount: new Prisma.Decimal(0),
+      vatRatePercent: new Prisma.Decimal(0),
+    };
+  }
+
+  return {
+    discountAmount,
+    taxAmount,
+    vatRatePercent,
+  };
+};
+
+const getStoredVatEnabled = (order: {
+  vat_enabled?: boolean;
+  vat_rate_percent: Prisma.Decimal;
+  tax_amount: Prisma.Decimal;
+}) => order.vat_enabled || order.vat_rate_percent.gt(0) || order.tax_amount.gt(0);
 
 const parseOrderPaymentStatus = (value: unknown) => {
   if (value === undefined || value === null || value === "") {
@@ -483,6 +609,49 @@ const updateOrderStageTimeline = (
 const generateInvoiceCode = (orderCode: string) => {
   const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, "");
   return `EINV-${stamp}-${orderCode}`;
+};
+
+const writeVatAuditLog = async ({
+  actor,
+  orderId,
+  orderCode,
+  from,
+  to,
+  pricingVersion,
+}: {
+  actor: OrderActorContext | undefined;
+  orderId: number;
+  orderCode: string;
+  from: { vatEnabled: boolean; vatRatePercent: string; taxAmount: string };
+  to: { vatEnabled: boolean; vatRatePercent: string; taxAmount: string };
+  pricingVersion: number;
+}) => {
+  if (!actor?.userId) {
+    return;
+  }
+
+  await AuditLogService.write({
+    tenant_id: actor.tenantId,
+    actor_user_id: actor.userId,
+    action: "UPDATE_VAT",
+    resource_type: "order",
+    resource_id: String(orderId),
+    status: "success",
+    metadata_json: {
+      order_code: orderCode,
+      from: {
+        vat_enabled: from.vatEnabled,
+        vat_rate_percent: from.vatRatePercent,
+        tax_amount: from.taxAmount,
+      },
+      to: {
+        vat_enabled: to.vatEnabled,
+        vat_rate_percent: to.vatRatePercent,
+        tax_amount: to.taxAmount,
+      },
+      pricing_version: pricingVersion,
+    },
+  });
 };
 
 const persistOrderMutation = async ({
@@ -751,101 +920,16 @@ const resolveOrderAddressId = async (
   return getOrCreateAddress(tx, addressInput, `${fieldName}_detail`);
 };
 
-const mapOrder = (order: {
-  id: number;
-  order_code: string;
-  order_type: OrderTypeInput;
-  order_date: Date;
-  customer_id: number | null;
-  customer_code: string | null;
-  customer_name: string;
-  customer_phone: string;
-  customer_email: string | null;
-  customer_address: string | null;
-  client_order_code: string | null;
-  note: string | null;
-  required_note: string | null;
-  payment_type_id: number | null;
-  from_address_id: number | null;
-  to_address_id: number | null;
-  return_address_id: number | null;
-  from_name: string | null;
-  from_phone: string | null;
-  from_address: string | null;
-  from_ward_name: string | null;
-  from_district_name: string | null;
-  from_province_name: string | null;
-  return_phone: string | null;
-  return_address: string | null;
-  return_district_id: number | null;
-  return_ward_code: string | null;
-  to_ward_code: string | null;
-  to_district_id: number | null;
-  cod_amount: Prisma.Decimal;
-  content: string | null;
-  weight: number | null;
-  length: number | null;
-  width: number | null;
-  height: number | null;
-  insurance_value: Prisma.Decimal;
-  service_id: number | null;
-  service_type_id: number | null;
-  pick_station_id: number | null;
-  deliver_station_id: number | null;
-  coupon: string | null;
-  pick_shift: number[];
-  sub_total: Prisma.Decimal;
-  tax_amount: Prisma.Decimal;
-  shipping_fee: Prisma.Decimal;
-  total_amount: Prisma.Decimal;
-  deposit_amount: Prisma.Decimal;
-  paid_amount: Prisma.Decimal;
-  outstanding_amount: Prisma.Decimal;
-  payment_status: OrderPaymentStatusInput;
-  processing_status: OrderProcessingStatusInput;
-  shipping_service: string | null;
-  sales_channel: string | null;
-  order_notes: string | null;
-  payment_notes: string | null;
-  warehouse_status: string | null;
-  tracking_code: string | null;
-  shipping_status: string | null;
-  invoice_code: string | null;
-  created_by: string | null;
-  confirmed_by: string | null;
-  status_timeline: Prisma.JsonValue;
-  created_at: Date;
-  updated_at: Date;
-  items?: Array<{
-    id: number;
-    product_id: number | null;
-    variant_sku: string | null;
-    product_name: string;
-    sku: string;
-    quantity: number;
-    unit_price: Prisma.Decimal;
-    discount_amount: Prisma.Decimal;
-    sub_total: Prisma.Decimal;
-    notes: string | null;
-    item_weight: number | null;
-    item_length: number | null;
-    item_width: number | null;
-    item_height: number | null;
-    category_level1: string | null;
-  }>;
-  history?: Array<{
-    id: number;
-    event_type: string;
-    description: string;
-    actor_name: string | null;
-    metadata: Prisma.JsonValue;
-    created_at: Date;
-  }>;
-  from_address_detail?: Parameters<typeof mapAddress>[0];
-  to_address_detail?: Parameters<typeof mapAddress>[0];
-  return_address_detail?: Parameters<typeof mapAddress>[0];
-}) => ({
-  id: order.id,
+const mapOrder = (order: OrderWithRelations) => {
+  const compatiblePricing = getCompatibleOrderPricing({
+    discountAmount: order.discount_amount,
+    taxAmount: order.tax_amount,
+    vatRatePercent: order.vat_rate_percent,
+  });
+  const vatEnabled = getStoredVatEnabled(order);
+
+  return {
+    id: order.id,
   order_code: order.order_code,
   order_type: order.order_type,
   order_date: order.order_date.toISOString(),
@@ -893,7 +977,12 @@ const mapOrder = (order: {
   coupon: order.coupon,
   pick_shift: order.pick_shift,
   sub_total: decimalToString(order.sub_total),
-  tax_amount: decimalToString(order.tax_amount),
+  discount_amount: decimalToString(compatiblePricing.discountAmount),
+  vat_enabled: vatEnabled,
+  tax_amount: decimalToString(compatiblePricing.taxAmount),
+  vat_rate_percent: decimalToString(compatiblePricing.vatRatePercent),
+  vat_changed_by_user: order.vat_changed_by_user,
+  pricing_version: order.pricing_version,
   shipping_fee: decimalToString(order.shipping_fee),
   total_amount: decimalToString(order.total_amount),
   deposit_amount: decimalToString(order.deposit_amount),
@@ -916,7 +1005,8 @@ const mapOrder = (order: {
   updated_at: order.updated_at.toISOString(),
   order_items: order.items?.map(mapOrderItem) ?? [],
   order_history: order.history?.map(mapOrderHistory) ?? [],
-});
+  };
+};
 
 const buildWhereClause = (storeId: string, query: OrderListQuery): Prisma.OrderWhereInput => {
   const search = toOptionalTrimmedString(query.search)?.toLowerCase();
@@ -1140,7 +1230,7 @@ const buildNormalizedItems = async (storeId: string, items: OrderItemRequestInpu
           select: {
             id: true,
             product_name: true,
-            sku: true,
+            default_variant_sku: true,
           },
         })
       : Promise.resolve([]),
@@ -1168,7 +1258,11 @@ const buildNormalizedItems = async (storeId: string, items: OrderItemRequestInpu
       toOptionalTrimmedString(item.product_name) ??
       variant?.product.product_name ??
       product?.product_name;
-    const sku = toOptionalTrimmedString(item.sku) ?? variantSku ?? product?.sku ?? undefined;
+    const sku =
+      toOptionalTrimmedString(item.sku) ??
+      variantSku ??
+      product?.default_variant_sku ??
+      undefined;
 
     if (!productName) {
       throw new BadRequestError(`order_items[${index}].product_name is required`);
@@ -1214,7 +1308,6 @@ export const OrderService = {
         where: {
           store_id: storeId,
           status: "active",
-          phone: { not: null },
         },
         select: {
           id: true,
@@ -1233,6 +1326,7 @@ export const OrderService = {
         where: { status: "active", store_id: storeId },
         select: {
           sku: true,
+          kind: true,
           selling_price: true,
           image_url: true,
           product_id: true,
@@ -1316,7 +1410,8 @@ export const OrderService = {
       })),
       products: variants.map((variant) => ({
         sku: variant.sku,
-        label: `${variant.product.product_name} - ${variant.sku}`,
+        label: `${variant.product.product_name} - ${variant.sku}${variant.kind === "default" ? " (Mặc định)" : ""}`,
+        variant_kind: variant.kind,
         product_id: variant.product_id,
         product_name: variant.product.product_name,
         selling_price: decimalToString(variant.selling_price),
@@ -1341,12 +1436,7 @@ export const OrderService = {
   getOrders: async (storeId: string, query: OrderListQuery) => {
     const orders = await prisma.order.findMany({
       where: buildWhereClause(storeId, query),
-      include: {
-        items: true,
-        from_address_detail: true,
-        to_address_detail: true,
-        return_address_detail: true,
-      },
+      include: orderInclude,
       orderBy: [{ order_date: "desc" }, { id: "desc" }],
     });
 
@@ -1398,8 +1488,18 @@ export const OrderService = {
     };
   },
 
-  duplicateOrder: async (storeId: string, id: number, input: DuplicateOrderRequestInput = {}) => {
+  duplicateOrder: async (
+    storeId: string,
+    id: number,
+    input: DuplicateOrderRequestInput = {},
+    _actor?: OrderActorContext,
+  ) => {
     const existingOrder = await getOrderForMutation(storeId, id);
+    const compatiblePricing = getCompatibleOrderPricing({
+      discountAmount: existingOrder.discount_amount,
+      taxAmount: existingOrder.tax_amount,
+      vatRatePercent: existingOrder.vat_rate_percent,
+    });
     const actorName = toOptionalTrimmedString(input.actor_name) ?? "System";
     const duplicatedOrderDate = parseOptionalDate(input.order_date, "order_date")?.toISOString();
 
@@ -1446,7 +1546,12 @@ export const OrderService = {
       deliver_station_id: existingOrder.deliver_station_id,
       coupon: existingOrder.coupon,
       pick_shift: existingOrder.pick_shift,
-      tax_amount: existingOrder.tax_amount.toString(),
+      discount_amount: compatiblePricing.discountAmount.toString(),
+      vat_enabled: getStoredVatEnabled(existingOrder),
+      tax_amount: compatiblePricing.taxAmount.toString(),
+      vat_rate_percent: compatiblePricing.vatRatePercent.toString(),
+      vat_changed_by_user: existingOrder.vat_changed_by_user,
+      pricing_version: 1,
       shipping_fee: existingOrder.shipping_fee.toString(),
       deposit_amount: 0,
       paid_amount: 0,
@@ -1492,7 +1597,7 @@ export const OrderService = {
     });
   },
 
-  createOrder: async (storeId: string, input: OrderRequestInput) => {
+  createOrder: async (storeId: string, input: OrderRequestInput, actor?: OrderActorContext) => {
     const orderCode = toOptionalTrimmedString(input.order_code);
     const orderDate = parseOptionalDate(input.order_date, "order_date") ?? new Date();
     const orderType = parseOrderType(input.order_type);
@@ -1564,7 +1669,9 @@ export const OrderService = {
         : parseOptionalPositiveInt(input.deliver_station_id, "deliver_station_id") ?? null;
     const coupon = toOptionalTrimmedString(input.coupon) ?? null;
     const pickShift = parseOptionalIntArray(input.pick_shift, "pick_shift") ?? [];
-    const shippingService = toOptionalTrimmedString(input.shipping_service) ?? null;
+    const shippingService = normalizeShippingServiceName(
+      toOptionalTrimmedString(input.shipping_service) ?? null,
+    );
     const salesChannel = toOptionalTrimmedString(input.sales_channel) ?? null;
     const orderNotes = toOptionalTrimmedString(input.order_notes) ?? null;
     const paymentNotes = toOptionalTrimmedString(input.payment_notes) ?? null;
@@ -1615,6 +1722,27 @@ export const OrderService = {
       throw new BadRequestError("customer_info.phone is required");
     }
 
+    const defaultVatSettings = actor?.tenantId
+      ? (await SettingsService.getGeneralSettings(actor.tenantId, storeId)).defaults.vat
+      : { enabled: false, rate_percent: 0 };
+    const hasExplicitVatSnapshot =
+      input.vat_enabled !== undefined ||
+      input.vat_rate_percent !== undefined ||
+      input.tax_amount !== undefined;
+    const requestedVatEnabled = toOptionalBoolean(input.vat_enabled);
+    const vatEnabled = hasExplicitVatSnapshot
+      ? requestedVatEnabled ?? false
+      : defaultVatSettings.enabled;
+    const vatRatePercent = ensureNonNegativeDecimal(
+      parseDecimal(
+        input.vat_rate_percent ?? (hasExplicitVatSnapshot ? 0 : defaultVatSettings.rate_percent),
+        "vat_rate_percent",
+        0,
+      ),
+      "vat_rate_percent",
+    );
+    const effectiveVatRatePercent = vatEnabled ? vatRatePercent : new Prisma.Decimal(0);
+
     const calculatedSubTotal = normalizedItems.reduce(
       (sum, item) => sum.plus(item.sub_total),
       new Prisma.Decimal(0),
@@ -1623,9 +1751,26 @@ export const OrderService = {
       normalizedItems.length > 0
         ? calculatedSubTotal
         : parseDecimal(input.sub_total, "sub_total", 0);
-    const taxAmount = parseDecimal(input.tax_amount, "tax_amount", 0);
-    const shippingFee = parseDecimal(input.shipping_fee, "shipping_fee", 0);
-    const totalAmount = subTotal.plus(taxAmount).plus(shippingFee);
+    const computedTaxAmount = hasExplicitVatSnapshot
+      ? parseDecimal(input.tax_amount, "tax_amount", 0)
+      : calculateVatAmount({
+          subTotal,
+          vatEnabled,
+          vatRatePercent: effectiveVatRatePercent,
+        });
+    const { discountAmount, taxAmount, shippingFee, totalAmount } = normalizeOrderPricing({
+      subTotal,
+      discountAmount: parseDecimal(input.discount_amount, "discount_amount", 0),
+      taxAmount: computedTaxAmount,
+      shippingFee: parseDecimal(input.shipping_fee, "shipping_fee", 0),
+    });
+    const vatChangedByUser = toOptionalBoolean(input.vat_changed_by_user) ?? false;
+    if (vatChangedByUser) {
+      assertVatEditPermission(actor);
+    }
+    if (vatEnabled && effectiveVatRatePercent.gt(0) && subTotal.gt(0) && taxAmount.lte(0)) {
+      throw new BadRequestError("tax_amount must be greater than 0 when vat_rate_percent is enabled");
+    }
     const depositAmount = parseDecimal(input.deposit_amount, "deposit_amount", 0);
     let paidAmount = parseDecimal(input.paid_amount, "paid_amount", 0);
 
@@ -1670,6 +1815,12 @@ export const OrderService = {
         sales_channel: salesChannel,
         payment_type: paymentStatus,
         sub_total: subTotal.toString(),
+        discount_amount: discountAmount.toString(),
+        vat_enabled: vatEnabled,
+        tax_amount: taxAmount.toString(),
+        vat_rate_percent: effectiveVatRatePercent.toString(),
+        vat_changed_by_user: vatChangedByUser,
+        pricing_version: 1,
         deposit_amount: depositAmount.toString(),
       },
       confirmed: {
@@ -1774,7 +1925,12 @@ export const OrderService = {
               coupon,
               pick_shift: pickShift,
               sub_total: subTotal,
+              discount_amount: discountAmount,
+              vat_enabled: vatEnabled,
               tax_amount: taxAmount,
+              vat_rate_percent: effectiveVatRatePercent,
+              vat_changed_by_user: vatChangedByUser,
+              pricing_version: 1,
               shipping_fee: shippingFee,
               total_amount: totalAmount,
               deposit_amount: depositAmount,
@@ -1883,8 +2039,18 @@ export const OrderService = {
     throw new BadRequestError("Unable to generate a unique order code");
   },
 
-  updateOrder: async (storeId: string, id: number, input: UpdateOrderRequestInput) => {
+  updateOrder: async (
+    storeId: string,
+    id: number,
+    input: UpdateOrderRequestInput,
+    actor?: OrderActorContext,
+  ) => {
     const existingOrder = await getOrderForMutation(storeId, id);
+    const compatibleExistingPricing = getCompatibleOrderPricing({
+      discountAmount: existingOrder.discount_amount,
+      taxAmount: existingOrder.tax_amount,
+      vatRatePercent: existingOrder.vat_rate_percent,
+    });
     if (!["draft", "placed"].includes(existingOrder.processing_status)) {
       throw new BadRequestError("Only draft or placed orders can be edited");
     }
@@ -1905,7 +2071,7 @@ export const OrderService = {
     const shippingService =
       input.shipping_service === undefined
         ? existingOrder.shipping_service
-        : toOptionalTrimmedString(input.shipping_service) ?? null;
+        : normalizeShippingServiceName(toOptionalTrimmedString(input.shipping_service) ?? null);
     const salesChannel =
       input.sales_channel === undefined
         ? existingOrder.sales_channel
@@ -2151,15 +2317,52 @@ export const OrderService = {
     }
 
     const subTotal = normalizedItems.reduce((sum, item) => sum.plus(item.sub_total), new Prisma.Decimal(0));
-    const taxAmount =
-      input.tax_amount === undefined
-        ? existingOrder.tax_amount
-        : parseDecimal(input.tax_amount, "tax_amount", 0);
-    const shippingFee =
+    const discountAmountInput =
+      input.discount_amount === undefined
+        ? compatibleExistingPricing.discountAmount
+        : parseDecimal(input.discount_amount, "discount_amount", 0);
+    const shippingFeeInput =
       input.shipping_fee === undefined
         ? existingOrder.shipping_fee
         : parseDecimal(input.shipping_fee, "shipping_fee", 0);
-    const totalAmount = subTotal.plus(taxAmount).plus(shippingFee);
+    const existingVatEnabled = getStoredVatEnabled(existingOrder);
+    const vatChangedRequested =
+      input.vat_enabled !== undefined ||
+      input.vat_rate_percent !== undefined ||
+      input.vat_changed_by_user === true;
+
+    if (vatChangedRequested) {
+      assertVatEditPermission(actor);
+    }
+
+    const vatEnabled = vatChangedRequested
+      ? toOptionalBoolean(input.vat_enabled) ?? existingVatEnabled
+      : existingVatEnabled;
+    const vatRatePercent = vatChangedRequested
+      ? ensureNonNegativeDecimal(
+          parseDecimal(
+            input.vat_rate_percent ?? compatibleExistingPricing.vatRatePercent,
+            "vat_rate_percent",
+            0,
+          ),
+          "vat_rate_percent",
+        )
+      : compatibleExistingPricing.vatRatePercent;
+    const taxAmount = vatChangedRequested
+      ? calculateVatAmount({
+          subTotal,
+          vatEnabled,
+          vatRatePercent,
+        })
+      : compatibleExistingPricing.taxAmount;
+    const pricingVersion = vatChangedRequested ? existingOrder.pricing_version + 1 : existingOrder.pricing_version;
+    const vatChangedByUser = vatChangedRequested ? true : existingOrder.vat_changed_by_user;
+    const { discountAmount, shippingFee, totalAmount } = normalizeOrderPricing({
+      subTotal,
+      discountAmount: discountAmountInput,
+      taxAmount,
+      shippingFee: shippingFeeInput,
+    });
     const depositAmount =
       input.deposit_amount === undefined
         ? existingOrder.deposit_amount
@@ -2210,6 +2413,11 @@ export const OrderService = {
         sales_channel: salesChannel,
         payment_type: paymentStatus,
         sub_total: subTotal.toString(),
+        discount_amount: discountAmount.toString(),
+        vat_enabled: vatEnabled,
+        tax_amount: taxAmount.toString(),
+        vat_rate_percent: vatRatePercent.toString(),
+        pricing_version: pricingVersion,
         deposit_amount: depositAmount.toString(),
       },
       confirmed: {
@@ -2239,6 +2447,17 @@ export const OrderService = {
       input.status_timeline ?? (existingOrder.status_timeline as Record<string, unknown>),
       runtimeTimeline,
     );
+    const vatAuditFrom = {
+      vatEnabled: existingVatEnabled,
+      vatRatePercent: compatibleExistingPricing.vatRatePercent.toString(),
+      taxAmount: compatibleExistingPricing.taxAmount.toString(),
+    };
+    const vatAuditTo = {
+      vatEnabled,
+      vatRatePercent: vatRatePercent.toString(),
+      taxAmount: taxAmount.toString(),
+    };
+    const vatHistoryActorName = actor?.fullName ?? createdBy;
 
     const updatedOrder = await prisma.$transaction(async (tx) => {
       const [fromAddressId, toAddressId, returnAddressId] = await Promise.all([
@@ -2266,11 +2485,39 @@ export const OrderService = {
           metadata: {
             payment_status: paymentStatus,
             processing_status: processingStatus,
+            discount_amount: discountAmount.toString(),
+            vat_enabled: vatEnabled,
+            tax_amount: taxAmount.toString(),
+            vat_rate_percent: vatRatePercent.toString(),
+            pricing_version: pricingVersion,
             total_amount: totalAmount.toString(),
             item_count: normalizedItems.length,
           },
         },
       });
+
+      if (vatChangedRequested) {
+        await tx.orderHistory.create({
+          data: {
+            order_id: id,
+            event_type: "vat_change",
+            description: "Cập nhật cấu hình VAT của đơn hàng",
+            actor_name: vatHistoryActorName,
+            metadata: {
+              type: "vat_change",
+              old_vat_enabled: vatAuditFrom.vatEnabled,
+              new_vat_enabled: vatAuditTo.vatEnabled,
+              old_vat_rate: vatAuditFrom.vatRatePercent,
+              new_vat_rate: vatAuditTo.vatRatePercent,
+              old_tax_amount: vatAuditFrom.taxAmount,
+              new_tax_amount: vatAuditTo.taxAmount,
+              changed_by: actor?.userId ?? null,
+              changed_at: new Date().toISOString(),
+              pricing_version: pricingVersion,
+            },
+          },
+        });
+      }
 
       return tx.order.update({
         where: { id },
@@ -2317,7 +2564,12 @@ export const OrderService = {
           coupon,
           pick_shift: pickShift,
           sub_total: subTotal,
+          discount_amount: discountAmount,
+          vat_enabled: vatEnabled,
           tax_amount: taxAmount,
+          vat_rate_percent: vatRatePercent,
+          vat_changed_by_user: vatChangedByUser,
+          pricing_version: pricingVersion,
           shipping_fee: shippingFee,
           total_amount: totalAmount,
           deposit_amount: depositAmount,
@@ -2344,6 +2596,17 @@ export const OrderService = {
       });
     });
 
+    if (vatChangedRequested) {
+      await writeVatAuditLog({
+        actor,
+        orderId: updatedOrder.id,
+        orderCode: updatedOrder.order_code,
+        from: vatAuditFrom,
+        to: vatAuditTo,
+        pricingVersion,
+      });
+    }
+
     return mapOrder(updatedOrder);
   },
 
@@ -2352,12 +2615,14 @@ export const OrderService = {
     id: number,
     action: OrderActionName,
     input: OrderActionRequestInput,
+    _actor?: OrderActorContext,
   ) => {
     const existingOrder = await getOrderForMutation(storeId, id);
     const actorName = toOptionalTrimmedString(input.actor_name) ?? "System";
     const note = toOptionalTrimmedString(input.note) ?? null;
-    const shippingService =
-      toOptionalTrimmedString(input.shipping_service) ?? existingOrder.shipping_service;
+    const shippingService = normalizeShippingServiceName(
+      toOptionalTrimmedString(input.shipping_service) ?? existingOrder.shipping_service,
+    );
     const trackingCode =
       toOptionalTrimmedString(input.tracking_code) ?? existingOrder.tracking_code;
     const shippingStatus =

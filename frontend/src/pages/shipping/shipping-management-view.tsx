@@ -633,12 +633,6 @@ export function ShippingManagementView({
             <Stack spacing={3}>
               {modalError ? <Alert severity="error">{modalError}</Alert> : null}
               {detail.connection.error_message ? <Alert severity="warning">{detail.connection.error_message}</Alert> : null}
-              {detail.connection.has_credentials ? (
-                <Alert severity="info">
-                  Token hiện tại đang được lưu bảo mật. Nhập giá trị mới nếu bạn muốn cập nhật cấu hình.
-                </Alert>
-              ) : null}
-
               <Paper
                 sx={{
                   ...defaultCardSx,

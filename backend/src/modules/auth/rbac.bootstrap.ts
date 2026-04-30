@@ -4,6 +4,7 @@ const SYSTEM_PERMISSIONS = [
   "orders.create",
   "orders.read",
   "orders.update",
+  "orders.vat.update",
   "orders.cancel",
   "orders.refund",
   "orders.export",
@@ -47,6 +48,7 @@ const SYSTEM_ROLE_PERMISSIONS: Record<string, readonly string[]> = {
   admin: [
     "orders.read",
     "orders.update",
+    "orders.vat.update",
     "orders.cancel",
     "orders.export",
     "customers.read",

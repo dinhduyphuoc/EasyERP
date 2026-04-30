@@ -8,6 +8,7 @@ export type StackedTextFieldProps = Omit<ComponentProps<typeof OutlinedInput>, '
   helperText?: ReactNode
   error?: boolean
   sx?: ComponentProps<typeof FormGrid>['sx']
+  inputSx?: ComponentProps<typeof OutlinedInput>['sx']
 }
 
 export function StackedTextField({
@@ -17,6 +18,7 @@ export function StackedTextField({
   error,
   required,
   sx,
+  inputSx,
   id,
   fullWidth = true,
   size = 'small',
@@ -37,6 +39,7 @@ export function StackedTextField({
         required={required}
         fullWidth={fullWidth}
         size={size}
+        sx={inputSx}
       />
       {helperText ? <FormHelperText error={error}>{helperText}</FormHelperText> : null}
     </FormGrid>

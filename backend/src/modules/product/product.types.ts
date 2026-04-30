@@ -1,8 +1,9 @@
 export type ProductStatusInput = "active" | "inactive" | "draft" | "deleted";
+export type ProductVariantKindInput = "default" | "generated";
 
 export interface ProductRequestInput {
   product_name: string;
-  sku?: string;
+  default_variant_sku?: string;
   unit?: string;
   image_url?: string | null;
   status?: ProductStatusInput;
@@ -19,6 +20,7 @@ export interface ProductRequestInput {
   variants?: {
     sku: string;
     name?: string;
+    kind?: ProductVariantKindInput;
     selling_price?: number | string;
     price?: number | string;
     cogs?: number | string | null;
@@ -29,7 +31,7 @@ export interface ProductRequestInput {
 
 export interface ProductInput {
   product_name: string;
-  sku?: string;
+  default_variant_sku?: string | null;
   unit?: string;
   base_price?: number | null;
   cogs?: number | null;
@@ -44,6 +46,7 @@ export interface ProductInput {
   }[];
   variants: {
     sku: string;
+    kind: ProductVariantKindInput;
     selling_price: number;
     cogs: number;
     image_url?: string | null;
@@ -62,6 +65,16 @@ export interface ProductCategoryRequestInput {
 
 export interface BulkDeleteRequestInput {
   ids: number[];
+}
+
+export interface ProductImageCropRequestInput {
+  image_url: string;
+  crop: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
 }
 
 export type ProductParams = {

@@ -22,10 +22,25 @@ type AuthContextValue = {
 }
 
 const ACCESS_TOKEN_KEY = 'access_token'
+const AUTH_USER_STORAGE_KEY = 'auth_user_snapshot'
 
 export const AuthContext = createContext<AuthContextValue | null>(null)
 
 const getStoredToken = () => localStorage.getItem(ACCESS_TOKEN_KEY)
+const getStoredUser = (): AuthUser | null => {
+  const raw = localStorage.getItem(AUTH_USER_STORAGE_KEY)
+
+  if (!raw) {
+    return null
+  }
+
+  try {
+    return JSON.parse(raw) as AuthUser
+  } catch {
+    localStorage.removeItem(AUTH_USER_STORAGE_KEY)
+    return null
+  }
+}
 
 const persistToken = (token: string | null) => {
   if (!token) {
@@ -36,9 +51,18 @@ const persistToken = (token: string | null) => {
   localStorage.setItem(ACCESS_TOKEN_KEY, token)
 }
 
+const persistUser = (user: AuthUser | null) => {
+  if (!user) {
+    localStorage.removeItem(AUTH_USER_STORAGE_KEY)
+    return
+  }
+
+  localStorage.setItem(AUTH_USER_STORAGE_KEY, JSON.stringify(user))
+}
+
 export function AuthProvider({ children }: PropsWithChildren) {
-  const [status, setStatus] = useState<AuthStatus>('loading')
-  const [user, setUser] = useState<AuthUser | null>(null)
+  const [status, setStatus] = useState<AuthStatus>(() => (getStoredToken() ? 'loading' : 'anonymous'))
+  const [user, setUser] = useState<AuthUser | null>(() => getStoredUser())
   const [accessToken, setAccessToken] = useState<string | null>(() => getStoredToken())
 
   const refreshUser = async () => {
@@ -47,6 +71,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
     if (!token) {
       setAccessToken(null)
       setUser(null)
+      persistUser(null)
       setStatus('anonymous')
       return null
     }
@@ -54,6 +79,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
     const currentUser = await authApi.me()
     setAccessToken(token)
     setUser(currentUser)
+    persistUser(currentUser)
     setStatus('authenticated')
     return currentUser
   }
@@ -62,6 +88,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
     const token = getStoredToken()
 
     if (!token) {
+      persistUser(null)
       setStatus('anonymous')
       return
     }
@@ -78,6 +105,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
         startTransition(() => {
           setAccessToken(token)
           setUser(currentUser)
+          persistUser(currentUser)
           setStatus('authenticated')
         })
       })
@@ -87,6 +115,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
         }
 
         persistToken(null)
+        persistUser(null)
         startTransition(() => {
           setAccessToken(null)
           setUser(null)
@@ -102,6 +131,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
   const login = async (payload: { email: string; password: string }) => {
     const result = await authApi.login(payload)
     persistToken(result.access_token)
+    persistUser(result.user)
     setAccessToken(result.access_token)
     setUser(result.user)
     setStatus('authenticated')
@@ -114,6 +144,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
       }
     } finally {
       persistToken(null)
+      persistUser(null)
       setAccessToken(null)
       setUser(null)
       setStatus('anonymous')

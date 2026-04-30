@@ -8,7 +8,11 @@ type PermissionRouteProps = {
 
 export function PermissionRoute({ permissions, children }: PermissionRouteProps) {
   const location = useLocation()
-  const { hasAnyPermission } = useAuth()
+  const { hasAnyPermission, status } = useAuth()
+
+  if (status === 'loading') {
+    return children ?? <Outlet />
+  }
 
   if (!hasAnyPermission(permissions)) {
     return <Navigate to="/403" replace state={{ from: location.pathname }} />

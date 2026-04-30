@@ -17,6 +17,10 @@ export type GeneralSettingsResponse = {
       account_holder: string;
       qr_template: string;
     };
+    vat: {
+      enabled: boolean;
+      rate_percent: number;
+    };
   };
 };
 
@@ -37,6 +41,10 @@ export type UpdateGeneralSettingsInput = {
       account_number?: string | null;
       account_holder?: string | null;
       qr_template?: string | null;
+    };
+    vat?: {
+      enabled?: boolean | null;
+      rate_percent?: number | string | null;
     };
   };
 };

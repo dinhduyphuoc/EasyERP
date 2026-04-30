@@ -1,11 +1,13 @@
 import type { Request, Response } from "express";
 import type { UploadedFile } from "express-fileupload";
+import sharp from "sharp";
 import { BadRequestError, UnauthorizedError } from "@/common";
-import { uploadProductImageToS3 } from "@lib/s3";
+import { getManagedProductImageBufferFromUrl, uploadProductImageToS3 } from "@lib/s3";
 import { ProductService } from "./product.service";
 import type {
   BulkDeleteRequestInput,
   ProductCategoryParams,
+  ProductImageCropRequestInput,
   ProductCategoryRequestInput,
   ProductParams,
   ProductRequestInput,
@@ -27,6 +29,42 @@ const parsePayload = <T>(body: unknown) => {
   }
 
   return body as T;
+};
+
+const parseImageCropPayload = (body: unknown) => {
+  const payload = parsePayload<ProductImageCropRequestInput>(body);
+  const crop = payload.crop;
+
+  if (!payload.image_url || typeof payload.image_url !== "string") {
+    throw new BadRequestError("image_url is required");
+  }
+
+  if (!crop || typeof crop !== "object") {
+    throw new BadRequestError("crop is required");
+  }
+
+  const x = Number(crop.x);
+  const y = Number(crop.y);
+  const width = Number(crop.width);
+  const height = Number(crop.height);
+
+  if ([x, y, width, height].some((value) => !Number.isFinite(value))) {
+    throw new BadRequestError("crop coordinates must be valid numbers");
+  }
+
+  if (x < 0 || y < 0 || width <= 0 || height <= 0) {
+    throw new BadRequestError("crop coordinates must be positive");
+  }
+
+  return {
+    image_url: payload.image_url,
+    crop: {
+      x: Math.round(x),
+      y: Math.round(y),
+      width: Math.round(width),
+      height: Math.round(height),
+    },
+  };
 };
 
 const parseIds = (body: unknown) => {
@@ -79,6 +117,28 @@ export const ProductController = {
       buffer: file.data,
       fileName: file.name,
       mimeType: file.mimetype,
+    });
+
+    return res.status(201).json(uploaded);
+  },
+
+  cropImage: async (req: Request<{}, {}, ProductImageCropRequestInput>, res: Response) => {
+    const payload = parseImageCropPayload(req.body);
+    const source = await getManagedProductImageBufferFromUrl(payload.image_url);
+    const croppedBuffer = await sharp(source.buffer)
+      .extract({
+        left: payload.crop.x,
+        top: payload.crop.y,
+        width: payload.crop.width,
+        height: payload.crop.height,
+      })
+      .png()
+      .toBuffer();
+
+    const uploaded = await uploadProductImageToS3({
+      buffer: croppedBuffer,
+      fileName: `${source.key.split("/").pop() ?? "product-image"}-cropped.png`,
+      mimeType: "image/png",
     });
 
     return res.status(201).json(uploaded);
