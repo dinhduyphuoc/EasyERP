@@ -5,7 +5,7 @@ import { useNavigate } from 'react-router'
 import { CommonListLayout } from '@/shared/ui/list/common-list-layout'
 import { ListEmptyState } from '@/shared/ui/list/list-empty-state'
 import type { ListColumn, ListTabConfig } from '@/shared/ui/list/common-list.types'
-import { inventoryApi, type InventoryAuditItem } from './inventory.api'
+import { inventoryApi, type InventoryAuditSummaryItem } from './inventory.api'
 import { InventoryAuditListTableSkeleton } from './inventory-skeletons'
 
 type InventoryAuditListPageCache = {
@@ -13,7 +13,7 @@ type InventoryAuditListPageCache = {
   searchValue: string
   page: number
   pageSize: number
-  rows: InventoryAuditItem[]
+  rows: InventoryAuditSummaryItem[]
 }
 
 let inventoryAuditListPageCache: InventoryAuditListPageCache | null = null
@@ -26,7 +26,7 @@ function formatDateTime(value: string | null) {
   return new Date(value).toLocaleString('vi-VN')
 }
 
-function getStatusLabel(status: InventoryAuditItem['status']) {
+function getStatusLabel(status: InventoryAuditSummaryItem['status']) {
   if (status === 'draft') {
     return 'Nháp'
   }
@@ -34,7 +34,7 @@ function getStatusLabel(status: InventoryAuditItem['status']) {
   return 'Hoàn thành'
 }
 
-function getStatusColor(status: InventoryAuditItem['status']): 'warning' | 'success' {
+function getStatusColor(status: InventoryAuditSummaryItem['status']): 'warning' | 'success' {
   if (status === 'draft') {
     return 'warning'
   }
@@ -48,7 +48,7 @@ export function InventoryAuditListPage() {
   const [searchValue, setSearchValue] = useState(inventoryAuditListPageCache?.searchValue ?? '')
   const [page, setPage] = useState(inventoryAuditListPageCache?.page ?? 1)
   const [pageSize, setPageSize] = useState(inventoryAuditListPageCache?.pageSize ?? 10)
-  const [rows, setRows] = useState<InventoryAuditItem[]>(inventoryAuditListPageCache?.rows ?? [])
+  const [rows, setRows] = useState<InventoryAuditSummaryItem[]>(inventoryAuditListPageCache?.rows ?? [])
   const [isLoading, setIsLoading] = useState(inventoryAuditListPageCache === null)
   const [hasResolvedInitialLoad, setHasResolvedInitialLoad] = useState(inventoryAuditListPageCache !== null)
 
@@ -121,7 +121,7 @@ export function InventoryAuditListPage() {
     return filteredRows.slice(start, start + pageSize)
   }, [filteredRows, page, pageSize])
 
-  const columns = useMemo<ListColumn<InventoryAuditItem>[]>(
+  const columns = useMemo<ListColumn<InventoryAuditSummaryItem>[]>(
     () => [
       {
         key: 'audit_code',

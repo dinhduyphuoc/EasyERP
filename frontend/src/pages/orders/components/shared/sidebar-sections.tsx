@@ -6,7 +6,7 @@ import { SummaryPaperHeader } from '@/shared/ui/summary-paper-header'
 import type { OrderOptionLookup } from '../../api/order.api'
 import { getProcessingStatusMeta } from '../../lib/order.utils'
 
-type ProcessingStatus = 'draft' | 'placed' | 'confirmed' | 'picked_up' | 'delivering' | 'completed' | 'cancelled' | 'returned'
+type ProcessingStatus = 'draft' | 'placed' | 'delivering' | 'delivered' | 'completed' | 'cancelled' | 'returned'
 type FormOrderType = 'sale' | 'return'
 
 type SidebarSectionsProps = {
@@ -42,6 +42,10 @@ export function SidebarSections({
   onSalesChannelChange,
   onOrderNotesChange,
 }: SidebarSectionsProps) {
+  const resolvedProcessingStatusValue = processingStatusOptions.some((status) => status.value === processingStatus)
+    ? processingStatus
+    : ''
+
   return (
     <Stack spacing={2.5}>
       <Paper sx={borderedCardSx}>
@@ -73,7 +77,7 @@ export function SidebarSections({
           <StackedDropdown
             fullWidth
             label="Trạng thái xử lý"
-            value={processingStatus}
+            value={resolvedProcessingStatusValue}
             onChange={(event) => onProcessingStatusChange(event.target.value as ProcessingStatus)}
           >
             {processingStatusOptions.map((status) => (

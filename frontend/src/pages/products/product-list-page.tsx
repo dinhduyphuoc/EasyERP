@@ -93,33 +93,30 @@ function getCategoryLabel(categoryId: number | null, categoryLabelMap: Record<nu
 }
 
 function getProductPriceLabel(product: ProductListItem) {
-  if (product.variants.length === 0) {
-    return product.base_price ? formatCurrency(product.base_price) : '-'
+  if (!product.min_price && !product.max_price) {
+    return '-'
   }
 
-  const prices = product.variants.map((variant) => Number(variant.selling_price)).sort((a, b) => a - b)
-  const minPrice = prices[0]
-  const maxPrice = prices[prices.length - 1]
+  const minPrice = product.min_price
+  const maxPrice = product.max_price
 
   if (minPrice === maxPrice) {
-    return formatCurrency(String(minPrice))
+    return formatCurrency(minPrice ?? '0')
   }
 
-  return `${formatCurrency(String(minPrice))} - ${formatCurrency(String(maxPrice))}`
+  return `${formatCurrency(minPrice ?? '0')} - ${formatCurrency(maxPrice ?? '0')}`
 }
 
 function getProductStructureMeta(product: ProductListItem) {
-  const generatedVariants = product.variants.filter((variant) => variant.kind === 'generated')
-
-  if (generatedVariants.length === 0) {
+  if (!product.has_generated_variants) {
     return {
-      label: 'Biến thể mặc định',
+      label: 'Mặc định',
       color: 'info' as const,
     }
   }
 
   return {
-    label: `${generatedVariants.length} biến thể`,
+    label: `${product.variant_count} phiên bản`,
     color: 'success' as const,
   }
 }
@@ -286,7 +283,7 @@ export function ProductListPage() {
         keyword.length === 0 ||
         row.product_name.toLowerCase().includes(keyword) ||
         row.default_variant_sku?.toLowerCase().includes(keyword) ||
-        row.variants.some((variant) => variant.sku.toLowerCase().includes(keyword))
+        row.primary_variant?.sku.toLowerCase().includes(keyword)
 
       const matchesCategory =
         !filterValues.category || getCategoryLabel(row.category_id, categoryLabelMap) === filterValues.category
@@ -354,7 +351,7 @@ export function ProductListPage() {
             <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', minWidth: 280 }}>
               <Box
                 component="img"
-                src={row.image_url ?? row.variants[0]?.image_url ?? 'https://placehold.co/80x80?text=SP'}
+                src={row.image_url ?? row.primary_variant?.image_url ?? 'https://placehold.co/80x80?text=SP'}
                 alt={row.product_name}
                 sx={{
                   width: 52,
@@ -378,7 +375,7 @@ export function ProductListPage() {
       {
         key: 'sku',
         title: 'SKU mặc định',
-        render: (row) => row.default_variant_sku ?? row.variants[0]?.sku ?? '-',
+        render: (row) => row.default_variant_sku ?? row.primary_variant?.sku ?? '-',
       },
       {
         key: 'category',
@@ -389,7 +386,7 @@ export function ProductListPage() {
         key: 'variants',
         title: 'Biến thể',
         align: 'right',
-        render: (row) => row.variants.length,
+        render: (row) => row.variant_count,
       },
       {
         key: 'price',

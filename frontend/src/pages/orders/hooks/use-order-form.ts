@@ -1,9 +1,11 @@
-import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react'
+import { useCallback, useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react'
 import { customerApi, type CityItem, type DistrictItem, type LocationItem } from '@/pages/customers/customer.api'
 import { appToast } from '@/shared/ui/toast/toast.helpers'
 import type { CustomerModalForm, CustomerModalMode } from '../components/customer/customer-modal'
 import type { CustomerAutocompleteOption } from '../components/customer/customer-section'
-import type { OrderListItem, OrderOptionLookup, OrderProcessingStatus } from '../api/order.api'
+import type { OrderDetailBase, OrderDetailItem, OrderOptionLookup, OrderProcessingStatus } from '../api/order.api'
+import { getErrorMessage } from '../lib/error-message'
+import { ORDER_TOAST_MESSAGES } from '../lib/toast-messages'
 import {
   buildPaymentNoteContent,
   getDerivedPaymentStatusValue,
@@ -49,6 +51,11 @@ type BankDefaults = {
   account_holder: string
 }
 
+type VatDefaults = {
+  enabled: boolean
+  rate_percent: number
+}
+
 type UseOrderFormOptions = {
   options: OrderOptionLookup | null
   setOptions: Dispatch<SetStateAction<OrderOptionLookup | null>>
@@ -57,35 +64,6 @@ type UseOrderFormOptions = {
   hasAttemptedSave: boolean
   subTotal: number
   processingStatus: OrderProcessingStatus
-}
-
-const getErrorMessage = (error: unknown, fallback: string) => {
-  if (
-    typeof error === 'object' &&
-    error !== null &&
-    'response' in error &&
-    typeof error.response === 'object' &&
-    error.response !== null &&
-    'data' in error.response &&
-    typeof error.response.data === 'object' &&
-    error.response.data !== null
-  ) {
-    if ('message' in error.response.data && typeof error.response.data.message === 'string') {
-      return error.response.data.message
-    }
-
-    if (
-      'error' in error.response.data &&
-      typeof error.response.data.error === 'object' &&
-      error.response.data.error !== null &&
-      'message' in error.response.data.error &&
-      typeof error.response.data.error.message === 'string'
-    ) {
-      return error.response.data.error.message
-    }
-  }
-
-  return fallback
 }
 
 const createEmptyCustomerModalForm = (): CustomerModalForm => ({
@@ -679,13 +657,15 @@ export function useOrderForm({
     }
   }
 
-  const applyStoreDefaults = async ({
+  const applyStoreDefaults = useCallback(async ({
     shippingAddress,
     bankAccount,
+    vat,
     statesData,
   }: {
     shippingAddress: ShippingDefaults
     bankAccount: BankDefaults
+    vat: VatDefaults
     statesData: LocationItem[]
   }) => {
     setFromContactName(shippingAddress.contact_name)
@@ -694,6 +674,10 @@ export function useOrderForm({
     setBankName(bankAccount.bank_name)
     setBankAccountNumber(bankAccount.account_number)
     setBankAccountHolder(bankAccount.account_holder)
+    setVatEnabled(vat.enabled)
+    setVatRatePercent(String(Math.max(Number(vat.rate_percent || 0), 0)))
+    setInitialVatEnabled(vat.enabled)
+    setInitialVatRatePercent(String(Math.max(Number(vat.rate_percent || 0), 0)))
 
     if (!shippingAddress.state_id || !shippingAddress.city_id) {
       return
@@ -712,16 +696,16 @@ export function useOrderForm({
     setFromState(selection.state)
     setFromCity(selection.city)
     setFromDistrict(selection.district)
-  }
+  }, [])
 
-  const applyOrderFormSnapshot = async ({
+  const applyOrderFormSnapshot = useCallback(async ({
     orderData,
     statesData,
     preservePaymentStatus,
     resetOperationalShippingFields,
     preserveShippingSelection,
   }: {
-    orderData: OrderListItem
+    orderData: OrderDetailBase
     statesData: LocationItem[]
     preservePaymentStatus: boolean
     resetOperationalShippingFields: boolean
@@ -789,9 +773,9 @@ export function useOrderForm({
     setTrackingCode(resetOperationalShippingFields ? '' : orderData.tracking_code ?? '')
     setShippingStatus(resetOperationalShippingFields ? '' : orderData.shipping_status ?? '')
     setPaymentNotes(parsedPaymentDetails.note)
-  }
+  }, [])
 
-  const applyOrderData = async (orderData: OrderListItem, statesData: LocationItem[]) => {
+  const applyOrderData = useCallback(async (orderData: OrderDetailBase, statesData: LocationItem[]) => {
     await applyOrderFormSnapshot({
       orderData,
       statesData,
@@ -799,9 +783,9 @@ export function useOrderForm({
       resetOperationalShippingFields: false,
       preserveShippingSelection: true,
     })
-  }
+  }, [applyOrderFormSnapshot])
 
-  const applyDuplicateOrderData = async (orderData: OrderListItem, statesData: LocationItem[]) => {
+  const applyDuplicateOrderData = useCallback(async (orderData: OrderDetailItem, statesData: LocationItem[]) => {
     await applyOrderFormSnapshot({
       orderData,
       statesData,
@@ -809,7 +793,7 @@ export function useOrderForm({
       resetOperationalShippingFields: true,
       preserveShippingSelection: false,
     })
-  }
+  }, [applyOrderFormSnapshot])
 
   const handleShippingServiceChange = (value: string) => {
     setShippingService(value)
@@ -929,7 +913,7 @@ export function useOrderForm({
       Boolean(customerModalForm.addressLine.trim() && customerModalForm.state && customerModalForm.city)
 
     if (!fullName || !phone) {
-      appToast.warning('Vui lòng nhập họ tên và số điện thoại khách hàng.')
+      appToast.warning(ORDER_TOAST_MESSAGES.customerNamePhoneRequired)
       return
     }
 
@@ -1013,7 +997,7 @@ export function useOrderForm({
       }
 
       setCustomerModalOpen(false)
-      appToast.success('Đã cập nhật thông tin khách hàng trên đơn hàng.')
+      appToast.success(ORDER_TOAST_MESSAGES.customerInfoUpdatedOnOrder)
       return
     }
 
@@ -1088,7 +1072,7 @@ export function useOrderForm({
       setCustomerSearch(`${createdCustomer.full_name} - ${createdCustomer.client_code} - ${createdCustomer.phone ?? phone}`)
       await applyCustomerShippingAddress(createdDefaultAddress?.address ?? null)
       setCustomerModalOpen(false)
-      appToast.success('Tạo khách hàng thành công.')
+      appToast.success(ORDER_TOAST_MESSAGES.customerCreated)
     } catch (error) {
       console.error('Lỗi khi tạo khách hàng:', error)
       appToast.error(getErrorMessage(error, 'Không thể tạo khách hàng mới.'))

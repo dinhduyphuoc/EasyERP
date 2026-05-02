@@ -142,7 +142,6 @@ export function InventoryAuditCreatePage(): ReactElement {
               incoming: 0,
               selling_price: line.selling_price ?? '0',
               cogs: line.cogs ?? '0',
-              is_variant: true,
             })),
           )
           setLines(

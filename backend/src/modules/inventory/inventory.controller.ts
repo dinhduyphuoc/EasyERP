@@ -44,6 +44,14 @@ export const InventoryController = {
     return res.status(200).json(data);
   },
 
+  getStockItem: async (req: Request<InventoryParams>, res: Response) => {
+    if (!req.store) {
+      throw new UnauthorizedError("Store context is required");
+    }
+    const data = await InventoryService.getStockItem(req.store.id, req.params.productVariantId);
+    return res.status(200).json(data);
+  },
+
   getAuditList: async (
     req: Request<{}, {}, {}, InventoryAuditListQuery>,
     res: Response,

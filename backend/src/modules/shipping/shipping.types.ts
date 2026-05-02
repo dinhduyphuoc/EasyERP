@@ -93,6 +93,21 @@ export type ShippingLocationResolveInput = {
 export type ShippingAvailableServicesByLocationInput = {
   from_location?: ShippingCanonicalLocationInput | null;
   to_location?: ShippingCanonicalLocationInput | null;
+  weight?: number | string | null;
+  length?: number | string | null;
+  width?: number | string | null;
+  height?: number | string | null;
+  insurance_value?: number | string | null;
+  cod_value?: number | string | null;
+  coupon?: string | null;
+  items?: Array<{
+    name?: string;
+    quantity?: number | string;
+    height?: number | string | null;
+    weight?: number | string | null;
+    length?: number | string | null;
+    width?: number | string | null;
+  }>;
 };
 
 export type ShippingFeeQuoteInput = {

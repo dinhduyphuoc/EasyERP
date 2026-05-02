@@ -48,6 +48,7 @@ export interface ShippingOrderAPI {
   updateCOD(input: any): Promise<any>;
   getStation(input: any): Promise<any>;
   calculateExpectedDeliveryTime(input: any): Promise<any>;
+  getTrackingLogs(input: any): Promise<any>;
   pickShift(input: any): Promise<any>;
   previewOrder(input: any): Promise<any>;
 }

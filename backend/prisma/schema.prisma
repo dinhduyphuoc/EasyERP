@@ -287,9 +287,8 @@ enum OrderPaymentStatus {
 enum OrderProcessingStatus {
   draft
   placed
-  confirmed
-  picked_up
   delivering
+  delivered
   completed
   cancelled
   returned
@@ -674,8 +673,6 @@ model Order {
   return_address            String?
   return_district_id        Int?
   return_ward_code          String?
-  to_ward_code              String?
-  to_district_id            Int?
   cod_amount                Decimal               @default(0) @db.Decimal(12, 2)
   content                   String?
   weight                    Int?
@@ -937,9 +934,21 @@ model Store {
   inventory_transactions InventoryTransaction[]
   inventory_audits      InventoryAudit[]
   shipping_connections  ShippingConnection[] @relation("StoreShippingConnections")
+  order_code_counters   OrderCodeCounter[]
 
   @@index([owner_user_id])
   @@index([tenant_id])
+}
+
+model OrderCodeCounter {
+  store_id      String   @id
+  last_sequence Int      @default(0)
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
+
+  store         Store    @relation(fields: [store_id], references: [id], onDelete: Cascade)
+
+  @@index([updated_at])
 }
 
 model UserStore {

@@ -27,7 +27,7 @@ export type ProductVariant = {
   attribute_values: ProductVariantAttributeValue[]
 }
 
-export type ProductListItem = {
+export type ProductDetailItem = {
   id: number
   product_name: string
   default_variant_sku: string | null
@@ -44,25 +44,43 @@ export type ProductListItem = {
   variants: ProductVariant[]
 }
 
+export type ProductListItem = {
+  id: number
+  product_name: string
+  default_variant_sku: string | null
+  image_url: string | null
+  status: 'active' | 'inactive' | 'draft' | 'deleted'
+  category_id: number | null
+  min_price: string | null
+  max_price: string | null
+  variant_count: number
+  has_generated_variants: boolean
+  primary_variant: {
+    sku: string
+    kind: 'default' | 'generated'
+    selling_price: string
+    image_url: string | null
+  } | null
+}
+
 export const productSkeleton: ProductListItem = {
   id: 0,
   product_name: '',
   default_variant_sku: null,
-  unit: null,
   image_url: null,
   status: 'draft',
-  description: null,
-  created_at: new Date().toISOString(),
-  updated_at: new Date().toISOString(),
   category_id: null,
-  attributes: [],
-  variants: [],
+  min_price: null,
+  max_price: null,
+  variant_count: 0,
+  has_generated_variants: false,
+  primary_variant: null,
 }
 
 export const categoryLabelMap: Record<number, string> = {
-  1: 'Phụ kiện',
-  2: 'Thời trang nam',
-  3: 'Thời trang nữ',
+  1: 'Phá»¥ kiá»‡n',
+  2: 'Thá»i trang nam',
+  3: 'Thá»i trang ná»¯',
 }
 
 export const mockProducts: ProductListItem[] = []

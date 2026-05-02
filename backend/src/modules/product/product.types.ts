@@ -63,6 +63,25 @@ export interface ProductCategoryRequestInput {
   category_name: string;
 }
 
+export interface ProductListResponseItem {
+  id: number;
+  product_name: string;
+  default_variant_sku: string | null;
+  image_url: string | null;
+  status: ProductStatusInput;
+  category_id: number | null;
+  min_price: string | null;
+  max_price: string | null;
+  variant_count: number;
+  has_generated_variants: boolean;
+  primary_variant: {
+    sku: string;
+    kind: ProductVariantKindInput;
+    selling_price: string;
+    image_url: string | null;
+  } | null;
+}
+
 export interface BulkDeleteRequestInput {
   ids: number[];
 }

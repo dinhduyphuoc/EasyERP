@@ -1,5 +1,5 @@
 import { apiClient } from '@/api/api-client'
-import type { ProductListItem } from './product-list.data'
+import type { ProductDetailItem, ProductListItem } from './product-list.data'
 
 const ENDPOINT = '/products'
 
@@ -73,7 +73,7 @@ export const productApi = {
     return apiClient.get(ENDPOINT, { params })
   },
 
-  getProductById: async (id: string | number): Promise<ProductListItem> => {
+  getProductById: async (id: string | number): Promise<ProductDetailItem> => {
     return apiClient.get(`${ENDPOINT}/${id}`)
   },
 
@@ -121,11 +121,11 @@ export const productApi = {
     return productCategoriesPromise
   },
 
-  createProduct: async (data: ProductUpsertPayload): Promise<ProductListItem> => {
+  createProduct: async (data: ProductUpsertPayload): Promise<ProductDetailItem> => {
     return apiClient.post(ENDPOINT, data)
   },
 
-  updateProduct: async (id: string | number, data: ProductUpsertPayload): Promise<ProductListItem> => {
+  updateProduct: async (id: string | number, data: ProductUpsertPayload): Promise<ProductDetailItem> => {
     return apiClient.put(`${ENDPOINT}/${id}`, data)
   },
 

@@ -14,20 +14,28 @@ import { customerApi, type LocationItem } from '@/pages/customers/customer.api'
 import { appToast } from '@/shared/ui/toast/toast.helpers'
 import { borderedCardSx } from '@/shared/ui/paper'
 import { useAuth } from '@/modules/auth/use-auth'
-import { orderApi, type OrderCreatePayload, type OrderListItem, type OrderOptionLookup } from '../api'
+import { orderApi, type OrderCreatePayload, type OrderDetailItem, type OrderEditItem, type OrderOptionLookup } from '../api'
 import {
   CustomerModal,
   CustomerSection,
   ItemsSection,
-  ShippingSection,
   SidebarSections,
 } from '../components'
 import { useOrderItems, type ItemForm, useOrderForm } from '../hooks'
-import { PaymentInformationCard, PAYMENT_METHOD_TYPE_IDS, invalidateOrdersCollectionCache, formatCurrencyInput } from '../lib'
+import {
+  buildDuplicateVariantMessage,
+  buildOrderSavedMessage,
+  getErrorMessage,
+  ORDER_TOAST_MESSAGES,
+  PaymentInformationCard,
+  PAYMENT_METHOD_TYPE_IDS,
+  invalidateOrdersCollectionCache,
+  formatCurrencyInput,
+} from '../lib'
 import { generalSettingsApi } from '@/pages/settings/general-settings.api'
 
 type CreateLocationState = {
-  duplicateFrom?: OrderListItem
+  duplicateFrom?: OrderDetailItem
 }
 
 type ProductSearchOption = OrderOptionLookup['products'][number]
@@ -58,56 +66,31 @@ const createItemFromProduct = (product: ProductSearchOption): ItemForm => ({
   noteOpen: false,
 })
 
-const getErrorMessage = (error: unknown, fallback: string) => {
-  if (
-    typeof error === 'object' &&
-    error !== null &&
-    'response' in error &&
-    typeof error.response === 'object' &&
-    error.response !== null &&
-    'data' in error.response &&
-    typeof error.response.data === 'object' &&
-    error.response.data !== null
-  ) {
-    if ('message' in error.response.data && typeof error.response.data.message === 'string') {
-      return error.response.data.message
-    }
-
-    if (
-      'error' in error.response.data &&
-      typeof error.response.data.error === 'object' &&
-      error.response.data.error !== null &&
-      'message' in error.response.data.error &&
-      typeof error.response.data.error.message === 'string'
-    ) {
-      return error.response.data.error.message
-    }
-  }
-
-  return fallback
-}
-
 export function OrdersCreatePage(): ReactElement {
   const location = useLocation()
   const navigate = useNavigate()
   const params = useParams()
-  const { user, hasPermission } = useAuth()
+  const { user } = useAuth()
   const orderId = params.id
   const isEditMode = Boolean(orderId)
   const duplicateSource = (location.state as CreateLocationState | null)?.duplicateFrom ?? null
 
   const [options, setOptions] = useState<OrderOptionLookup | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [isCustomerOptionsLoading, setIsCustomerOptionsLoading] = useState(false)
+  const [isProductOptionsLoading, setIsProductOptionsLoading] = useState(false)
+  const [debouncedCustomerSearch, setDebouncedCustomerSearch] = useState('')
+  const [debouncedProductSearch, setDebouncedProductSearch] = useState('')
   const [isSaving, setIsSaving] = useState(false)
   const [hasAttemptedSave, setHasAttemptedSave] = useState(false)
-  const [loadedOrder, setLoadedOrder] = useState<OrderListItem | null>(null)
+  const [loadedOrder, setLoadedOrder] = useState<OrderEditItem | null>(null)
 
   const [orderCode, setOrderCode] = useState('')
   const [orderDate, setOrderDate] = useState(new Date().toISOString().slice(0, 10))
   const [orderType, setOrderType] = useState<'sale' | 'return'>('sale')
   const [processingStatus, setProcessingStatus] = useState<
-    'draft' | 'placed' | 'confirmed' | 'picked_up' | 'delivering' | 'completed' | 'cancelled' | 'returned'
-  >('draft')
+    'draft' | 'placed' | 'delivering' | 'delivered' | 'completed' | 'cancelled' | 'returned'
+  >('placed')
   const [salesChannel, setSalesChannel] = useState('')
   const [states, setStates] = useState<LocationItem[]>([])
   const [isStatesLoading, setIsStatesLoading] = useState(false)
@@ -137,6 +120,14 @@ export function OrdersCreatePage(): ReactElement {
   })
 
   const subTotal = useMemo(() => itemRows.reduce((sum, item) => sum + item.subTotal, 0), [itemRows])
+  const selectedVariantSkuSet = useMemo(
+    () => new Set(itemRows.map((item) => item.variant_sku || item.sku).filter(Boolean)),
+    [itemRows],
+  )
+  const availableProductOptions = useMemo(
+    () => (options?.products ?? []).filter((product) => !selectedVariantSkuSet.has(product.sku)),
+    [options?.products, selectedVariantSkuSet],
+  )
 
   const {
     setPaymentStatus,
@@ -158,51 +149,27 @@ export function OrdersCreatePage(): ReactElement {
     serviceId,
     serviceTypeId,
     shippingService,
-    setShippingService,
     shippingFee,
-    setShippingFee,
     fromContactName,
-    setFromContactName,
     fromContactPhone,
-    setFromContactPhone,
     fromAddressLine,
-    setFromAddressLine,
     fromState,
     fromCity,
     fromDistrict,
     toAddressLine,
-    setToAddressLine,
     toState,
     toCity,
     toDistrict,
-    fromCities,
-    fromDistricts,
-    toCities,
-    toDistricts,
-    isFromCitiesLoading,
-    isFromDistrictsLoading,
-    isToCitiesLoading,
-    isToDistrictsLoading,
     parcelContent,
-    setParcelContent,
     parcelWeight,
-    setParcelWeight,
     parcelLength,
-    setParcelLength,
     parcelWidth,
-    setParcelWidth,
     parcelHeight,
-    setParcelHeight,
     insuranceValue,
-    setInsuranceValue,
     codAmount,
-    setCodAmount,
     warehouseStatus,
-    setWarehouseStatus,
     trackingCode,
-    setTrackingCode,
     shippingStatus,
-    setShippingStatus,
     orderDiscountAmount,
     setOrderDiscountAmount,
     vatEnabled,
@@ -237,12 +204,6 @@ export function OrdersCreatePage(): ReactElement {
     handleCloseCustomerModal,
     handleClearCustomer,
     handleSaveCustomerModal,
-    handleFromStateChange,
-    handleFromCityChange,
-    handleFromDistrictChange,
-    handleToStateChange,
-    handleToCityChange,
-    handleToDistrictChange,
     handlePaymentMethodChange,
   } = useOrderForm({
     options,
@@ -261,6 +222,28 @@ export function OrdersCreatePage(): ReactElement {
   }, [createdBy, user?.full_name])
 
   useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      setDebouncedCustomerSearch(customerSearch.trim())
+    }, 250)
+
+    return () => {
+      window.clearTimeout(timeoutId)
+    }
+  }, [customerSearch])
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      setDebouncedProductSearch(productSearchInput.trim())
+    }, 250)
+
+    return () => {
+      window.clearTimeout(timeoutId)
+    }
+  }, [productSearchInput])
+
+  useEffect(() => {
+    let isCancelled = false
+
     const fetchFormData = async () => {
       setIsLoading(true)
       setIsStatesLoading(true)
@@ -270,13 +253,38 @@ export function OrdersCreatePage(): ReactElement {
           orderApi.getOrderOptions(),
           customerApi.getStates({ is_active: true }),
           generalSettingsApi.getGeneralSettings(),
-          isEditMode && orderId ? orderApi.getOrderById(orderId) : Promise.resolve(null),
+          isEditMode && orderId ? orderApi.getOrderForEdit(orderId) : Promise.resolve(null),
         ])
 
-        setOptions(optionsData)
+        if (isCancelled) {
+          return
+        }
+
+        let hydratedOptions = optionsData
         setStates(statesData)
 
         if (orderData) {
+          const preloadSkus = orderData.order_items.map((item) => item.variant_sku ?? item.sku).filter(Boolean)
+          const [customerResponse, productResponse] = await Promise.all([
+            orderData.customer_id
+              ? orderApi.searchCustomers({ ids: String(orderData.customer_id), limit: 20 })
+              : Promise.resolve({ items: [] }),
+            preloadSkus.length > 0
+              ? orderApi.searchProducts({ skus: preloadSkus.join(','), limit: Math.max(preloadSkus.length, 20) })
+              : Promise.resolve({ items: [] }),
+          ])
+
+          hydratedOptions = {
+            ...optionsData,
+            customers: customerResponse.items,
+            products: productResponse.items,
+          }
+          setOptions(hydratedOptions)
+
+          if (isCancelled) {
+            return
+          }
+
           setLoadedOrder(orderData)
           setOrderCode(orderData.order_code)
           setOrderDate(orderData.order_date.slice(0, 10))
@@ -289,7 +297,7 @@ export function OrdersCreatePage(): ReactElement {
           setConfirmedBy(orderData.confirmed_by ?? '')
           setOrderNotes(orderData.order_notes ?? '')
           setStatusTimeline(orderData.status_timeline ?? {})
-          const productOptionMap = new Map(optionsData.products.map((product) => [product.sku, product]))
+          const productOptionMap = new Map(hydratedOptions.products.map((product) => [product.sku, product]))
 
           replaceItems(
             orderData.order_items.length > 0
@@ -317,11 +325,32 @@ export function OrdersCreatePage(): ReactElement {
         }
 
         if (duplicateSource) {
+          const preloadSkus = duplicateSource.order_items.map((item) => item.variant_sku ?? item.sku).filter(Boolean)
+          const [customerResponse, productResponse] = await Promise.all([
+            duplicateSource.customer_id
+              ? orderApi.searchCustomers({ ids: String(duplicateSource.customer_id), limit: 20 })
+              : Promise.resolve({ items: [] }),
+            preloadSkus.length > 0
+              ? orderApi.searchProducts({ skus: preloadSkus.join(','), limit: Math.max(preloadSkus.length, 20) })
+              : Promise.resolve({ items: [] }),
+          ])
+
+          hydratedOptions = {
+            ...optionsData,
+            customers: customerResponse.items,
+            products: productResponse.items,
+          }
+          setOptions(hydratedOptions)
+
+          if (isCancelled) {
+            return
+          }
+
           setLoadedOrder(null)
           setOrderCode('')
           setOrderDate(new Date().toISOString().slice(0, 10))
           setOrderType(duplicateSource.order_type)
-          setProcessingStatus('draft')
+          setProcessingStatus('placed')
           setSalesChannel(duplicateSource.sales_channel ?? '')
           await applyDuplicateOrderData(duplicateSource, statesData)
           setInvoiceCode('')
@@ -329,7 +358,7 @@ export function OrdersCreatePage(): ReactElement {
           setConfirmedBy('')
           setOrderNotes(duplicateSource.order_notes ?? '')
           setStatusTimeline({})
-          const productOptionMap = new Map(optionsData.products.map((product) => [product.sku, product]))
+          const productOptionMap = new Map(hydratedOptions.products.map((product) => [product.sku, product]))
 
           replaceItems(
             duplicateSource.order_items.length > 0
@@ -357,22 +386,127 @@ export function OrdersCreatePage(): ReactElement {
           return
         }
 
+        setOptions(hydratedOptions)
+
         await applyStoreDefaults({
           shippingAddress: storeSettings.defaults.shipping_address,
           bankAccount: storeSettings.defaults.bank_account,
+          vat: storeSettings.defaults.vat,
           statesData,
         })
       } catch (error) {
-        console.error('Lỗi khi tải dữ liệu đơn hàng:', error)
-        appToast.error(getErrorMessage(error, 'Không thể tải dữ liệu đơn hàng.'))
+        if (!isCancelled) {
+          console.error('Lỗi khi tải dữ liệu đơn hàng:', error)
+          appToast.error(getErrorMessage(error, 'Không thể tải dữ liệu đơn hàng.'))
+        }
       } finally {
-        setIsStatesLoading(false)
-        setIsLoading(false)
+        if (!isCancelled) {
+          setIsStatesLoading(false)
+          setIsLoading(false)
+        }
       }
     }
 
     void fetchFormData()
+
+    return () => {
+      isCancelled = true
+    }
   }, [applyDuplicateOrderData, applyOrderData, applyStoreDefaults, duplicateSource, isEditMode, orderId, user?.full_name])
+
+  useEffect(() => {
+    if (!options) {
+      return
+    }
+
+    let isCancelled = false
+
+    const fetchCustomerOptions = async () => {
+      try {
+        setIsCustomerOptionsLoading(true)
+        const keyword = debouncedCustomerSearch
+        const response = await orderApi.searchCustomers({
+          ...(customerId && hasSelectedCustomer ? { ids: String(customerId) } : keyword ? { search: keyword } : {}),
+          limit: 20,
+        })
+
+        if (isCancelled) {
+          return
+        }
+
+        setOptions((current) =>
+          current
+            ? {
+                ...current,
+                customers: response.items,
+              }
+            : current,
+        )
+      } catch (error) {
+        if (!isCancelled) {
+          console.error('Lỗi khi tải gợi ý khách hàng:', error)
+        }
+      } finally {
+        if (!isCancelled) {
+          setIsCustomerOptionsLoading(false)
+        }
+      }
+    }
+
+    void fetchCustomerOptions()
+
+    return () => {
+      isCancelled = true
+    }
+  }, [customerId, debouncedCustomerSearch, hasSelectedCustomer, Boolean(options)])
+
+  useEffect(() => {
+    if (!options) {
+      return
+    }
+
+    let isCancelled = false
+
+    const fetchProductOptions = async () => {
+      try {
+        setIsProductOptionsLoading(true)
+        const selectedSkus = itemRows.map((item) => item.variant_sku || item.sku).filter(Boolean)
+        const keyword = debouncedProductSearch
+        const response = await orderApi.searchProducts({
+          ...(keyword ? { search: keyword } : {}),
+          ...(selectedSkus.length > 0 && !keyword ? { skus: selectedSkus.join(',') } : {}),
+          limit: selectedSkus.length > 0 && !keyword ? Math.max(selectedSkus.length, 20) : 20,
+        })
+
+        if (isCancelled) {
+          return
+        }
+
+        setOptions((current) =>
+          current
+            ? {
+                ...current,
+                products: response.items,
+              }
+            : current,
+        )
+      } catch (error) {
+        if (!isCancelled) {
+          console.error('Lỗi khi tải gợi ý sản phẩm:', error)
+        }
+      } finally {
+        if (!isCancelled) {
+          setIsProductOptionsLoading(false)
+        }
+      }
+    }
+
+    void fetchProductOptions()
+
+    return () => {
+      isCancelled = true
+    }
+  }, [debouncedProductSearch, itemRows, Boolean(options)])
 
   const errors = useMemo(() => {
     const nextErrors: Record<string, string> = {}
@@ -412,16 +546,14 @@ export function OrdersCreatePage(): ReactElement {
   const visibleErrors = hasAttemptedSave ? errors : {}
   const canSave = !isLoading && !isSaving && Object.keys(errors).length === 0
   const canEditOrder = !isEditMode || !loadedOrder || ['draft', 'placed'].includes(loadedOrder.processing_status)
-  const canEditVat = hasPermission('orders.vat.update')
 
   const buildStatusTimeline = (): Record<string, string> => {
-    const stages = ['placed', 'confirmed', 'picked_up', 'delivering', 'completed']
+    const stages = ['created', 'placed', 'delivering', 'delivered', 'completed']
     const currentStageMap: Record<string, number> = {
-      draft: -1,
-      placed: 0,
-      confirmed: 1,
-      picked_up: 2,
-      delivering: 3,
+      draft: 0,
+      placed: 1,
+      delivering: 2,
+      delivered: 3,
       completed: 4,
       cancelled: 4,
       returned: 4,
@@ -442,7 +574,7 @@ export function OrdersCreatePage(): ReactElement {
     setHasAttemptedSave(true)
 
     if (!canSave) {
-      appToast.warning('Vui lòng kiểm tra lại thông tin trước khi lưu đơn hàng.')
+      appToast.warning(ORDER_TOAST_MESSAGES.invalidOrderBeforeSave)
       return
     }
 
@@ -499,8 +631,6 @@ export function OrdersCreatePage(): ReactElement {
         from_ward_name: fromDistrict?.name ?? null,
         from_district_name: fromCity?.name ?? null,
         from_province_name: fromState?.name ?? null,
-        to_district_id: null,
-        to_ward_code: null,
         cod_amount: Number(codAmount || 0),
         content: parcelContent.trim() || null,
         weight: Number(parcelWeight || 0) || null,
@@ -552,9 +682,7 @@ export function OrdersCreatePage(): ReactElement {
       const order =
         isEditMode && orderId ? await orderApi.updateOrder(orderId, payload) : await orderApi.createOrder(payload)
 
-      appToast.success(
-        isEditMode ? `Cập nhật đơn hàng ${order.order_code} thành công.` : `Tạo đơn hàng ${order.order_code} thành công.`,
-      )
+      appToast.success(buildOrderSavedMessage(order.order_code, isEditMode))
       invalidateOrdersCollectionCache('all')
       invalidateOrdersCollectionCache('drafts')
       invalidateOrdersCollectionCache('returns')
@@ -572,6 +700,20 @@ export function OrdersCreatePage(): ReactElement {
     } finally {
       setIsSaving(false)
     }
+  }
+
+  const handleProductSelect = (product: ProductSearchOption | null) => {
+    if (!product) {
+      handleProductSearchSelect(null)
+      return
+    }
+
+    if (selectedVariantSkuSet.has(product.sku)) {
+      appToast.warning(buildDuplicateVariantMessage(product.sku))
+      return
+    }
+
+    handleProductSearchSelect(product)
   }
 
   return (
@@ -626,7 +768,7 @@ export function OrdersCreatePage(): ReactElement {
               customerSearch={customerSearch}
               customerSearchOptions={customerSearchOptions}
               outstandingAmount={outstandingAmount}
-              isLoading={isLoading}
+              isLoading={isLoading || isCustomerOptionsLoading}
               customerNameError={visibleErrors.customer_name}
               customerPhoneError={visibleErrors.customer_phone}
               onCustomerSearchChange={setCustomerSearch}
@@ -639,9 +781,9 @@ export function OrdersCreatePage(): ReactElement {
 
           <ItemsSection
             productSearchResetKey={productSearchResetKey}
-            productOptions={options?.products ?? []}
+            productOptions={availableProductOptions}
             productSearchInput={productSearchInput}
-            isLoading={isLoading}
+            isLoading={isLoading || isProductOptionsLoading}
             orderItemsError={visibleErrors.order_items}
             selectedItemCount={selectedItemCount}
             areAllItemsSelected={areAllItemsSelected}
@@ -649,7 +791,7 @@ export function OrdersCreatePage(): ReactElement {
             itemRows={itemRows}
             selectedItemIndexSet={selectedItemIndexSet}
             onProductSearchChange={handleProductSearchChange}
-            onProductSelect={handleProductSearchSelect}
+            onProductSelect={handleProductSelect}
             onBulkDeleteItems={handleBulkDeleteItems}
             onToggleAllItems={handleToggleAllItems}
             onToggleItemSelection={handleToggleItemSelection}
@@ -657,65 +799,8 @@ export function OrdersCreatePage(): ReactElement {
             formatStockNumber={formatStockNumber}
           />
 
-          <ShippingSection
-            customerName={customerName}
-            customerPhone={customerPhone}
-            shippingService={shippingService}
-            shippingFee={shippingFee}
-            fromContactName={fromContactName}
-            fromContactPhone={fromContactPhone}
-            fromAddressLine={fromAddressLine}
-            fromState={fromState}
-            fromCity={fromCity}
-            fromDistrict={fromDistrict}
-            fromCities={fromCities}
-            fromDistricts={fromDistricts}
-            isFromCitiesLoading={isFromCitiesLoading}
-            isFromDistrictsLoading={isFromDistrictsLoading}
-            toAddressLine={toAddressLine}
-            toState={toState}
-            toCity={toCity}
-            toDistrict={toDistrict}
-            toCities={toCities}
-            toDistricts={toDistricts}
-            isToCitiesLoading={isToCitiesLoading}
-            isToDistrictsLoading={isToDistrictsLoading}
-            parcelContent={parcelContent}
-            parcelWeight={parcelWeight}
-            parcelLength={parcelLength}
-            parcelWidth={parcelWidth}
-            parcelHeight={parcelHeight}
-            insuranceValue={insuranceValue}
-            codAmount={codAmount}
-            warehouseStatus={warehouseStatus}
-            trackingCode={trackingCode}
-            shippingStatus={shippingStatus}
-            states={states}
-            onShippingServiceChange={setShippingService}
-            onShippingFeeChange={setShippingFee}
-            onFromContactNameChange={setFromContactName}
-            onFromContactPhoneChange={setFromContactPhone}
-            onFromAddressLineChange={setFromAddressLine}
-            onFromStateChange={handleFromStateChange}
-            onFromCityChange={handleFromCityChange}
-            onFromDistrictChange={handleFromDistrictChange}
-            onToAddressLineChange={setToAddressLine}
-            onToStateChange={handleToStateChange}
-            onToCityChange={handleToCityChange}
-            onToDistrictChange={handleToDistrictChange}
-            onParcelContentChange={setParcelContent}
-            onParcelWeightChange={setParcelWeight}
-            onParcelLengthChange={setParcelLength}
-            onParcelWidthChange={setParcelWidth}
-            onParcelHeightChange={setParcelHeight}
-            onInsuranceValueChange={setInsuranceValue}
-            onCodAmountChange={setCodAmount}
-            onWarehouseStatusChange={setWarehouseStatus}
-            onTrackingCodeChange={setTrackingCode}
-            onShippingStatusChange={setShippingStatus}
-          />
-
           <PaymentInformationCard
+            renderVatToggleOnly
             itemCount={itemRows.length}
             canEdit={canEditOrder}
             paymentMethod={paymentMethod}
@@ -728,7 +813,6 @@ export function OrdersCreatePage(): ReactElement {
             depositAmount={normalizedDepositAmount}
             vatEnabled={vatEnabled}
             vatRatePercent={Number(vatRatePercent || 0)}
-            canEditVat={canEditVat}
             errors={visibleErrors}
             onPaymentMethodChange={handlePaymentMethodChange}
             onDiscountAmountChange={setOrderDiscountAmount}
@@ -779,5 +863,3 @@ export function OrdersCreatePage(): ReactElement {
     </Box>
   )
 }
-
-

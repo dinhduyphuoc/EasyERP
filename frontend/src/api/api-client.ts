@@ -1,9 +1,15 @@
 import axios from 'axios'
+import {
+  ACCESS_TOKEN_KEY,
+  AUTH_EXPIRED_EVENT,
+  clearStoredAuthSession,
+} from '@/modules/auth/auth-session'
+import { appToast, suppressAppToasts } from '@/shared/ui/toast/toast.helpers'
 
-// Khởi tạo một instance của axios với các cấu hình mặc định
+const apiBaseUrl = import.meta.env.VITE_API_URL?.trim() || 'http://localhost:3001'
+
 export const apiClient = axios.create({
-  // Sử dụng biến môi trường cho baseURL, hoặc fallback về localhost
-  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:3001', 
+  baseURL: apiBaseUrl,
   timeout: 10000,
   headers: {
     'Content-Type': 'application/json',
@@ -12,41 +18,73 @@ export const apiClient = axios.create({
 
 export const ACTIVE_STORE_STORAGE_KEY = 'active_store_id'
 
-// Request Interceptor: Được gọi trước khi một request được gửi đi
+let isHandlingAuthExpiration = false
+
+const shouldHandleExpiredSession = (error: unknown) => {
+  if (!axios.isAxiosError(error) || !error.response) {
+    return false
+  }
+
+  if (error.response.status !== 401) {
+    return false
+  }
+
+  const requestUrl = error.config?.url ?? ''
+  if (requestUrl.includes('/auth/login')) {
+    return false
+  }
+
+  return !!localStorage.getItem(ACCESS_TOKEN_KEY)
+}
+
+const handleExpiredSession = () => {
+  if (isHandlingAuthExpiration) {
+    return
+  }
+
+  isHandlingAuthExpiration = true
+  suppressAppToasts(2000)
+  clearStoredAuthSession()
+  localStorage.removeItem(ACTIVE_STORE_STORAGE_KEY)
+  appToast.sessionExpired('Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.')
+  window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT))
+
+  window.setTimeout(() => {
+    isHandlingAuthExpiration = false
+  }, 2000)
+}
+
 apiClient.interceptors.request.use(
   (config) => {
-    // Lấy token từ localStorage (hoặc từ Zustand/Redux nếu bạn đang dùng State Manager)
-    const token = localStorage.getItem('access_token') 
+    const token = localStorage.getItem(ACCESS_TOKEN_KEY)
+
     if (token && config.headers) {
       config.headers.Authorization = `Bearer ${token}`
     }
+
     const activeStoreId = localStorage.getItem(ACTIVE_STORE_STORAGE_KEY)
     if (activeStoreId && config.headers) {
       config.headers['X-Store-Id'] = activeStoreId
     }
+
     return config
   },
-  (error) => {
-    return Promise.reject(error)
-  },
+  (error) => Promise.reject(error),
 )
 
-// Response Interceptor: Được gọi trước khi response trả về cho phía component
 apiClient.interceptors.response.use(
-  (response) => {
-    // Chỉ trả về data thực tế thay vì toàn bộ object response của axios để code gọi API gọn hơn
-    return response.data
-  },
+  (response) => response.data,
   (error) => {
-    if (error.response) {
-      // Bắt các lỗi chung như 401 Unauthorized
+    if (shouldHandleExpiredSession(error)) {
+      handleExpiredSession()
+    } else if (axios.isAxiosError(error) && error.response) {
       if (error.response.status === 401) {
-        console.error('Phiên đăng nhập đã hết hạn.')
-        // TODO: Thực hiện logic redirect về trang login, hoặc tự động gọi API refresh_token ở đây
+        console.error('Unauthorized request.')
       }
     } else {
       console.error('Không thể kết nối đến máy chủ.')
     }
+
     return Promise.reject(error)
   },
 )

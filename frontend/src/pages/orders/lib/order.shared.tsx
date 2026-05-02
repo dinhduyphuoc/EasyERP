@@ -17,6 +17,7 @@ import type { ListColumn, ListFilterConfig, ListTabConfig } from '@/shared/ui/li
 import { appToast } from '@/shared/ui/toast/toast.helpers'
 import { orderApi, type OrderListItem } from '../api/order.api'
 import { ListTableSkeleton } from '../components/shared/skeletons'
+import { getErrorMessage } from './error-message'
 import { formatCurrency, formatDateTime, getPaymentStatusMeta, getProcessingStatusMeta } from './order.utils'
 
 type OrdersCollectionPageProps = {
@@ -35,6 +36,7 @@ type OrdersCollectionPageCache = {
   page: number
   pageSize: number
   rows: OrderListItem[]
+  total: number
 }
 
 const ordersCollectionCache = new Map<string, OrdersCollectionPageCache>()
@@ -58,21 +60,11 @@ export function invalidateOrdersCollectionCache(view?: OrdersCollectionPageProps
 const orderTabs: ListTabConfig[] = [
   { label: 'Tất cả', value: 'all' },
   { label: 'Nháp', value: 'draft' },
+  { label: 'Mới', value: 'placed' },
+  { label: 'Đang giao', value: 'delivering' },
   { label: 'Đặt cọc', value: 'deposit' },
   { label: 'Hoàn thành', value: 'completed' },
 ]
-
-function matchesTab(order: OrderListItem, activeTab: string) {
-  if (activeTab === 'all') {
-    return true
-  }
-
-  if (activeTab === 'deposit') {
-    return order.payment_status === 'deposit'
-  }
-
-  return order.processing_status === activeTab
-}
 
 export function OrdersCollectionPage({
   title,
@@ -96,6 +88,7 @@ export function OrdersCollectionPage({
   const [page, setPage] = useState(cachedState?.page ?? 1)
   const [pageSize, setPageSize] = useState(cachedState?.pageSize ?? 10)
   const [rows, setRows] = useState<OrderListItem[]>(cachedState?.rows ?? [])
+  const [total, setTotal] = useState(cachedState?.total ?? 0)
   const [isLoading, setIsLoading] = useState(rows.length === 0)
   const [hasResolvedInitialLoad, setHasResolvedInitialLoad] = useState((cachedState?.rows.length ?? 0) > 0)
 
@@ -105,16 +98,45 @@ export function OrdersCollectionPage({
     setIsLoading(!hasCachedRows)
 
     try {
-      const data = await orderApi.getOrders(view === 'all' ? undefined : { view })
-      setRows(data)
+      const params: Record<string, unknown> = {
+        page,
+        page_size: pageSize,
+      }
+
+      if (view !== 'all') {
+        params.view = view
+      }
+
+      const keyword = searchValue.trim()
+      if (keyword) {
+        params.search = keyword
+      }
+
+      if (filterValues.payment_status) {
+        params.payment_status = filterValues.payment_status
+      }
+
+      if (filterValues.processing_status) {
+        params.processing_status = filterValues.processing_status
+      }
+
+      if (activeTab === 'deposit') {
+        params.payment_status = 'deposit'
+      } else if (activeTab !== 'all') {
+        params.processing_status = activeTab
+      }
+
+      const data = await orderApi.getOrders(params)
+      setRows(data.items)
+      setTotal(data.total)
     } catch (error) {
       console.error('Lỗi khi tải đơn hàng:', error)
-      appToast.error('Không thể tải dữ liệu đơn hàng.')
+      appToast.error(getErrorMessage(error, 'Không thể tải dữ liệu đơn hàng.'))
     } finally {
       setIsLoading(false)
       setHasResolvedInitialLoad(true)
     }
-  }, [cacheKey, view])
+  }, [activeTab, cacheKey, filterValues.payment_status, filterValues.processing_status, page, pageSize, searchValue, view])
 
   useEffect(() => {
     void fetchOrders()
@@ -133,8 +155,9 @@ export function OrdersCollectionPage({
       page,
       pageSize,
       rows,
+      total,
     })
-  }, [activeStoreId, activeTab, cacheKey, filterValues, hasResolvedInitialLoad, page, pageSize, rows, searchValue, view])
+  }, [activeStoreId, activeTab, cacheKey, filterValues, hasResolvedInitialLoad, page, pageSize, rows, searchValue, total, view])
 
   const filters = useMemo<ListFilterConfig[]>(
     () => [
@@ -154,10 +177,9 @@ export function OrdersCollectionPage({
         placeholder: 'Tất cả trạng thái xử lý',
         options: [
           { label: 'Nháp', value: 'draft' },
-          { label: 'Chờ xác nhận', value: 'placed' },
-          { label: 'Đã xác nhận', value: 'confirmed' },
-          { label: 'Đóng gói', value: 'picked_up' },
+          { label: 'Mới', value: 'placed' },
           { label: 'Đang giao', value: 'delivering' },
+          { label: 'Đã giao', value: 'delivered' },
           { label: 'Hoàn thành', value: 'completed' },
           { label: 'Đã hủy', value: 'cancelled' },
           { label: 'Trả hàng', value: 'returned' },
@@ -167,42 +189,7 @@ export function OrdersCollectionPage({
     [],
   )
 
-  const tabs = useMemo(
-    () =>
-      orderTabs.map((tab) => ({
-        ...tab,
-        count:
-          tab.value === 'all'
-            ? rows.length
-            : rows.filter((row) => matchesTab(row, tab.value)).length,
-      })),
-    [rows],
-  )
-
-  const filteredRows = useMemo(() => {
-    const keyword = searchValue.trim().toLowerCase()
-
-    return rows.filter((row) => {
-      const matchesKeyword =
-        keyword.length === 0 ||
-        row.order_code.toLowerCase().includes(keyword) ||
-        row.customer_info.name.toLowerCase().includes(keyword) ||
-        row.customer_info.phone.toLowerCase().includes(keyword) ||
-        (row.customer_info.customer_code ?? '').toLowerCase().includes(keyword)
-
-      const matchesPayment = !filterValues.payment_status || row.payment_status === filterValues.payment_status
-      const matchesProcessing = !filterValues.processing_status || row.processing_status === filterValues.processing_status
-
-      return matchesKeyword && matchesPayment && matchesProcessing && matchesTab(row, activeTab)
-    })
-  }, [activeTab, filterValues.payment_status, filterValues.processing_status, rows, searchValue])
-
   const shouldShowInitialSkeleton = (!hasResolvedInitialLoad || isLoading) && rows.length === 0
-
-  const pagedRows = useMemo(() => {
-    const start = (page - 1) * pageSize
-    return filteredRows.slice(start, start + pageSize)
-  }, [filteredRows, page, pageSize])
 
   const columns = useMemo<ListColumn<OrderListItem>[]>(
     () => [
@@ -286,7 +273,7 @@ export function OrdersCollectionPage({
           </Button>
         </>
       }
-      tabs={tabs}
+      tabs={orderTabs}
       activeTab={activeTab}
       onTabChange={(value) => {
         setActiveTab(value)
@@ -321,7 +308,7 @@ export function OrdersCollectionPage({
         </Button>
       }
       columns={columns}
-      rows={pagedRows}
+      rows={rows}
       rowKey={(row) => String(row.id)}
       onRowClick={(row) => navigate(`/orders/${row.id}`)}
       loading={shouldShowInitialSkeleton}
@@ -348,7 +335,7 @@ export function OrdersCollectionPage({
       pagination={{
         page,
         pageSize,
-        total: filteredRows.length,
+        total,
         onPageChange: setPage,
         onPageSizeChange: (size) => {
           setPageSize(size)

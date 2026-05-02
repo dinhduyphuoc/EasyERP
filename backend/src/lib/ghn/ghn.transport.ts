@@ -1,3 +1,4 @@
+import { GHN_REQUEST_TIMEOUT_MS } from "@/config";
 import type { GHNClientConfig, GHNTransport } from "./ghn.types";
 
 const buildUrl = (baseUrl: string, path: string) => {
@@ -29,11 +30,26 @@ export const createGHNTransport = (config: Pick<GHNClientConfig, "baseUrl">): GH
         data?: TInput;
       },
     ) {
-      const response = await fetch(buildUrl(options.baseUrl ?? config.baseUrl ?? "", options.path), {
-        method: options.method,
-        headers: options.headers,
-        body: options.data === undefined ? undefined : JSON.stringify(options.data),
-      });
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), GHN_REQUEST_TIMEOUT_MS);
+      let response: Response;
+
+      try {
+        response = await fetch(buildUrl(options.baseUrl ?? config.baseUrl ?? "", options.path), {
+          method: options.method,
+          headers: options.headers,
+          body: options.data === undefined ? undefined : JSON.stringify(options.data),
+          signal: controller.signal,
+        });
+      } catch (error) {
+        if (error instanceof Error && error.name === "AbortError") {
+          throw new Error(`GHN request timed out after ${GHN_REQUEST_TIMEOUT_MS}ms`);
+        }
+
+        throw error;
+      } finally {
+        clearTimeout(timeout);
+      }
 
       const body = await parseResponseBody(response);
 

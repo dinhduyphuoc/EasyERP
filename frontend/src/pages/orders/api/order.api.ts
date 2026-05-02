@@ -1,4 +1,4 @@
-import { apiClient } from '@/api/api-client'
+﻿import { apiClient } from '@/api/api-client'
 
 const ENDPOINT = '/orders'
 
@@ -6,9 +6,8 @@ export type OrderPaymentStatus = 'unpaid' | 'paid' | 'deposit'
 export type OrderProcessingStatus =
   | 'draft'
   | 'placed'
-  | 'confirmed'
-  | 'picked_up'
   | 'delivering'
+  | 'delivered'
   | 'completed'
   | 'cancelled'
   | 'returned'
@@ -19,7 +18,10 @@ export type OrderItem = {
   product_id: number | null
   variant_sku: string | null
   product_name: string
+  display_name?: string | null
+  variant_label?: string | null
   sku: string
+  image_url: string | null
   quantity: number
   unit_price: string
   discount_amount: string
@@ -36,12 +38,78 @@ export type OrderHistoryItem = {
   timestamp: string
 }
 
+export type OrderShippingProviderLogItem = {
+  status: string
+  status_name?: string | null
+  label: string
+  updated_at: string | null
+}
+
+export type OrderShippingTrackingLogItem = {
+  status: string | null
+  status_name?: string | null
+  label: string
+  updated_at: string | null
+  raw: Record<string, unknown>
+}
+
+export type OrderShippingOrderInfo = {
+  provider: 'ghn'
+  order_id: number
+  order_code: string
+  tracking_code: string
+  current_status: string | null
+  status_name?: string | null
+  leadtime: string | null
+  finish_date: string | null
+  logs: OrderShippingProviderLogItem[]
+}
+
+export type OrderShippingTrackingLogs = {
+  provider: 'ghn'
+  order_id: number
+  order_code: string
+  tracking_code: string
+  logs: OrderShippingTrackingLogItem[]
+}
+
 export type OrderListItem = {
   id: number
   order_code: string
   order_type: OrderType
   order_date: string
   customer_id: number | null
+  customer_info: {
+    customer_code: string | null
+    name: string
+    phone: string
+    email: string | null
+    address: string | null
+  }
+  sub_total: string
+  discount_amount: string
+  shipping_fee: string
+  total_amount: string
+  deposit_amount: string
+  paid_amount: string
+  outstanding_amount: string
+  payment_status: OrderPaymentStatus
+  processing_status: OrderProcessingStatus
+  shipping_service: string | null
+  sales_channel: string | null
+  order_notes: string | null
+  payment_notes: string | null
+  warehouse_status: string | null
+  tracking_code: string | null
+  shipping_status: string | null
+  invoice_code: string | null
+  created_by: string | null
+  confirmed_by: string | null
+  created_at: string
+  updated_at: string
+}
+
+export type OrderDetailBase = OrderListItem & {
   payment_type_id: number | null
   from_address_id?: number | null
   to_address_id?: number | null
@@ -94,25 +162,10 @@ export type OrderListItem = {
     longitude: string | null
     note: string | null
   } | null
-  customer_info: {
-    customer_code: string | null
-    name: string
-    phone: string
-    email: string | null
-    address: string | null
-  }
   from_name?: string | null
   from_phone?: string | null
   from_address?: string | null
-  from_ward_name?: string | null
-  from_district_name?: string | null
-  from_province_name?: string | null
-  return_phone?: string | null
-  return_address?: string | null
-  return_district_id?: number | null
-  return_ward_code?: string | null
-  to_ward_code?: string | null
-  to_district_id?: number | null
+  required_note?: string | null
   cod_amount?: string
   content?: string | null
   weight?: number | null
@@ -126,35 +179,52 @@ export type OrderListItem = {
   deliver_station_id?: number | null
   coupon?: string | null
   pick_shift?: number[]
-  sub_total: string
-  discount_amount: string
   vat_enabled: boolean
   tax_amount: string
   vat_rate_percent: string
   vat_changed_by_user: boolean
   pricing_version: number
-  shipping_fee: string
-  total_amount: string
-  deposit_amount: string
-  paid_amount: string
-  outstanding_amount: string
-  payment_status: OrderPaymentStatus
-  processing_status: OrderProcessingStatus
-  shipping_service: string | null
-  sales_channel: string | null
-  order_notes: string | null
-  payment_notes: string | null
-  warehouse_status: string | null
-  tracking_code: string | null
-  shipping_status: string | null
-  invoice_code: string | null
-  created_by: string | null
-  confirmed_by: string | null
   status_timeline: Record<string, unknown>
-  created_at: string
-  updated_at: string
   order_items: OrderItem[]
-  order_history: OrderHistoryItem[]
+}
+
+export type OrderDetailItem = OrderDetailBase & {
+  order_history?: OrderHistoryItem[]
+}
+
+export type OrderEditItem = OrderDetailBase
+
+export type PaginatedOrderList = {
+  items: OrderListItem[]
+  total: number
+  page: number
+  page_size: number
+}
+
+export type OrderOverviewPeriod = 'today' | 'this_week' | 'this_month' | 'all_time'
+
+export type OrderOverviewResponse = {
+  source_options: string[]
+  summary: {
+    net_revenue: string
+    total_orders: number
+    unpaid_orders: number
+    average_order_value: string
+    sold_quantity: number
+    pending_shipping_orders: number
+    delivering_orders: number
+    cancelled_orders: number
+  }
+  previous_summary: {
+    net_revenue: string
+    total_orders: number
+    unpaid_orders: number
+    average_order_value: string
+    sold_quantity: number
+    pending_shipping_orders: number
+    delivering_orders: number
+    cancelled_orders: number
+  } | null
 }
 
 export type OrderOptionLookup = {
@@ -207,6 +277,9 @@ export type OrderOptionLookup = {
   sales_channels: string[]
 }
 
+export type OrderCustomerOption = OrderOptionLookup['customers'][number]
+export type OrderProductOption = OrderOptionLookup['products'][number]
+
 export type OrderCreatePayload = {
   order_code?: string
   order_date?: string
@@ -252,8 +325,6 @@ export type OrderCreatePayload = {
   from_ward_name?: string | null
   from_district_name?: string | null
   from_province_name?: string | null
-  to_ward_code?: string | null
-  to_district_id?: number | null
   cod_amount?: number | string | null
   content?: string | null
   weight?: number | null
@@ -303,8 +374,8 @@ export type OrderUpdatePayload = Partial<OrderCreatePayload>
 
 export type OrderActionName =
   | 'confirm'
-  | 'confirm_shipping'
   | 'push_to_delivery'
+  | 'mark_delivered'
   | 'add_payment'
   | 'confirm_full_payment'
   | 'mark_paid'
@@ -324,6 +395,8 @@ export type OrderActionPayload = {
   shipping_service?: string | null
   tracking_code?: string | null
   shipping_status?: string | null
+  from_name?: string | null
+  from_phone?: string | null
   warehouse_status?: string | null
   invoice_code?: string | null
 }
@@ -334,30 +407,64 @@ export type DuplicateOrderPayload = {
 }
 
 export const orderApi = {
-  getOrders: async (params?: Record<string, unknown>): Promise<OrderListItem[]> => {
+  getOrderOverview: async (
+    params?: Record<string, unknown>,
+  ): Promise<OrderOverviewResponse> => {
+    return apiClient.get(`${ENDPOINT}/overview`, { params })
+  },
+
+  getOrders: async (params?: Record<string, unknown>): Promise<PaginatedOrderList> => {
     return apiClient.get(ENDPOINT, { params })
   },
 
-  getOrderById: async (id: string | number): Promise<OrderListItem> => {
+  getOrderById: async (id: string | number): Promise<OrderDetailItem> => {
     return apiClient.get(`${ENDPOINT}/${id}`)
+  },
+
+  getOrderForEdit: async (id: string | number): Promise<OrderEditItem> => {
+    return apiClient.get(`${ENDPOINT}/${id}/edit`)
+  },
+
+  getOrderHistory: async (id: string | number): Promise<OrderHistoryItem[]> => {
+    return apiClient.get(`${ENDPOINT}/${id}/history`)
+  },
+
+  getGHNOrderInfo: async (id: string | number): Promise<OrderShippingOrderInfo> => {
+    return apiClient.get(`${ENDPOINT}/${id}/shipping/ghn/order-info`)
+  },
+
+  getGHNTrackingLogs: async (id: string | number): Promise<OrderShippingTrackingLogs> => {
+    return apiClient.get(`${ENDPOINT}/${id}/shipping/ghn/tracking-logs`)
   },
 
   getOrderOptions: async (): Promise<OrderOptionLookup> => {
     return apiClient.get(`${ENDPOINT}/options`)
   },
 
-  createOrder: async (payload: OrderCreatePayload): Promise<OrderListItem> => {
+  searchCustomers: async (
+    params?: Record<string, unknown>,
+  ): Promise<{ items: OrderCustomerOption[] }> => {
+    return apiClient.get(`${ENDPOINT}/options/customers`, { params })
+  },
+
+  searchProducts: async (
+    params?: Record<string, unknown>,
+  ): Promise<{ items: OrderProductOption[] }> => {
+    return apiClient.get(`${ENDPOINT}/options/products`, { params })
+  },
+
+  createOrder: async (payload: OrderCreatePayload): Promise<OrderDetailItem> => {
     return apiClient.post(ENDPOINT, payload)
   },
 
-  updateOrder: async (id: string | number, payload: OrderUpdatePayload): Promise<OrderListItem> => {
+  updateOrder: async (id: string | number, payload: OrderUpdatePayload): Promise<OrderDetailItem> => {
     return apiClient.patch(`${ENDPOINT}/${id}`, payload)
   },
 
   duplicateOrder: async (
     id: string | number,
     payload: DuplicateOrderPayload = {},
-  ): Promise<OrderListItem> => {
+  ): Promise<OrderDetailItem> => {
     return apiClient.post(`${ENDPOINT}/${id}/duplicate`, payload)
   },
 
@@ -365,7 +472,9 @@ export const orderApi = {
     id: string | number,
     action: OrderActionName,
     payload: OrderActionPayload = {},
-  ): Promise<OrderListItem> => {
-    return apiClient.post(`${ENDPOINT}/${id}/actions/${action}`, payload)
+  ): Promise<OrderDetailItem> => {
+    return apiClient.post(`${ENDPOINT}/${id}/actions/${action}`, payload, {
+      timeout: action === 'push_to_delivery' ? 20000 : undefined,
+    })
   },
 }

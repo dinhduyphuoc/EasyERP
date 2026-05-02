@@ -1,4 +1,4 @@
-import { type ReactElement } from 'react'
+﻿import { type ReactElement } from 'react'
 import {
   Box,
   Button,
@@ -21,11 +21,11 @@ import {
 import { formatCurrency } from '../../lib'
 import { PaymentInformationCard, type PaymentMethod } from '../../lib/order-payment'
 import type { PaymentCollectionMethod } from '../../lib/payment-display.helpers'
-import type { OrderListItem } from '../../api'
+import type { OrderDetailItem } from '../../api'
 
 type OrderDetailDialogsProps = {
   shippingDialog: {
-    action: 'confirm_shipping' | 'push_to_delivery'
+    action: 'push_to_delivery' | 'mark_delivered'
     shippingService: string
     trackingCode: string
     shippingStatus: string
@@ -52,7 +52,7 @@ type OrderDetailDialogsProps = {
   onClosePaymentDialog: () => void
   canEditOrder: boolean
   isSavingPayment: boolean
-  order: OrderListItem
+  order: OrderDetailItem
   paymentMethodDraft: PaymentMethod
   discountAmountDraft: string
   normalizedTaxAmount: number
@@ -170,7 +170,7 @@ export function OrderDetailDialogs(props: OrderDetailDialogsProps): ReactElement
   return (
     <>
       <Dialog open={Boolean(shippingDialog)} onClose={onCloseShippingDialog} fullWidth maxWidth="sm">
-        <DialogTitle>{shippingDialog?.action === 'confirm_shipping' ? 'Xác nhận đóng gói' : 'Đẩy sang vận chuyển'}</DialogTitle>
+        <DialogTitle>{shippingDialog?.action === 'mark_delivered' ? 'Xác nhận đã giao' : 'Đẩy sang vận chuyển'}</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ pt: 1 }}>
             <StackedTextField
@@ -196,14 +196,14 @@ export function OrderDetailDialogs(props: OrderDetailDialogsProps): ReactElement
                 onShippingDialogChange((current) => ({ ...current, shippingStatus: event.target.value }))
               }
               fullWidth
-              placeholder={shippingDialog?.action === 'push_to_delivery' ? 'delivering' : 'packed'}
+              placeholder={shippingDialog?.action === 'push_to_delivery' ? 'delivering' : 'delivered'}
             />
           </Stack>
         </DialogContent>
         <DialogActions>
           <Button onClick={onCloseShippingDialog}>Đóng</Button>
           <Button variant="contained" onClick={onSubmitShippingDialog} disabled={isActing}>
-            {shippingDialog?.action === 'confirm_shipping' ? 'Xác nhận đóng gói' : 'Đẩy sang vận chuyển'}
+            {shippingDialog?.action === 'mark_delivered' ? 'Xác nhận đã giao' : 'Đẩy sang vận chuyển'}
           </Button>
         </DialogActions>
       </Dialog>
@@ -216,7 +216,7 @@ export function OrderDetailDialogs(props: OrderDetailDialogsProps): ReactElement
         amountValue={paymentEntryAmount}
         amountEditable
         noteLabel="Ghi chú giao dịch"
-        notePlaceholder="Ví dụ: khách chuyển khoản đợt 2"
+        notePlaceholder="Ví dụ: khách chuyển khoản thêm"
         noteValue={paymentEntryNote}
         methodValue={paymentEntryMethod}
         remainingAmount={orderRemainingAmount}

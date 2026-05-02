@@ -71,6 +71,30 @@ export type GHNCreateOrderInput = {
   pick_shift?: number[];
 };
 
+export type GHNCreateOrderResponse = {
+  code: number;
+  message: string;
+  data: {
+    order_code?: string;
+    sort_code?: string;
+    trans_type?: string;
+    ward_encode?: string;
+    district_encode?: string;
+    fee?: {
+      main_service?: number;
+      insurance?: number;
+      station_do?: number;
+      station_pu?: number;
+      return?: number;
+      r2s?: number;
+      coupon?: number;
+      total?: number;
+    } | null;
+    total_fee?: number;
+    expected_delivery_time?: string;
+  } | null;
+};
+
 export type GHNUpdateOrderInput = {
   order_code: string;
   note?: string;
@@ -121,6 +145,42 @@ export type GHNPrintOrderResponse = GHNPrintTokenResponse & {
     "80x80": string;
     "52x70": string;
   };
+};
+
+export type GHNTrackingLogsInput = {
+  order_code: string;
+};
+
+export type GHNTrackingLogEntry = {
+  action_at?: string | null;
+  action_time?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+  updated_date?: string | null;
+  timestamp?: string | null;
+  status?: string | null;
+  status_name?: string | null;
+  action_status?: string | null;
+  description?: string | null;
+  message?: string | null;
+  action_name?: string | null;
+  title?: string | null;
+  [key: string]: unknown;
+};
+
+export type GHNTrackingLogsResponse = {
+  code: number;
+  message: string;
+  data:
+    | {
+        order_code?: string | null;
+        logs?: GHNTrackingLogEntry[] | null;
+        data?: GHNTrackingLogEntry[] | null;
+        tracking_logs?: GHNTrackingLogEntry[] | null;
+        [key: string]: unknown;
+      }
+    | GHNTrackingLogEntry[]
+    | null;
 };
 
 export type GHNFeeItemInput = {

@@ -10,6 +10,7 @@ inventoryRouter.use(authenticate);
 inventoryRouter.use(resolveStoreContext);
 
 inventoryRouter.get("/stock", requirePermission("inventory.read"), InventoryController.getStockList);
+inventoryRouter.get("/stock/:productVariantId", requirePermission("inventory.read"), InventoryController.getStockItem);
 inventoryRouter.get("/audits", requirePermission("inventory.read"), InventoryController.getAuditList);
 inventoryRouter.get("/audits/:id", requirePermission("inventory.read"), InventoryController.getAuditById);
 inventoryRouter.get("/:productVariantId/history", requirePermission("inventory.read"), InventoryController.getHistory);

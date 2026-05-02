@@ -1,6 +1,8 @@
 ﻿import { useCallback, useMemo, useState } from 'react'
 import { appToast } from '@/shared/ui/toast/toast.helpers'
-import { orderApi, type OrderListItem } from '../api/order.api'
+import { orderApi, type OrderDetailItem } from '../api/order.api'
+import { getErrorMessage } from '../lib/error-message'
+import { buildPaymentConfigUpdatedMessage, ORDER_TOAST_MESSAGES } from '../lib/toast-messages'
 import {
   buildPaymentNoteContent,
   getDerivedPaymentStatusValue,
@@ -16,28 +18,14 @@ import {
   type PaymentMethod,
 } from '../lib/order-payment'
 
-const getErrorMessage = (error: unknown, fallback: string) =>
-  typeof error === 'object' &&
-  error !== null &&
-  'response' in error &&
-  typeof error.response === 'object' &&
-  error.response !== null &&
-  'data' in error.response &&
-  typeof error.response.data === 'object' &&
-  error.response.data !== null &&
-  'message' in error.response.data &&
-  typeof error.response.data.message === 'string'
-    ? error.response.data.message
-    : fallback
-
 export function usePaymentConfigDraft({
   orderId,
   order,
   onOrderUpdated,
 }: {
   orderId: string | undefined
-  order: OrderListItem | null
-  onOrderUpdated: (order: OrderListItem) => void
+  order: OrderDetailItem | null
+  onOrderUpdated: (order: OrderDetailItem) => void
 }) {
   const [isPaymentDialogOpen, setIsPaymentDialogOpen] = useState(false)
   const [isSavingPayment, setIsSavingPayment] = useState(false)
@@ -56,7 +44,7 @@ export function usePaymentConfigDraft({
   const [vatEnabledDraft, setVatEnabledDraft] = useState(false)
   const [vatRatePercentDraft, setVatRatePercentDraft] = useState('0')
 
-  const syncPaymentDraftFromOrder = useCallback((nextOrder: OrderListItem) => {
+  const syncPaymentDraftFromOrder = useCallback((nextOrder: OrderDetailItem) => {
     const parsedPaymentDetails = parsePaymentNoteContent(nextOrder.payment_notes)
     const inferredPaymentMethod =
       parsedPaymentDetails.method ?? getPaymentMethodFromTypeId(nextOrder.payment_type_id, nextOrder.payment_status)
@@ -191,7 +179,7 @@ export function usePaymentConfigDraft({
     setHasAttemptedPaymentSave(true)
 
     if (!canSavePayment) {
-      appToast.warning('Vui lòng kiểm tra lại thông tin thanh toán trước khi lưu.')
+      appToast.warning(ORDER_TOAST_MESSAGES.invalidPaymentConfig)
       return
     }
 
@@ -235,7 +223,7 @@ export function usePaymentConfigDraft({
       onOrderUpdated(updatedOrder)
       syncPaymentDraftFromOrder(updatedOrder)
       setIsPaymentDialogOpen(false)
-      appToast.success(`Đã cập nhật thanh toán cho đơn ${updatedOrder.order_code}.`)
+      appToast.success(buildPaymentConfigUpdatedMessage(updatedOrder.order_code))
     } catch (error) {
       console.error('Lỗi khi cập nhật thanh toán:', error)
       appToast.error(getErrorMessage(error, 'Không thể cập nhật thanh toán.'))

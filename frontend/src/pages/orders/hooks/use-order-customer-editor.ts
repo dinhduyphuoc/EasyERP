@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
 import { customerApi, type CityItem, type DistrictItem, type LocationItem } from '@/pages/customers/customer.api'
 import { appToast } from '@/shared/ui/toast/toast.helpers'
-import { orderApi, type OrderListItem } from '../api'
+import { orderApi, type OrderDetailItem } from '../api'
 import type { CustomerModalForm } from '../components'
+import { buildCustomerUpdatedMessage, ORDER_TOAST_MESSAGES } from '../lib/toast-messages'
 
 type ParsedCustomerAddress = {
   addressLine: string
@@ -82,9 +83,9 @@ export function useOrderCustomerEditor({
   onOrderUpdated,
   getErrorMessage,
 }: {
-  order: OrderListItem | null
+  order: OrderDetailItem | null
   orderId: string | undefined
-  onOrderUpdated: (order: OrderListItem) => void
+  onOrderUpdated: (order: OrderDetailItem) => void
   getErrorMessage: (error: unknown, fallback: string) => string
 }) {
   const [customerModalOpen, setCustomerModalOpen] = useState(false)
@@ -384,7 +385,7 @@ export function useOrderCustomerEditor({
     const shouldSetDefaultAddress = customerModalForm.setAsDefaultAddress && hasStructuredAddress
 
     if (!fullName || !phone) {
-      appToast.warning('Vui lòng nhập họ tên và số điện thoại khách hàng.')
+      appToast.warning(ORDER_TOAST_MESSAGES.customerNamePhoneRequired)
       return
     }
 
@@ -435,7 +436,7 @@ export function useOrderCustomerEditor({
       onOrderUpdated(updatedOrder)
       setCustomerModalOpen(false)
       setCustomerModalPrefill(null)
-      appToast.success(`Đã cập nhật khách hàng cho đơn ${updatedOrder.order_code}.`)
+      appToast.success(buildCustomerUpdatedMessage(updatedOrder.order_code))
     } catch (error) {
       console.error('Lỗi khi cập nhật khách hàng từ đơn hàng:', error)
       appToast.error(getErrorMessage(error, 'Không thể cập nhật thông tin khách hàng.'))

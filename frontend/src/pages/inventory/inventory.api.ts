@@ -18,7 +18,6 @@ export type InventoryStockListItem = {
   incoming: number
   selling_price: string
   cogs: string
-  is_variant: boolean
 }
 
 export type InventoryAuditLinePayload = {
@@ -50,7 +49,14 @@ export type InventoryAuditLineItem = InventoryStockListItem & {
   cogs: string | null
 }
 
-export type InventoryAuditItem = {
+export type InventoryAuditSummary = {
+  total_lines: number
+  counted_lines: number
+  adjusted_lines: number
+  total_delta_qty: number
+}
+
+export type InventoryAuditSummaryItem = {
   id: number
   audit_code: string
   status: 'draft' | 'completed'
@@ -63,12 +69,10 @@ export type InventoryAuditItem = {
   completed_at: string | null
   created_at: string
   updated_at: string
-  summary: {
-    total_lines: number
-    counted_lines: number
-    adjusted_lines: number
-    total_delta_qty: number
-  }
+  summary: InventoryAuditSummary
+}
+
+export type InventoryAuditItem = InventoryAuditSummaryItem & {
   lines: InventoryAuditLineItem[]
 }
 
@@ -107,7 +111,11 @@ export const inventoryApi = {
     return apiClient.get(`${ENDPOINT}/stock`, { params })
   },
 
-  getAuditList: async (params?: Record<string, unknown>): Promise<InventoryAuditItem[]> => {
+  getStockItem: async (productVariantId: string): Promise<InventoryStockListItem> => {
+    return apiClient.get(`${ENDPOINT}/stock/${productVariantId}`)
+  },
+
+  getAuditList: async (params?: Record<string, unknown>): Promise<InventoryAuditSummaryItem[]> => {
     return apiClient.get(`${ENDPOINT}/audits`, { params })
   },
 

@@ -1,11 +1,14 @@
 import { GHNBaseAPI } from "./ghn.base";
 import { buildGHNPrintUrls } from "./ghn.print";
+import { GHN_ORDER_TRACKING_PUBLIC_API_BASE_URL } from "@/config";
 import type {
   GHNClientConfig,
   GHNCreateOrderInput,
   GHNOrderAPI,
   GHNPrintOrderInput,
   GHNPrintOrderResponse,
+  GHNTrackingLogsInput,
+  GHNTrackingLogsResponse,
   GHNUpdateOrderInput,
 } from "./ghn.types";
 
@@ -75,6 +78,15 @@ export class GHNOrderClient extends GHNBaseAPI implements GHNOrderAPI {
 
   calculateExpectedDeliveryTime(input: any) {
     return this.request({ method: "POST", path: "shipping-order/leadtime", data: input });
+  }
+
+  getTrackingLogs(input: GHNTrackingLogsInput): Promise<GHNTrackingLogsResponse> {
+    return this.request<GHNTrackingLogsResponse, GHNTrackingLogsInput>({
+      method: "POST",
+      baseUrl: GHN_ORDER_TRACKING_PUBLIC_API_BASE_URL,
+      path: "order-tracking/public-api/client/tracking-logs",
+      data: input,
+    });
   }
 
   pickShift(input: any) {

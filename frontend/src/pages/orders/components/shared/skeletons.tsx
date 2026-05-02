@@ -93,35 +93,117 @@ export function ListTableSkeleton({ rows = 6 }: { rows?: number }) {
 export function DetailPageSkeleton() {
   return (
     <Box sx={{ px: { xs: 2, md: 3, xl: 4 }, pb: 8 }}>
-      <Skeleton variant="rounded" height={124} sx={{ borderRadius: 4, mb: 3 }} />
-
-      <Stack spacing={3}>
-        <Paper sx={borderedCardSx}>
-          <Stack spacing={2}>
-            <Skeleton variant="text" width={220} height={34} />
-            <Skeleton variant="rounded" height={72} />
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.25}>
-              <Skeleton variant="rounded" width={170} height={40} />
-              <Skeleton variant="rounded" width={170} height={40} />
-              <Skeleton variant="rounded" width={170} height={40} />
+      <Box sx={{ mb: 2 }}>
+        <Stack
+          direction={{ xs: 'column', md: 'row' }}
+          spacing={2}
+          sx={{ justifyContent: 'space-between', alignItems: { md: 'center' } }}
+        >
+          <Stack direction="row" spacing={2} sx={{ alignItems: 'center' }}>
+            <Skeleton variant="rounded" width={44} height={44} />
+            <Stack spacing={1}>
+              <Skeleton variant="text" width={260} height={36} />
+              <Stack direction="row" spacing={1}>
+                <Skeleton variant="rounded" width={108} height={28} />
+                <Skeleton variant="rounded" width={92} height={28} />
+              </Stack>
             </Stack>
           </Stack>
-        </Paper>
 
-        <Paper sx={borderedCardSx}>
-          <Stack spacing={2}>
-            <Skeleton variant="text" width={180} height={30} />
-            <Skeleton variant="rounded" height={96} />
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.25}>
+            <Skeleton variant="rounded" width={170} height={40} />
+            <Skeleton variant="rounded" width={132} height={40} />
           </Stack>
-        </Paper>
+        </Stack>
+      </Box>
 
-        <Paper sx={borderedCardSx}>
-          <Stack spacing={2}>
-            <Skeleton variant="text" width={180} height={30} />
-            <Skeleton variant="rounded" height={220} />
+      <Paper
+        variant="outlined"
+        sx={{
+          ...borderedCardSx,
+          mb: 2,
+          p: 1.5,
+        }}
+      >
+        <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5} sx={{ alignItems: { md: 'center' } }}>
+          <Skeleton variant="rounded" width={184} height={32} />
+          <Stack spacing={0.75} sx={{ flex: 1 }}>
+            <Skeleton variant="text" width="74%" height={24} />
+            <Skeleton variant="text" width="48%" height={20} />
           </Stack>
-        </Paper>
-      </Stack>
+          <Skeleton variant="rounded" width={136} height={36} />
+        </Stack>
+      </Paper>
+
+      <Paper sx={{ ...borderedCardSx, mt: 2.5, p: 0 }}>
+        <Stack direction="row" spacing={1.5} sx={{ px: 2, py: 1.25 }}>
+          <Skeleton variant="text" width={88} height={28} />
+          <Skeleton variant="text" width={84} height={28} />
+          <Skeleton variant="text" width={96} height={28} />
+          <Skeleton variant="text" width={92} height={28} />
+        </Stack>
+      </Paper>
+
+      <Box
+        sx={{
+          display: 'grid',
+          gridTemplateColumns: { xs: '1fr', xl: 'minmax(0, 3fr) minmax(360px, 1.4fr)' },
+          gap: 2.5,
+          alignItems: 'start',
+          mt: 2.5,
+        }}
+      >
+        <Stack spacing={2.5}>
+          <Box
+            sx={{
+              display: 'grid',
+              gridTemplateColumns: { xs: '1fr', lg: 'repeat(2, minmax(0, 1fr))' },
+              gap: 2.5,
+              alignItems: 'stretch',
+            }}
+          >
+            <Paper sx={borderedCardSx}>
+              <Stack spacing={2}>
+                <Skeleton variant="text" width={170} height={30} />
+                <Skeleton variant="rounded" height={164} />
+              </Stack>
+            </Paper>
+
+            <Paper sx={borderedCardSx}>
+              <Stack spacing={2}>
+                <Skeleton variant="text" width={150} height={30} />
+                <Stack spacing={1.5}>
+                  {Array.from({ length: 3 }).map((_, index) => (
+                    <Stack key={index} direction="row" spacing={1.25} sx={{ alignItems: 'center' }}>
+                      <Skeleton variant="rounded" width={56} height={56} />
+                      <Stack spacing={0.5} sx={{ flex: 1 }}>
+                        <Skeleton variant="text" width="62%" height={22} />
+                        <Skeleton variant="text" width="38%" height={18} />
+                      </Stack>
+                    </Stack>
+                  ))}
+                </Stack>
+              </Stack>
+            </Paper>
+          </Box>
+
+          <Paper sx={borderedCardSx}>
+            <Stack spacing={2}>
+              <Skeleton variant="text" width={180} height={30} />
+              <Skeleton variant="rounded" height={176} />
+            </Stack>
+          </Paper>
+        </Stack>
+
+        <Stack spacing={2.5}>
+          <Paper sx={borderedCardSx}>
+            <Stack spacing={2}>
+              <Skeleton variant="text" width={196} height={30} />
+              <Skeleton variant="rounded" height={220} />
+            </Stack>
+          </Paper>
+        </Stack>
+      </Box>
     </Box>
   )
 }

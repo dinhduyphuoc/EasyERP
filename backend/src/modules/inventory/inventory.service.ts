@@ -3,6 +3,7 @@ import { BadRequestError, ConflictError, NotFoundError } from "@/common";
 import type {
   InventoryAdjustInput,
   InventoryAuditFinalizeInput,
+  InventoryAuditListResponseItem,
   InventoryAuditLineInput,
   InventoryAuditListQuery,
   InventoryAuditUpsertInput,
@@ -495,6 +496,49 @@ const buildAuditResponse = (audit: {
   };
 };
 
+const buildAuditListResponse = (audit: {
+  id: number;
+  audit_code: string;
+  status: InventoryAuditStatus;
+  note: string | null;
+  account_id: string | null;
+  account_name: string | null;
+  counted_at: Date | null;
+  completed_at: Date | null;
+  created_at: Date;
+  updated_at: Date;
+  lines: Array<{
+    counted_on_hand: number | null;
+    delta_qty: number | null;
+  }>;
+}): InventoryAuditListResponseItem => {
+  const totalLines = audit.lines.length;
+  const countedLines = audit.lines.filter((line) => line.counted_on_hand !== null).length;
+  const adjustedLines = audit.lines.filter((line) => (line.delta_qty ?? 0) !== 0).length;
+  const totalDeltaQty = audit.lines.reduce((sum, line) => sum + (line.delta_qty ?? 0), 0);
+
+  return {
+    id: audit.id,
+    audit_code: audit.audit_code,
+    status: audit.status,
+    note: audit.note,
+    account: {
+      id: audit.account_id,
+      name: audit.account_name,
+    },
+    counted_at: audit.counted_at?.toISOString() ?? null,
+    completed_at: audit.completed_at?.toISOString() ?? null,
+    created_at: audit.created_at.toISOString(),
+    updated_at: audit.updated_at.toISOString(),
+    summary: {
+      total_lines: totalLines,
+      counted_lines: countedLines,
+      adjusted_lines: adjustedLines,
+      total_delta_qty: totalDeltaQty,
+    },
+  };
+};
+
 const applyInventoryMutation = async (params: {
   tx: PrismaTransaction;
   storeId?: string;
@@ -610,6 +654,7 @@ const applyOrderInventoryMutation = async (params: {
           ...metaBase,
           idempotency_key: `order:${params.referenceId}:reserve:${item.variant_sku}`,
         },
+        skipResultHydration: true,
         computeNext: (current) => {
           ensureCanDecreaseAvailable(current, item.quantity);
 
@@ -643,6 +688,7 @@ const applyOrderInventoryMutation = async (params: {
           ...metaBase,
           idempotency_key: `order:${params.referenceId}:packing:${item.variant_sku}`,
         },
+        skipResultHydration: true,
         computeNext: (current) => {
           if (current.committed < item.quantity) {
             throw new ConflictError("Insufficient committed stock");
@@ -678,6 +724,7 @@ const applyOrderInventoryMutation = async (params: {
           ...metaBase,
           idempotency_key: `order:${params.referenceId}:fulfill:${item.variant_sku}`,
         },
+        skipResultHydration: true,
         computeNext: (current) => {
           if (current.packing < item.quantity) {
             throw new ConflictError("Insufficient packing stock");
@@ -944,6 +991,113 @@ const auditInclude = {
   },
 } satisfies Prisma.InventoryAuditInclude;
 
+const auditListSelect = {
+  id: true,
+  audit_code: true,
+  status: true,
+  note: true,
+  account_id: true,
+  account_name: true,
+  counted_at: true,
+  completed_at: true,
+  created_at: true,
+  updated_at: true,
+  lines: {
+    select: {
+      counted_on_hand: true,
+      delta_qty: true,
+    },
+    orderBy: { id: "asc" },
+  },
+} satisfies Prisma.InventoryAuditSelect;
+
+const stockListSelect = {
+  sku: true,
+  selling_price: true,
+  cogs: true,
+  image_url: true,
+  product: {
+    select: {
+      id: true,
+      product_name: true,
+      unit: true,
+      image_url: true,
+      status: true,
+    },
+  },
+  attribute_values: {
+    select: {
+      attribute_value: {
+        select: {
+          value: true,
+        },
+      },
+    },
+  },
+  inventory_stock: {
+    select: {
+      on_hand: true,
+      available: true,
+      committed: true,
+      packing: true,
+      incoming: true,
+    },
+  },
+} satisfies Prisma.ProductVariantSelect;
+
+const buildStockListItem = (variant: {
+  sku: string;
+  selling_price: Prisma.Decimal;
+  cogs: Prisma.Decimal;
+  image_url: string | null;
+  product: {
+    id: number;
+    product_name: string;
+    unit: string | null;
+    image_url: string | null;
+    status: "active" | "inactive" | "draft" | "deleted";
+  };
+  attribute_values: Array<{
+    attribute_value: {
+      value: string;
+    };
+  }>;
+  inventory_stock: {
+    on_hand: number;
+    available: number;
+    committed: number;
+    packing: number;
+    incoming: number;
+  } | null;
+}) => {
+  const optionLabel = variant.attribute_values
+    .map((item) => item.attribute_value.value)
+    .filter(Boolean)
+    .join(" / ");
+  const isVariant = variant.attribute_values.length > 0;
+  const displayName = isVariant
+    ? `${variant.product.product_name} - ${optionLabel || variant.sku}`
+    : variant.product.product_name;
+
+  return {
+    product_variant_id: variant.sku,
+    product_id: variant.product.id,
+    product_name: variant.product.product_name,
+    display_name: displayName,
+    sku: variant.sku,
+    unit: variant.product.unit,
+    image_url: variant.image_url ?? variant.product.image_url,
+    product_status: variant.product.status,
+    on_hand: variant.inventory_stock?.on_hand ?? 0,
+    available: variant.inventory_stock?.available ?? 0,
+    committed: variant.inventory_stock?.committed ?? 0,
+    packing: variant.inventory_stock?.packing ?? 0,
+    incoming: variant.inventory_stock?.incoming ?? 0,
+    selling_price: variant.selling_price.toString(),
+    cogs: variant.cogs.toString(),
+  };
+};
+
 const parseHistoryLimit = (query: InventoryHistoryQuery) => {
   if (!query.limit) {
     return HISTORY_DEFAULT_LIMIT;
@@ -974,7 +1128,7 @@ const parseCursor = (query: InventoryHistoryQuery) => {
 
 export const InventoryService = {
   getStockList: async (storeId: string, query: InventoryStockListQuery) => {
-    const search = toOptionalTrimmedString(query.search)?.toLowerCase();
+    const search = toOptionalTrimmedString(query.search);
 
     const variants = await prisma.productVariant.findMany({
       where: {
@@ -987,73 +1141,69 @@ export const InventoryService = {
           },
         },
         store_id: storeId,
+        ...(search
+          ? {
+              OR: [
+                { sku: { contains: search, mode: "insensitive" } },
+                {
+                  product: {
+                    product_name: {
+                      contains: search,
+                      mode: "insensitive",
+                    },
+                  },
+                },
+                {
+                  attribute_values: {
+                    some: {
+                      attribute_value: {
+                        value: {
+                          contains: search,
+                          mode: "insensitive",
+                        },
+                      },
+                    },
+                  },
+                },
+              ],
+            }
+          : {}),
       },
-      include: {
-          product: {
-            select: {
-              id: true,
-              product_name: true,
-              unit: true,
-              image_url: true,
-              status: true,
-              attributes: {
-                select: {
-                  id: true,
-              },
-            },
-          },
-        },
-        attribute_values: {
-          include: {
-            attribute_value: true,
-          },
-        },
-        inventory_stock: true,
-      },
+      select: stockListSelect,
       orderBy: [{ product: { product_name: "asc" } }, { sku: "asc" }],
     });
 
-    return variants
-      .map((variant) => {
-        const isSimpleProduct = variant.product.attributes.length === 0;
-        const optionLabel = variant.attribute_values
-          .map((item) => item.attribute_value.value)
-          .filter(Boolean)
-          .join(" / ");
-        const displayName = isSimpleProduct
-          ? variant.product.product_name
-          : `${variant.product.product_name} - ${optionLabel || variant.sku}`;
+    return variants.map((variant) => buildStockListItem(variant));
+  },
 
-        return {
-          product_variant_id: variant.sku,
-          product_id: variant.product.id,
-          product_name: variant.product.product_name,
-          display_name: displayName,
-          sku: variant.sku,
-          unit: variant.product.unit,
-          image_url: variant.image_url ?? variant.product.image_url,
-          product_status: variant.product.status,
-          on_hand: variant.inventory_stock?.on_hand ?? 0,
-          available: variant.inventory_stock?.available ?? 0,
-          committed: variant.inventory_stock?.committed ?? 0,
-          packing: variant.inventory_stock?.packing ?? 0,
-          incoming: variant.inventory_stock?.incoming ?? 0,
-          selling_price: variant.selling_price.toString(),
-          cogs: variant.cogs.toString(),
-          is_variant: !isSimpleProduct,
-        };
-      })
-      .filter((item) => {
-        if (!search) {
-          return true;
-        }
+  getStockItem: async (storeId: string, productVariantId: string) => {
+    const variantId = toOptionalTrimmedString(productVariantId);
 
-        return (
-          item.display_name.toLowerCase().includes(search) ||
-          item.product_name.toLowerCase().includes(search) ||
-          item.sku.toLowerCase().includes(search)
-        );
-      });
+    if (!variantId) {
+      throw new BadRequestError("Invalid product variant id");
+    }
+
+    const variant = await prisma.productVariant.findFirst({
+      where: {
+        sku: variantId,
+        store_id: storeId,
+        status: {
+          not: "deleted",
+        },
+        product: {
+          status: {
+            not: "deleted",
+          },
+        },
+      },
+      select: stockListSelect,
+    });
+
+    if (!variant) {
+      throw new NotFoundError("Product variant not found");
+    }
+
+    return buildStockListItem(variant);
   },
 
   getAuditList: async (storeId: string, query: InventoryAuditListQuery) => {
@@ -1093,11 +1243,11 @@ export const InventoryService = {
             }
           : {}),
       },
-      include: auditInclude,
+      select: auditListSelect,
       orderBy: [{ created_at: "desc" }, { id: "desc" }],
     });
 
-    return audits.map((audit) => buildAuditResponse(audit));
+    return audits.map((audit) => buildAuditListResponse(audit));
   },
 
   getAuditById: async (storeId: string, id: number) => {
@@ -1886,6 +2036,7 @@ export const InventoryOrderOrchestration = {
             product_name: item.product_name,
           },
         },
+        skipResultHydration: true,
         computeNext: (current) => {
           if (current.committed < item.quantity) {
             throw new ConflictError("Insufficient committed stock");
@@ -1936,6 +2087,7 @@ export const InventoryOrderOrchestration = {
             product_name: item.product_name,
           },
         },
+        skipResultHydration: true,
         computeNext: (current) => {
           if (current.packing < item.quantity) {
             throw new ConflictError("Insufficient packing stock");
@@ -1986,6 +2138,7 @@ export const InventoryOrderOrchestration = {
             product_name: item.product_name,
           },
         },
+        skipResultHydration: true,
         computeNext: (current) => ({
           deltas: {
             on_hand: item.quantity,

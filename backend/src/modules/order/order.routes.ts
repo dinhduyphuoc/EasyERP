@@ -20,8 +20,8 @@ const resolveOrderActionPermissions = (action: string | undefined) => {
     case "return_order":
       return ["warehouse.return", "orders.update"];
     case "confirm":
-    case "confirm_shipping":
     case "push_to_delivery":
+    case "mark_delivered":
     case "request_invoice":
     case "complete":
       return ["orders.update"];
@@ -33,9 +33,16 @@ const resolveOrderActionPermissions = (action: string | undefined) => {
 orderRouter.use(authenticate);
 orderRouter.use(resolveStoreContext);
 
+orderRouter.get("/overview", requirePermission("orders.read"), OrderController.getOrderOverview);
 orderRouter.get("/options", requirePermission("orders.read"), OrderController.getOrderOptions);
+orderRouter.get("/options/customers", requirePermission("orders.read"), OrderController.searchCustomers);
+orderRouter.get("/options/products", requirePermission("orders.read"), OrderController.searchProducts);
 orderRouter.get("/", requirePermission("orders.read"), OrderController.getOrders);
+orderRouter.get("/:id/shipping/ghn/order-info", requirePermission("orders.read"), OrderController.getGHNOrderInfo);
+orderRouter.get("/:id/shipping/ghn/tracking-logs", requirePermission("orders.read"), OrderController.getGHNTrackingLogs);
 orderRouter.get("/:id/shipping/ghn/print-token", requirePermission("orders.read"), OrderController.getGHNPrintInfo);
+orderRouter.get("/:id/history", requirePermission("orders.read"), OrderController.getOrderHistory);
+orderRouter.get("/:id/edit", requirePermission("orders.read"), OrderController.getOrderForEdit);
 orderRouter.get("/:id", requirePermission("orders.read"), OrderController.getOrderById);
 orderRouter.post("/", requirePermission("orders.create"), OrderController.createOrder);
 orderRouter.post("/:id/duplicate", requirePermission("orders.create"), OrderController.duplicateOrder);

@@ -1,5 +1,6 @@
-﻿import type { ReactElement } from 'react'
-import { Divider, Stack, Typography } from '@mui/material'
+import type { ReactElement } from 'react'
+import { Box, Divider, Stack } from '@mui/material'
+import { InfoField } from '@/shared/ui/info-field'
 import { getVatLabel } from '../../lib/order-payment'
 import { formatCurrency } from '../../lib/order.utils'
 
@@ -39,16 +40,12 @@ export function PaymentSummarySection({
       <SummaryLine label={`Tạm tính (${Math.max(itemCount, 0)} sản phẩm)`} value={formatCurrency(subTotal)} />
       <SummaryLine label="Giảm giá" value={discountAmount > 0 ? `- ${formatCurrency(discountAmount)}` : formatCurrency(0)} />
       {taxAmount > 0 || (forceShowTaxLine && vatRatePercent > 0) ? (
-        <SummaryLine
-          label={getVatLabel(vatRatePercent)}
-          value={formatCurrency(taxAmount)}
-        />
+        <SummaryLine label={getVatLabel(vatRatePercent)} value={formatCurrency(taxAmount)} />
       ) : null}
       <SummaryLine label="Phí vận chuyển" value={formatCurrency(shippingFee)} />
-      <Divider />
       <SummaryLine label="Tổng cộng" value={formatCurrency(totalAmount)} strong />
-      <SummaryLine label="Khách đã trả" value={formatCurrency(paidAmount)} />
       <Divider />
+      <SummaryLine label="Khách đã trả" value={formatCurrency(paidAmount)} />
       <SummaryLine label="Còn lại" value={formatCurrency(remainingAmount)} strong valueColor={remainingAmount > 0 ? '#d92d20' : '#027a48'} />
     </Stack>
   )
@@ -66,20 +63,24 @@ function SummaryLine({
   valueColor?: string
 }): ReactElement {
   return (
-    <Stack direction="row" spacing={1.5} sx={{ justifyContent: 'space-between', alignItems: 'baseline' }}>
-      <Typography variant="body2" color="text.secondary" sx={{ fontWeight: strong ? 700 : 500 }}>
-        {label}
-      </Typography>
-      <Typography
-        sx={{
-          textAlign: 'right',
-          color: valueColor,
-          fontWeight: strong ? 800 : 600,
-          fontVariantNumeric: 'tabular-nums',
-        }}
-      >
-        {value}
-      </Typography>
-    </Stack>
+    <InfoField
+      label={label}
+      variant="row"
+      labelMinWidth={120}
+      valueWeight={strong ? 700 : 600}
+      value={
+        <Box
+          component="span"
+          sx={{
+            display: 'inline-block',
+            color: valueColor,
+            fontVariantNumeric: 'tabular-nums',
+            textAlign: 'right',
+          }}
+        >
+          {value}
+        </Box>
+      }
+    />
   )
 }

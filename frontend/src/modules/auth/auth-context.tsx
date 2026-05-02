@@ -6,6 +6,12 @@ import {
   type PropsWithChildren,
 } from 'react'
 import { authApi } from '@/modules/auth/auth.api'
+import {
+  ACCESS_TOKEN_KEY,
+  AUTH_EXPIRED_EVENT,
+  AUTH_USER_STORAGE_KEY,
+  clearStoredAuthSession,
+} from '@/modules/auth/auth-session'
 import type { AuthUser } from '@/modules/auth/auth.types'
 
 type AuthStatus = 'loading' | 'authenticated' | 'anonymous'
@@ -20,9 +26,6 @@ type AuthContextValue = {
   hasPermission: (permission: string) => boolean
   hasAnyPermission: (permissions: string[]) => boolean
 }
-
-const ACCESS_TOKEN_KEY = 'access_token'
-const AUTH_USER_STORAGE_KEY = 'auth_user_snapshot'
 
 export const AuthContext = createContext<AuthContextValue | null>(null)
 
@@ -125,6 +128,21 @@ export function AuthProvider({ children }: PropsWithChildren) {
 
     return () => {
       cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    const handleAuthExpired = () => {
+      clearStoredAuthSession()
+      setAccessToken(null)
+      setUser(null)
+      setStatus('anonymous')
+    }
+
+    window.addEventListener(AUTH_EXPIRED_EVENT, handleAuthExpired)
+
+    return () => {
+      window.removeEventListener(AUTH_EXPIRED_EVENT, handleAuthExpired)
     }
   }, [])
 

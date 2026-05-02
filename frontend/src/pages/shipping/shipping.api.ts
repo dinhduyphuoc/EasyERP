@@ -129,6 +129,8 @@ export type ShippingAvailableServiceItem = {
   service_id: number
   service_type_id: number
   short_name: string
+  fee?: ShippingFeeQuote
+  expected_delivery_time?: string | null
 }
 
 export type ShippingCanonicalLocationInput = {
@@ -294,6 +296,21 @@ export const shippingApi = {
       store_id?: string
       from_location: ShippingCanonicalLocationInput
       to_location: ShippingCanonicalLocationInput
+      weight?: number | null
+      length?: number | null
+      width?: number | null
+      height?: number | null
+      insurance_value?: number | null
+      cod_value?: number | null
+      coupon?: string | null
+      items?: Array<{
+        name: string
+        quantity: number
+        height?: number | null
+        weight?: number | null
+        length?: number | null
+        width?: number | null
+      }>
     },
   ): Promise<{
     store_id: string

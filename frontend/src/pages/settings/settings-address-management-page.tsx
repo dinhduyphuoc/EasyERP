@@ -1,6 +1,5 @@
 import FmdGoodOutlinedIcon from '@mui/icons-material/FmdGoodOutlined'
 import {
-  Alert,
   Box,
   Button,
   CircularProgress,
@@ -161,9 +160,6 @@ export function SettingsAddressManagementPage(): ReactElement {
       <Paper sx={borderedCardSx}>
         <Stack spacing={1.5}>
           <SummaryPaperHeader title="Địa chỉ gửi mặc định" />
-          <Alert severity="info" sx={{ borderRadius: 3 }}>
-            Địa chỉ này được dùng mặc định khi tạo đơn vận chuyển và các tác vụ fulfillment.
-          </Alert>
         </Stack>
       </Paper>
 

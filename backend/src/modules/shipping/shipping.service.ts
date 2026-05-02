@@ -73,6 +73,36 @@ const resolvePositiveMetric = (
   return parsed;
 };
 
+const mapQuoteItems = (
+  items: ShippingFeeQuoteInput["items"] | ShippingAvailableServicesByLocationInput["items"],
+) =>
+  Array.isArray(items)
+    ? items.map((item, index) => ({
+        name:
+          typeof item.name === "string" && item.name.trim()
+            ? item.name.trim()
+            : `Item ${index + 1}`,
+        quantity: parseRequiredPositiveInt(item.quantity ?? 1, `items[${index}].quantity`),
+        height: parseOptionalNonNegativeInt(item.height, `items[${index}].height`),
+        weight: parseOptionalNonNegativeInt(item.weight, `items[${index}].weight`),
+        length: parseOptionalNonNegativeInt(item.length, `items[${index}].length`),
+        width: parseOptionalNonNegativeInt(item.width, `items[${index}].width`),
+      }))
+    : undefined;
+
+const normalizeExpectedDeliveryTime = (value: unknown) => {
+  if (typeof value === "string" && value.trim()) {
+    return value;
+  }
+
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+    const date = new Date(value > 1_000_000_000_000 ? value : value * 1000);
+    return Number.isNaN(date.getTime()) ? null : date.toISOString();
+  }
+
+  return null;
+};
+
 const toProviderRequestError = (
   error: unknown,
   fallbackMessage: string,
@@ -188,12 +218,8 @@ const mapGHNStatusToProcessingStatus = (status: string | undefined) => {
     return undefined;
   }
 
-  if (["ready_to_pick"].includes(normalized)) {
-    return "confirmed" as const;
-  }
-
-  if (["picking", "picked", "storing", "money_collect_picking", "sorting"].includes(normalized)) {
-    return "picked_up" as const;
+  if (["ready_to_pick", "picking", "picked", "storing", "money_collect_picking", "sorting"].includes(normalized)) {
+    return "placed" as const;
   }
 
   if (["delivering", "transporting", "waiting_to_return"].includes(normalized)) {
@@ -201,7 +227,7 @@ const mapGHNStatusToProcessingStatus = (status: string | undefined) => {
   }
 
   if (["delivered"].includes(normalized)) {
-    return "completed" as const;
+    return "delivered" as const;
   }
 
   if (["cancel", "cancelled"].includes(normalized)) {
@@ -776,12 +802,101 @@ export const ShippingService = {
           provider_code: provider.code,
           resolved_from: resolvedFrom,
           resolved_to: resolvedTo,
-          items:
-            response.data?.map((item: any) => ({
-              service_id: item.service_id,
-              service_type_id: item.service_type_id,
-              short_name: item.short_name,
-            })) ?? [],
+          items: (
+            await Promise.all(
+              (response.data ?? []).map(async (item: any) => {
+                try {
+                  const feeResponse = await client.fee.calculateFee({
+                    from_district_id: parseRequiredPositiveInt(
+                      resolvedFrom.provider_district.external_id,
+                      "from provider district external_id",
+                    ),
+                    from_ward_code:
+                      resolvedFrom.provider_ward?.code?.trim() ??
+                      resolvedFrom.provider_ward?.external_id ??
+                      undefined,
+                    service_id: item.service_id,
+                    service_type_id: item.service_type_id,
+                    to_district_id: parseRequiredPositiveInt(
+                      resolvedTo.provider_district.external_id,
+                      "to provider district external_id",
+                    ),
+                    to_ward_code:
+                      resolvedTo.provider_ward?.code?.trim() ??
+                      resolvedTo.provider_ward?.external_id ??
+                      undefined,
+                    height: resolvePositiveMetric(input.height, "height", DEFAULT_GHN_HEIGHT),
+                    length: resolvePositiveMetric(input.length, "length", DEFAULT_GHN_LENGTH),
+                    weight: resolvePositiveMetric(input.weight, "weight", DEFAULT_GHN_WEIGHT),
+                    width: resolvePositiveMetric(input.width, "width", DEFAULT_GHN_WIDTH),
+                    insurance_value: parseOptionalNonNegativeInt(
+                      input.insurance_value,
+                      "insurance_value",
+                    ),
+                    cod_value: parseOptionalNonNegativeInt(input.cod_value, "cod_value"),
+                    coupon:
+                      typeof input.coupon === "string" && input.coupon.trim()
+                        ? input.coupon.trim()
+                        : undefined,
+                    items: mapQuoteItems(input.items),
+                  });
+
+                  const total = feeResponse.data?.total;
+                  if (typeof total !== "number" || !Number.isFinite(total)) {
+                    return null;
+                  }
+
+                  let expectedDeliveryTime: string | null = null;
+                  try {
+                    const leadtimeResponse = await client.order.calculateExpectedDeliveryTime({
+                      from_district_id: parseRequiredPositiveInt(
+                        resolvedFrom.provider_district.external_id,
+                        "from provider district external_id",
+                      ),
+                      from_ward_code:
+                        resolvedFrom.provider_ward?.code?.trim() ??
+                        resolvedFrom.provider_ward?.external_id ??
+                        undefined,
+                      service_id: item.service_id,
+                      service_type_id: item.service_type_id,
+                      to_district_id: parseRequiredPositiveInt(
+                        resolvedTo.provider_district.external_id,
+                        "to provider district external_id",
+                      ),
+                      to_ward_code:
+                        resolvedTo.provider_ward?.code?.trim() ??
+                        resolvedTo.provider_ward?.external_id ??
+                        undefined,
+                    });
+
+                    expectedDeliveryTime = normalizeExpectedDeliveryTime(
+                      leadtimeResponse?.data?.leadtime ??
+                        leadtimeResponse?.data?.expected_delivery_time,
+                    );
+                  } catch (error) {
+                    console.warn(
+                      `Unable to calculate expected delivery time for ${provider.code} service ${item.service_id}:`,
+                      error,
+                    );
+                  }
+
+                  return {
+                    service_id: item.service_id,
+                    service_type_id: item.service_type_id,
+                    short_name: item.short_name,
+                    fee: feeResponse.data ?? null,
+                    expected_delivery_time: expectedDeliveryTime,
+                  };
+                } catch (error) {
+                  console.warn(
+                    `Skipping unavailable shipping service ${item.service_id} for ${provider.code}:`,
+                    error,
+                  );
+                  return null;
+                }
+              }),
+            )
+          ).filter((item): item is NonNullable<typeof item> => item !== null),
         };
       }
       default:

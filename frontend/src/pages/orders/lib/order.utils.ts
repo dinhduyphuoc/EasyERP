@@ -1,4 +1,4 @@
-import type { OrderPaymentStatus, OrderProcessingStatus } from '../api/order.api'
+﻿import type { OrderPaymentStatus, OrderProcessingStatus } from '../api/order.api'
 
 export { formatCurrency, formatCurrencyInput, formatNumber } from '@/shared/utils/currency'
 
@@ -33,13 +33,11 @@ export function getProcessingStatusMeta(status: OrderProcessingStatus): {
     case 'draft':
       return { label: 'Nháp', color: 'default' }
     case 'placed':
-      return { label: 'Chờ xác nhận', color: 'info' }
-    case 'confirmed':
-      return { label: 'Đã xác nhận', color: 'info' }
-    case 'picked_up':
-      return { label: 'Đóng gói', color: 'warning' }
+      return { label: 'Mới', color: 'info' }
     case 'delivering':
       return { label: 'Đang giao', color: 'warning' }
+    case 'delivered':
+      return { label: 'Đã giao', color: 'success' }
     case 'completed':
       return { label: 'Hoàn thành', color: 'success' }
     case 'cancelled':

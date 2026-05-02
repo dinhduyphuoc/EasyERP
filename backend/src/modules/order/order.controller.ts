@@ -1,6 +1,21 @@
 import type { Request, Response } from "express";
 import { BadRequestError, UnauthorizedError } from "@/common";
-import { OrderService } from "./order.service";
+import { createOrder, runAction, updateOrder } from "./order.commands";
+import {
+  duplicateOrder,
+  getGHNOrderInfo,
+  getGHNPrintInfo,
+  getGHNTrackingLogs,
+  getOrderById,
+  getOrderForEdit,
+  getOrderHistory,
+  getOrderOverview,
+  getOrderOptions,
+  getOrders,
+  searchOrderCustomers,
+  searchOrderProducts,
+} from "./order.reads";
+import type { OrderActorContext } from "./order.helpers";
 import type {
   DuplicateOrderRequestInput,
   OrderActionName,
@@ -8,7 +23,13 @@ import type {
   OrderListQuery,
   OrderParams,
   OrderRequestInput,
+  OrderShippingOrderInfoResponse,
+  OrderShippingTrackingLogsResponse,
   OrderShippingPrintResponse,
+  OrderHistoryResponseItem,
+  OrderOverviewQuery,
+  OrderOverviewResponse,
+  OrderOptionSearchQuery,
   UpdateOrderRequestInput,
 } from "./order.types";
 
@@ -30,12 +51,28 @@ const parsePayload = <T>(body: unknown) => {
   return body as T;
 };
 
+const requireStoreContext = (req: { store?: Request["store"] }) => {
+  if (!req.store) {
+    throw new UnauthorizedError("Store context is required");
+  }
+
+  return req.store;
+};
+
+const getOrderActorContext = (req: { auth?: Request["auth"] }): OrderActorContext | undefined =>
+  req.auth
+    ? {
+        userId: req.auth.user.id,
+        tenantId: req.auth.user.tenant_id,
+        fullName: req.auth.user.full_name,
+        permissions: req.auth.permissions,
+      }
+    : undefined;
+
 export const OrderController = {
   getOrderOptions: async (_req: Request, res: Response) => {
-    if (!_req.store) {
-      throw new UnauthorizedError("Store context is required");
-    }
-    const options = await OrderService.getOrderOptions(_req.store.id);
+    const store = requireStoreContext(_req);
+    const options = await getOrderOptions(store.id);
     return res.status(200).json(options);
   },
 
@@ -43,48 +80,80 @@ export const OrderController = {
     req: Request<{}, {}, {}, OrderListQuery>,
     res: Response,
   ) => {
-    if (!req.store) {
-      throw new UnauthorizedError("Store context is required");
-    }
-    const orders = await OrderService.getOrders(req.store.id, req.query);
+    const store = requireStoreContext(req);
+    const orders = await getOrders(store.id, req.query);
     return res.status(200).json(orders);
   },
 
+  getOrderOverview: async (
+    req: Request<{}, {}, {}, OrderOverviewQuery>,
+    res: Response,
+  ) => {
+    const store = requireStoreContext(req);
+    const overview = await getOrderOverview(store.id, req.query);
+    return res.status(200).json(overview satisfies OrderOverviewResponse);
+  },
+
+  searchCustomers: async (
+    req: Request<{}, {}, {}, OrderOptionSearchQuery>,
+    res: Response,
+  ) => {
+    const store = requireStoreContext(req);
+    const customers = await searchOrderCustomers(store.id, req.query);
+    return res.status(200).json({ items: customers });
+  },
+
+  searchProducts: async (
+    req: Request<{}, {}, {}, OrderOptionSearchQuery>,
+    res: Response,
+  ) => {
+    const store = requireStoreContext(req);
+    const products = await searchOrderProducts(store.id, req.query);
+    return res.status(200).json({ items: products });
+  },
+
   getOrderById: async (req: Request<OrderParams>, res: Response) => {
-    if (!req.store) {
-      throw new UnauthorizedError("Store context is required");
-    }
-    const order = await OrderService.getOrderById(req.store.id, parseId(req.params.id));
+    const store = requireStoreContext(req);
+    const order = await getOrderById(store.id, parseId(req.params.id));
     return res.status(200).json(order);
   },
 
+  getOrderForEdit: async (req: Request<OrderParams>, res: Response) => {
+    const store = requireStoreContext(req);
+    const order = await getOrderForEdit(store.id, parseId(req.params.id));
+    return res.status(200).json(order);
+  },
+
+  getOrderHistory: async (req: Request<OrderParams>, res: Response) => {
+    const store = requireStoreContext(req);
+    const history = await getOrderHistory(store.id, parseId(req.params.id));
+    return res.status(200).json(history satisfies OrderHistoryResponseItem[]);
+  },
+
   getGHNPrintInfo: async (req: Request<OrderParams>, res: Response) => {
-    if (!req.store) {
-      throw new UnauthorizedError("Store context is required");
-    }
-    const data = await OrderService.getGHNPrintInfo(req.store.id, parseId(req.params.id));
+    const store = requireStoreContext(req);
+    const data = await getGHNPrintInfo(store.id, parseId(req.params.id));
     return res.status(200).json(data satisfies OrderShippingPrintResponse);
+  },
+
+  getGHNOrderInfo: async (req: Request<OrderParams>, res: Response) => {
+    const store = requireStoreContext(req);
+    const data = await getGHNOrderInfo(store.id, parseId(req.params.id));
+    return res.status(200).json(data satisfies OrderShippingOrderInfoResponse);
+  },
+
+  getGHNTrackingLogs: async (req: Request<OrderParams>, res: Response) => {
+    const store = requireStoreContext(req);
+    const data = await getGHNTrackingLogs(store.id, parseId(req.params.id));
+    return res.status(200).json(data satisfies OrderShippingTrackingLogsResponse);
   },
 
   createOrder: async (
     req: Request<{}, {}, OrderRequestInput>,
     res: Response,
   ) => {
-    if (!req.store) {
-      throw new UnauthorizedError("Store context is required");
-    }
-    const order = await OrderService.createOrder(
-      req.store.id,
-      parsePayload<OrderRequestInput>(req.body),
-      req.auth
-        ? {
-            userId: req.auth.user.id,
-            tenantId: req.auth.user.tenant_id,
-            fullName: req.auth.user.full_name,
-            permissions: req.auth.permissions,
-          }
-        : undefined,
-    );
+    const store = requireStoreContext(req);
+    const order = await createOrder(store.id, parsePayload<OrderRequestInput>(req.body), getOrderActorContext(req));
     return res.status(201).json(order);
   },
 
@@ -92,21 +161,12 @@ export const OrderController = {
     req: Request<OrderParams, {}, UpdateOrderRequestInput>,
     res: Response,
   ) => {
-    if (!req.store) {
-      throw new UnauthorizedError("Store context is required");
-    }
-    const order = await OrderService.updateOrder(
-      req.store.id,
+    const store = requireStoreContext(req);
+    const order = await updateOrder(
+      store.id,
       parseId(req.params.id),
       parsePayload<UpdateOrderRequestInput>(req.body),
-      req.auth
-        ? {
-            userId: req.auth.user.id,
-            tenantId: req.auth.user.tenant_id,
-            fullName: req.auth.user.full_name,
-            permissions: req.auth.permissions,
-          }
-        : undefined,
+      getOrderActorContext(req),
     );
     return res.status(200).json(order);
   },
@@ -115,23 +175,14 @@ export const OrderController = {
     req: Request<OrderParams, {}, DuplicateOrderRequestInput>,
     res: Response,
   ) => {
-    if (!req.store) {
-      throw new UnauthorizedError("Store context is required");
-    }
-    const order = await OrderService.duplicateOrder(
-      req.store.id,
+    const store = requireStoreContext(req);
+    const order = await duplicateOrder(
+      store.id,
       parseId(req.params.id),
       req.body && typeof req.body === "object"
         ? (req.body as DuplicateOrderRequestInput)
         : {},
-      req.auth
-        ? {
-            userId: req.auth.user.id,
-            tenantId: req.auth.user.tenant_id,
-            fullName: req.auth.user.full_name,
-            permissions: req.auth.permissions,
-          }
-        : undefined,
+      getOrderActorContext(req),
     );
     return res.status(201).json(order);
   },
@@ -143,23 +194,13 @@ export const OrderController = {
     if (!req.params.action) {
       throw new BadRequestError("Invalid action");
     }
-    if (!req.store) {
-      throw new UnauthorizedError("Store context is required");
-    }
+    const store = requireStoreContext(req);
 
-    const order = await OrderService.runAction(
-      req.store.id,
+    const order = await runAction(
+      store.id,
       parseId(req.params.id),
       req.params.action as OrderActionName,
       parsePayload<OrderActionRequestInput>(req.body),
-      req.auth
-        ? {
-            userId: req.auth.user.id,
-            tenantId: req.auth.user.tenant_id,
-            fullName: req.auth.user.full_name,
-            permissions: req.auth.permissions,
-          }
-        : undefined,
     );
     return res.status(200).json(order);
   },

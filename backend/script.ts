@@ -2,7 +2,7 @@ import { prisma } from "@lib/prisma";
 import { ProductService } from "@/modules/product/product.service";
 import { CustomerService } from "@/modules/customer/customer.service";
 import { InventoryService } from "@/modules/inventory/inventory.service";
-import { OrderService } from "@/modules/order/order.service";
+import { createOrder } from "@/modules/order/order.create";
 import { bootstrapRbac } from "@/modules/auth/rbac.bootstrap";
 import { PasswordService } from "@/common/services/password.service";
 import { existsSync, readFileSync } from "node:fs";
@@ -717,7 +717,7 @@ async function ensureDemoOrders(storeId: string, variantSkus: string[], customer
       continue;
     }
 
-    const order = await OrderService.createOrder(storeId, orderInput);
+    const order = await createOrder(storeId, orderInput);
     createdOrderCodes.push(order.order_code);
   }
 

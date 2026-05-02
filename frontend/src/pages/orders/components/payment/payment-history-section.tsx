@@ -15,9 +15,21 @@ export type PaymentHistoryEntry = {
 
 export function PaymentHistorySection({
   entries,
+  isLoading = false,
 }: {
   entries: PaymentHistoryEntry[]
+  isLoading?: boolean
 }): ReactElement {
+  if (isLoading) {
+    return (
+      <Paper variant="outlined" sx={{ p: 2, bgcolor: '#f8fafc' }}>
+        <Typography color="text.secondary">
+          Đang tải lịch sử thanh toán...
+        </Typography>
+      </Paper>
+    )
+  }
+
   if (entries.length === 0) {
     return (
       <Paper variant="outlined" sx={{ p: 2, bgcolor: '#f8fafc' }}>

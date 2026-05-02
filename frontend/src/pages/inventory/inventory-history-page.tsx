@@ -100,17 +100,19 @@ export function InventoryHistoryPage() {
       setIsLoading(cachedPage === null)
 
       try {
-        const [historyResponse, stockList] = await Promise.all([
+        const [historyResponse, fetchedStockItem] = await Promise.all([
           inventoryApi.getHistory(productVariantId),
-          locationState?.stockItem ? Promise.resolve<InventoryStockListItem[] | null>(null) : inventoryApi.getStockList(),
+          locationState?.stockItem
+            ? Promise.resolve<InventoryStockListItem | null>(null)
+            : inventoryApi.getStockItem(productVariantId),
         ])
 
         setRows(historyResponse.items)
 
         if (locationState?.stockItem) {
           setStockItem(locationState.stockItem)
-        } else if (stockList) {
-          setStockItem(stockList.find((item) => item.product_variant_id === productVariantId) ?? null)
+        } else if (fetchedStockItem) {
+          setStockItem(fetchedStockItem)
         }
       } catch (error) {
         console.error('Lỗi khi tải lịch sử thay đổi kho:', error)

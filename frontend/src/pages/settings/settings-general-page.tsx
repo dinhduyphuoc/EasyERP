@@ -6,7 +6,6 @@ import FmdGoodOutlinedIcon from '@mui/icons-material/FmdGoodOutlined'
 import PhoneOutlinedIcon from '@mui/icons-material/PhoneOutlined'
 import StorefrontOutlinedIcon from '@mui/icons-material/StorefrontOutlined'
 import {
-  Alert,
   Box,
   Button,
   CircularProgress,
@@ -321,9 +320,6 @@ export function SettingsGeneralPage(): ReactElement {
       <Paper sx={borderedCardSx}>
         <Stack spacing={1.5}>
           <SummaryPaperHeader title="Cài đặt chung" />
-          <Alert severity="info" sx={{ borderRadius: 3 }}>
-            Cấu hình chung của cửa hàng hiện tại. Chọn từng mục bên dưới để vào màn hình chỉnh sửa chi tiết.
-          </Alert>
         </Stack>
       </Paper>
 

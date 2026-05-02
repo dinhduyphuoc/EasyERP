@@ -1,13 +1,12 @@
-import { useCallback, useEffect, useMemo, useState, type ReactElement, type ReactNode } from 'react'
-import { Link as RouterLink, useNavigate, useParams } from 'react-router'
+﻿import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react'
+import { Link as RouterLink, useLoaderData, useNavigate, useParams } from 'react-router'
+import axios from 'axios'
 import MoreHorizIcon from '@mui/icons-material/MoreHoriz'
 import LocalShippingOutlinedIcon from '@mui/icons-material/LocalShippingOutlined'
 import ReceiptLongOutlinedIcon from '@mui/icons-material/ReceiptLongOutlined'
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined'
 import PrintOutlinedIcon from '@mui/icons-material/PrintOutlined'
 import CheckCircleOutlinedIcon from '@mui/icons-material/CheckCircleOutlined'
-import PersonOutlineOutlinedIcon from '@mui/icons-material/PersonOutlineOutlined'
-import Inventory2OutlinedIcon from '@mui/icons-material/Inventory2Outlined'
 import InfoIcon from '@mui/icons-material/Info';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 import {
@@ -16,74 +15,78 @@ import {
   Box,
   Button,
   Chip,
+  Divider,
+  IconButton,
   Menu,
   MenuItem,
   Paper,
-  Radio,
   Stack,
-  Step,
-  StepLabel,
-  Stepper,
+  Tab,
   Table,
   TableBody,
   TableCell,
   TableHead,
   TableRow,
+  Tabs,
   Tooltip,
   Typography,
 } from '@mui/material'
+import { InfoField } from '@/shared/ui/info-field'
 import { appToast } from '@/shared/ui/toast/toast.helpers'
 import { borderedCardSx } from '@/shared/ui/paper'
 import { useStore } from '@/modules/store/use-store'
 import { useAuth } from '@/modules/auth/use-auth'
 import { generalSettingsApi, type VietQrGenerateResponse } from '@/pages/settings/general-settings.api'
-import { orderApi, type OrderActionName, type OrderListItem, type OrderProcessingStatus } from '../api'
+import {
+  orderApi,
+  type OrderActionName,
+  type OrderDetailItem,
+  type OrderShippingOrderInfo,
+  type OrderShippingTrackingLogItem,
+} from '../api'
 import {
   DetailPageSkeleton,
+  InfoFieldGrid,
+  InfoPaper,
+  InfoPaperGrid,
+  InfoSummaryRows,
+  OverviewProductCard,
   OrderShippingMeasurementsForm,
   OrderDetailDialogs,
   OrderDetailPaymentPanel,
+  OrderTimelineCard,
+  ShippingServiceOptionCard,
+  TimelinePanel,
+  type VerticalTimelineItem,
+  type OrderTimelineStage,
 } from '../components'
 import { useOrderCustomerEditor, useOrderShipping, usePaymentConfigDraft, usePaymentEntryFlow } from '../hooks'
 import {
+  buildDuplicatedOrderMessage,
+  buildMissingShippingFieldsMessage,
+  buildOrderUpdatedMessage,
   buildPaymentHistoryEntries,
+  getErrorMessage,
+  ORDER_TOAST_MESSAGES,
   getPaymentMethodFromTypeId,
   parsePaymentNoteContent,
 } from '../lib'
 import {
   formatCurrency,
   formatDateTime,
+  getPaymentStatusMeta,
   getProcessingStatusMeta,
 } from '../lib'
 
-const getErrorMessage = (error: unknown, fallback: string) => {
-  return typeof error === 'object' &&
-    error !== null &&
-    'response' in error &&
-    typeof error.response === 'object' &&
-    error.response !== null &&
-    'data' in error.response &&
-    typeof error.response.data === 'object' &&
-    error.response.data !== null &&
-    'message' in error.response.data &&
-    typeof error.response.data.message === 'string'
-    ? error.response.data.message
-    : fallback
-}
-
-
-const stepperStages: Array<{
-  key: string
-  timelineKey: string
-  label: string
-  matches: OrderProcessingStatus[]
-}> = [
-  { key: 'placed', timelineKey: 'placed', label: 'Chờ xác nhận', matches: ['placed'] },
-  { key: 'confirmed', timelineKey: 'confirmed', label: 'Đã xác nhận', matches: ['confirmed'] },
-  { key: 'picking', timelineKey: 'picked_up', label: 'Đóng gói', matches: ['picked_up'] },
-  { key: 'shipping', timelineKey: 'delivering', label: 'Giao hàng', matches: ['delivering'] },
+const stepperStages: OrderTimelineStage[] = [
+  { key: 'created', timelineKey: 'created', label: 'Đã tạo', matches: ['draft'] },
+  { key: 'placed', timelineKey: 'placed', label: 'Mới', matches: ['placed'] },
+  { key: 'shipping', timelineKey: 'delivering', label: 'Đang giao', matches: ['delivering'] },
+  { key: 'delivered', timelineKey: 'delivered', label: 'Đã giao', matches: ['delivered'] },
   { key: 'completed', timelineKey: 'completed', label: 'Hoàn thành', matches: ['completed'] },
 ]
+
+type DetailTabKey = 'overview' | 'products' | 'payment' | 'shipping'
 
 const escapeHtml = (value: string) =>
   value
@@ -93,26 +96,18 @@ const escapeHtml = (value: string) =>
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#39;')
 
-const getOrderHistoryPaymentAmount = (entry: OrderListItem['order_history'][number]): string | null => {
-  const metadata = entry.metadata ?? {}
-  const paymentStatus = typeof metadata.payment_status === 'string' ? metadata.payment_status : null
+const isPositiveNumber = (value: number | null | undefined): boolean =>
+  typeof value === 'number' && Number.isFinite(value) && value > 0
 
-  if (paymentStatus !== 'deposit' && paymentStatus !== 'paid') {
-    return null
-  }
+const joinAddressParts = (parts: Array<string | null | undefined>) =>
+  parts
+    .map((part) => (typeof part === 'string' ? part.trim() : ''))
+    .filter(Boolean)
+    .join(', ')
 
-  const amountCandidates = [metadata.payment_amount, metadata.paid_amount, metadata.deposit_amount]
-
-  for (const candidate of amountCandidates) {
-    const amount = Number(candidate)
-
-    if (Number.isFinite(amount) && amount > 0) {
-      return formatCurrency(amount)
-    }
-  }
-
-  return null
-}
+const isRequestTimeoutError = (error: unknown) =>
+  axios.isAxiosError(error) &&
+  (error.code === 'ECONNABORTED' || error.message.toLowerCase().includes('timeout'))
 
 const openPrintWindow = (content: string) => {
   if (typeof window === 'undefined' || !window.document?.body) {
@@ -171,13 +166,13 @@ const openPrintWindow = (content: string) => {
   return true
 }
 
-const buildPackingSlipMarkup = (order: OrderListItem) => {
+const buildPackingSlipMarkup = (order: OrderDetailItem) => {
   const rows = order.order_items
     .map(
       (item) => `
         <tr>
-          <td>${escapeHtml(item.product_name)}</td>
-          <td>${escapeHtml(item.variant_sku ?? item.sku)}</td>
+          <td>${escapeHtml(item.display_name ?? item.product_name)}</td>
+          <td>${escapeHtml(item.variant_label ?? item.variant_sku ?? item.sku)}</td>
           <td style="text-align:right">${item.quantity}</td>
           <td>${escapeHtml(item.notes ?? '')}</td>
         </tr>
@@ -259,7 +254,7 @@ const buildPackingSlipMarkup = (order: OrderListItem) => {
         </div>
         <div class="footer">
           <div class="sign">Người giao kho</div>
-          <div class="sign">Người nhận / Đơn vị vận chuyển</div>
+          <div class="sign">Ngu?i nh?n / Đơn vị vận chuyển</div>
         </div>
       </body>
     </html>
@@ -269,10 +264,12 @@ const buildPackingSlipMarkup = (order: OrderListItem) => {
 export function OrdersDetailPage(): ReactElement {
   const navigate = useNavigate()
   const params = useParams()
+  const initialOrder = useLoaderData() as OrderDetailItem
   const { activeStore } = useStore()
   const { user, hasPermission } = useAuth()
-  const [order, setOrder] = useState<OrderListItem | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
+  const [activeTab, setActiveTab] = useState<DetailTabKey>('overview')
+  const [order, setOrder] = useState<OrderDetailItem | null>(initialOrder)
+  const [isLoading, setIsLoading] = useState(false)
   const [isActing, setIsActing] = useState(false)
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null)
   const [invoiceCodeDraft, setInvoiceCodeDraft] = useState('')
@@ -288,32 +285,46 @@ export function OrdersDetailPage(): ReactElement {
   const [shippingHeightDraft, setShippingHeightDraft] = useState('')
   const [shippingDimensionUnit, setShippingDimensionUnit] = useState<'cm' | 'm'>('cm')
   const [storeShippingAddress, setStoreShippingAddress] = useState<{
+    contact_name: string
+    phone: string
     state_id: number | null
     city_id: number | null
     district_id: number | null
     address_line: string
   } | null>(null)
-  const fetchOrder = useCallback(async () => {
-    if (!params.id) {
-      return
-    }
-
-    setIsLoading(true)
-
+  const [ghnOrderInfo, setGhnOrderInfo] = useState<OrderShippingOrderInfo | null>(null)
+  const [ghnTrackingLogs, setGhnTrackingLogs] = useState<OrderShippingTrackingLogItem[]>([])
+  const [isGhnOrderInfoLoading, setIsGhnOrderInfoLoading] = useState(false)
+  const [ghnOrderInfoError, setGhnOrderInfoError] = useState('')
+  const [ghnOrderInfoCacheKey, setGhnOrderInfoCacheKey] = useState('')
+  const [isOrderHistoryLoading, setIsOrderHistoryLoading] = useState(false)
+  const fetchOrderHistory = useCallback(async (orderId: string) => {
     try {
-      const data = await orderApi.getOrderById(params.id)
-      setOrder(data)
+      setIsOrderHistoryLoading(true)
+      const history = await orderApi.getOrderHistory(orderId)
+      setOrder((current) =>
+        current && String(current.id) === orderId
+          ? {
+              ...current,
+              order_history: history,
+            }
+          : current,
+      )
     } catch (error) {
-      console.error('Lỗi khi tải chi tiết đơn hàng:', error)
-      appToast.error('Không thể tải chi tiết đơn hàng.')
+      console.error('Lỗi khi tải lịch sử đơn hàng:', error)
     } finally {
-      setIsLoading(false)
+      setIsOrderHistoryLoading(false)
     }
-  }, [params.id])
+  }, [])
 
   useEffect(() => {
-    void fetchOrder()
-  }, [fetchOrder])
+    setOrder(initialOrder)
+    setIsLoading(false)
+
+    if (params.id) {
+      void fetchOrderHistory(params.id)
+    }
+  }, [fetchOrderHistory, initialOrder, params.id])
 
   useEffect(() => {
     const loadVatSettings = async () => {
@@ -328,46 +339,112 @@ export function OrdersDetailPage(): ReactElement {
     void loadVatSettings()
   }, [])
 
+  useEffect(() => {
+    const normalizedProvider = order?.shipping_service?.split(' - ')[0]?.trim().toLowerCase() ?? ''
+    const trackingCode = order?.tracking_code?.trim() ?? ''
+    const orderId = params.id
+    const cacheKey = orderId && normalizedProvider && trackingCode ? `${orderId}:${normalizedProvider}:${trackingCode}` : ''
+
+    if (!orderId || normalizedProvider !== 'ghn' || !trackingCode) {
+      setGhnOrderInfo(null)
+      setGhnTrackingLogs([])
+      setIsGhnOrderInfoLoading(false)
+      setGhnOrderInfoError('')
+      setGhnOrderInfoCacheKey('')
+      return
+    }
+
+    if (activeTab !== 'shipping') {
+      return
+    }
+
+    if (ghnOrderInfoCacheKey === cacheKey && (ghnOrderInfo || ghnTrackingLogs.length > 0 || ghnOrderInfoError)) {
+      return
+    }
+
+    let cancelled = false
+
+    const fetchGhnOrderInfo = async () => {
+      try {
+        setIsGhnOrderInfoLoading(true)
+        setGhnOrderInfoError('')
+        const [orderInfo, trackingLogs] = await Promise.all([
+          orderApi.getGHNOrderInfo(orderId),
+          orderApi.getGHNTrackingLogs(orderId),
+        ])
+
+        if (!cancelled) {
+          setGhnOrderInfo(orderInfo)
+          setGhnTrackingLogs(
+            [...trackingLogs.logs].sort((left, right) => {
+              if (!left.updated_at || !right.updated_at) {
+                return 0
+              }
+
+              return new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime()
+            }),
+          )
+          setGhnOrderInfoCacheKey(cacheKey)
+        }
+      } catch (error) {
+        if (!cancelled) {
+          console.error('Lỗi khi tải tiến trình GHN:', error)
+          setGhnOrderInfo(null)
+          setGhnTrackingLogs([])
+          setGhnOrderInfoError(getErrorMessage(error, 'Không thể tải tiến trình vận chuyển từ GHN.'))
+          setGhnOrderInfoCacheKey(cacheKey)
+        }
+      } finally {
+        if (!cancelled) {
+          setIsGhnOrderInfoLoading(false)
+        }
+      }
+    }
+
+    void fetchGhnOrderInfo()
+
+    return () => {
+      cancelled = true
+    }
+  }, [activeTab, ghnOrderInfo, ghnOrderInfoCacheKey, ghnOrderInfoError, ghnTrackingLogs.length, order?.shipping_service, order?.tracking_code, params.id])
+
   const nextAction = useMemo(() => {
     if (!order) {
       return null
     }
 
-    if (['draft', 'placed'].includes(order.processing_status)) {
+    if (order.processing_status === 'draft') {
       return {
         action: 'confirm' as OrderActionName,
-        label: 'Xác nhận đơn hàng',
-        helper:
-          order.processing_status === 'draft'
-            ? 'Đơn đang ở trạng thái nháp. Xác nhận để chuyển sang bước xử lý kho.'
-            : 'Kiểm tra thông tin và xác nhận đơn để kho bắt đầu xử lý.',
+        label: 'Chuyển sang mới',
+        helper: 'Đơn đang ở trạng thái nháp. Xác nhận để chuyển sang trạng thái Mới.',
         icon: <CheckCircleOutlinedIcon fontSize="small" />,
       }
     }
 
-    if (order.processing_status === 'confirmed') {
-      return {
-        action: 'confirm_shipping' as OrderActionName,
-        label: 'Xác nhận đóng gói',
-        helper: 'Đơn đã được xác nhận. Kho có thể đóng gói và chuẩn bị bàn giao vận chuyển.',
-        icon: <Inventory2OutlinedIcon fontSize="small" />,
-      }
-    }
-
-    if (order.processing_status === 'picked_up') {
+    if (order.processing_status === 'placed') {
       return {
         action: 'push_to_delivery' as OrderActionName,
-        label: 'Đẩy sang vận chuyển',
-        helper: 'Chuyển đơn sang trạng thái đang giao và cập nhật tracking vận chuyển.',
+        label: 'Lên đơn vận chuyển',
+        helper: 'Tạo vận đơn và chuyển đơn sang trạng thái Đang giao.',
         icon: <LocalShippingOutlinedIcon fontSize="small" />,
       }
     }
 
     if (order.processing_status === 'delivering') {
       return {
+        action: 'mark_delivered' as OrderActionName,
+        label: 'Đánh dấu đã giao',
+        helper: 'Đơn đang giao. Xác nhận khi đơn đã giao thành công cho khách.',
+        icon: <LocalShippingOutlinedIcon fontSize="small" />,
+      }
+    }
+
+    if (order.processing_status === 'delivered') {
+      return {
         action: 'complete' as OrderActionName,
         label: 'Đánh dấu hoàn thành',
-        helper: 'Đơn đang giao. Theo dõi giao hàng và xác nhận hoàn tất khi thành công.',
+        helper: 'Kết thúc đơn khi đã thu đủ tiền hoặc cần chốt nghiệp vụ.',
         icon: <CheckCircleOutlinedIcon fontSize="small" />,
       }
     }
@@ -391,15 +468,35 @@ export function OrdersDetailPage(): ReactElement {
 
         const updated = await orderApi.runAction(params.id, action, payload)
         setOrder(updated)
-        appToast.success(`Đã cập nhật đơn hàng ${updated.order_code}.`)
+        setIsOrderHistoryLoading(false)
+        appToast.success(buildOrderUpdatedMessage(updated.order_code))
       } catch (error) {
         console.error('Lỗi khi cập nhật action đơn hàng:', error)
+        if (isRequestTimeoutError(error)) {
+          try {
+            const refreshedOrder = await orderApi.getOrderById(params.id)
+            setOrder(refreshedOrder)
+            void fetchOrderHistory(params.id)
+
+            if (
+              refreshedOrder.processing_status !== order.processing_status ||
+              refreshedOrder.tracking_code !== order.tracking_code ||
+              refreshedOrder.shipping_status !== order.shipping_status
+            ) {
+              appToast.success('Yêu cầu xử lý chậm hơn 10 giây nhưng đơn hàng đã được cập nhật.')
+              return
+            }
+          } catch (refreshError) {
+            console.error('Lỗi khi đồng bộ lại đơn hàng sau timeout:', refreshError)
+          }
+        }
+
         appToast.error(getErrorMessage(error, 'Không thể cập nhật đơn hàng.'))
       } finally {
         setIsActing(false)
       }
     },
-    [order, params.id],
+    [fetchOrderHistory, order, params.id],
   )
 
   const {
@@ -411,6 +508,7 @@ export function OrdersDetailPage(): ReactElement {
     hasStoreShippingAddress,
     hasCustomerShippingAddress,
     selectedShippingOptionKey,
+    hasSelectedShippingService,
     isNextActionBlockedByShippingService,
     handleSelectShippingOption,
     openShippingActionDialog,
@@ -427,6 +525,81 @@ export function OrdersDetailPage(): ReactElement {
     runAction,
     getErrorMessage,
   })
+
+  const validatePushToDelivery = useCallback(() => {
+    if (!order) {
+      appToast.error(ORDER_TOAST_MESSAGES.missingOrderForShipping)
+      return null
+    }
+
+    const resolvedFromName = order.from_name?.trim() || storeShippingAddress?.contact_name?.trim() || ''
+    const resolvedFromPhone = order.from_phone?.trim() || storeShippingAddress?.phone?.trim() || ''
+    const missingFields: string[] = []
+
+    if (!hasSelectedShippingService) {
+      missingFields.push('dịch vụ vận chuyển')
+    }
+
+    if (!hasStoreShippingAddress) {
+      missingFields.push('địa chỉ lấy hàng của shop')
+    }
+
+    if (!resolvedFromName) {
+      missingFields.push('tên người gửi')
+    }
+
+    if (!resolvedFromPhone) {
+      missingFields.push('số điện thoại người gửi')
+    }
+
+    if (!hasCustomerShippingAddress) {
+      missingFields.push('địa chỉ giao hàng của khách')
+    }
+
+    if (!order.customer_info.name?.trim()) {
+      missingFields.push('tên người nhận')
+    }
+
+    if (!order.customer_info.phone?.trim()) {
+      missingFields.push('số điện thoại người nhận')
+    }
+
+    if (!order.to_address_detail?.address_line?.trim() && !order.customer_info.address?.trim()) {
+      missingFields.push('địa chỉ chi tiết giao hàng')
+    }
+
+    if (!isPositiveNumber(order.weight)) {
+      missingFields.push('khối lượng')
+    }
+
+    if (!isPositiveNumber(order.length)) {
+      missingFields.push('chiều dài')
+    }
+
+    if (!isPositiveNumber(order.width)) {
+      missingFields.push('chiều rộng')
+    }
+
+    if (!isPositiveNumber(order.height)) {
+      missingFields.push('chiều cao')
+    }
+
+    if (missingFields.length > 0) {
+      appToast.error(buildMissingShippingFieldsMessage(missingFields))
+      return null
+    }
+
+    return {
+      from_name: resolvedFromName,
+      from_phone: resolvedFromPhone,
+    }
+  }, [
+    hasCustomerShippingAddress,
+    hasSelectedShippingService,
+    hasStoreShippingAddress,
+    order,
+    storeShippingAddress,
+  ])
 
   const submitInvoiceRequest = useCallback(async () => {
     await runAction('request_invoice', {
@@ -448,7 +621,7 @@ export function OrdersDetailPage(): ReactElement {
         const duplicatedOrder = await orderApi.duplicateOrder(order.id, {
           actor_name: user?.full_name?.trim() || 'Hệ thống',
         })
-        appToast.success(`Đã tạo bản sao ${duplicatedOrder.order_code} từ đơn ${order.order_code}.`)
+        appToast.success(buildDuplicatedOrderMessage(duplicatedOrder.order_code, order.order_code))
         navigate(`/orders/${duplicatedOrder.id}/edit`)
       } catch (error) {
         console.error('Lỗi khi nhân bản đơn hàng:', error)
@@ -468,7 +641,7 @@ export function OrdersDetailPage(): ReactElement {
     const didOpen = openPrintWindow(buildPackingSlipMarkup(order))
 
     if (!didOpen) {
-      appToast.error('Trình duyệt đã chặn cửa sổ in. Hãy cho phép pop-up để xuất packing slip.')
+      appToast.error(ORDER_TOAST_MESSAGES.printPopupBlocked)
       return
     }
   }, [order])
@@ -480,9 +653,9 @@ export function OrdersDetailPage(): ReactElement {
 
     try {
       await navigator.clipboard.writeText(paymentQr.transfer_content)
-      appToast.success('Đã copy thông tin chuyển khoản.')
+      appToast.success(ORDER_TOAST_MESSAGES.copiedTransferInfo)
     } catch {
-      appToast.error('Không thể copy thông tin chuyển khoản trên trình duyệt này.')
+      appToast.error(ORDER_TOAST_MESSAGES.copyTransferInfoFailed)
     }
   }, [paymentQr])
 
@@ -516,28 +689,32 @@ export function OrdersDetailPage(): ReactElement {
   const orderShippingFee = Number(order?.shipping_fee || 0)
   const shouldShowLockedVatLine =
     !['draft', 'placed'].includes(order?.processing_status ?? 'draft') && orderVatEnabled
-  const progressIndex = stepperStages.findIndex((stage) => stage.matches.includes(order?.processing_status ?? 'draft'))
+  const progressIndex = (() => {
+    switch (order?.processing_status ?? 'draft') {
+      case 'placed':
+        return 1
+      case 'delivering':
+        return 2
+      case 'delivered':
+        return 3
+      case 'completed':
+        return 4
+      default:
+        return 0
+    }
+  })()
   const orderTypeLabel = order?.order_type === 'return' ? 'Đơn trả hàng' : 'Đơn bán hàng'
   const invoiceStatusLabel = order?.invoice_code ? 'Đã tạo e-invoice' : 'Chưa xuất hóa đơn'
   const invoiceStatusColor = order?.invoice_code ? 'success' : 'default'
-  const currentActorName = user?.full_name?.trim() || 'Hệ thống'
   const canEditVat = hasPermission('orders.vat.update')
-  const displayCreatedBy =
-    order?.created_by && !['System', 'Sales Admin', 'Hệ thống'].includes(order.created_by)
-      ? order.created_by
-      : currentActorName
-  const displayConfirmedBy =
-    order?.confirmed_by && !['System', 'Sales Admin', 'Hệ thống'].includes(order.confirmed_by)
-      ? order.confirmed_by
-      : currentActorName
   const canEditOrder = ['draft', 'placed'].includes(order?.processing_status ?? 'draft')
-  const shouldShowProductEditButton = order?.processing_status === 'placed'
+  const shouldShowProductEditButton = ['draft', 'placed'].includes(order?.processing_status ?? '')
   const canAddPayment = orderRemainingAmount > 0 && !['cancelled', 'returned'].includes(order?.processing_status ?? '')
   const canGeneratePaymentQr = orderRemainingAmount > 0
   const canCancelOrder =
-    ['draft', 'placed', 'confirmed', 'picked_up'].includes(order?.processing_status ?? '') && order?.payment_status !== 'paid'
+    ['draft', 'placed', 'delivering'].includes(order?.processing_status ?? '') && order?.payment_status !== 'paid'
   const canReturnOrder = order?.processing_status === 'completed'
-  const canExportPackingSlip = ['confirmed', 'picked_up', 'delivering', 'completed'].includes(
+  const canExportPackingSlip = ['delivering', 'delivered', 'completed'].includes(
     order?.processing_status ?? '',
   )
   const canExportInvoice = order?.payment_status === 'paid'
@@ -640,7 +817,7 @@ export function OrdersDetailPage(): ReactElement {
       !Number.isFinite(parsedWidth) || parsedWidth <= 0 ||
       !Number.isFinite(parsedHeight) || parsedHeight <= 0
     ) {
-      appToast.error('Vui lòng nhập khối lượng và kích thước lớn hơn 0.')
+      appToast.error(ORDER_TOAST_MESSAGES.invalidShippingMeasurements)
       return
     }
 
@@ -657,7 +834,7 @@ export function OrdersDetailPage(): ReactElement {
       })
 
       setOrder(updatedOrder)
-      appToast.success('Đã cập nhật khối lượng và kích thước đơn hàng.')
+      appToast.success(ORDER_TOAST_MESSAGES.shippingMeasurementsUpdated)
     } catch (error) {
       console.error('Lỗi khi cập nhật khối lượng và kích thước:', error)
       appToast.error(getErrorMessage(error, 'Không thể cập nhật khối lượng và kích thước.'))
@@ -734,6 +911,514 @@ export function OrdersDetailPage(): ReactElement {
     return <DetailPageSkeleton />
   }
 
+  const paymentStatusMeta = getPaymentStatusMeta(order.payment_status)
+  const overviewProductSummaryRows = [
+    { label: 'Tổng số lượng', value: String(orderItemCount), valueWeight: 700 },
+    { label: 'Tổng tiền', value: formatCurrency(orderSubTotal), valueWeight: 700 },
+  ]
+  const overviewPaymentSummaryRows = [
+    { label: 'Trạng thái', value: paymentStatusMeta.label, valueWeight: 600 },
+    {
+      label: `Tạm tính (${order.order_items.length} sản phẩm)`,
+      value: formatCurrency(order.sub_total),
+      valueWeight: 500,
+    },
+    { label: 'Giảm giá', value: formatCurrency(order.discount_amount), valueWeight: 500 },
+    {
+      label: order.vat_enabled ? `Thuế VAT (${order.vat_rate_percent}%)` : 'Thuế VAT',
+      value: formatCurrency(order.tax_amount),
+      valueWeight: 500,
+    },
+    { label: 'Phí vận chuyển', value: formatCurrency(order.shipping_fee), valueWeight: 500 },
+    { label: 'Tổng cộng', value: formatCurrency(order.total_amount), valueWeight: 600 },
+  ]
+  const overviewPaymentSettlementRows = [
+    { label: 'Khách đã trả', value: formatCurrency(order.paid_amount), valueWeight: 500 },
+    { label: 'Còn lại', value: formatCurrency(order.outstanding_amount), valueWeight: 700 },
+  ]
+
+  const customerOverviewSection = (
+    <InfoPaper
+      title="Thông tin khách hàng"
+      rows={[]}
+      headerAction={
+        <IconButton size="small" onClick={() => void handleOpenEditCustomerModal()}>
+          <EditOutlinedIcon fontSize="small" />
+        </IconButton>
+      }
+    >
+      <>
+        <Stack spacing={2.5} sx={{ flex: 1, justifyContent: 'space-between' }}>
+          <InfoFieldGrid
+            items={[
+              { label: 'Tên khách hàng', value: order.customer_info.name || 'Khách lẻ' },
+              { label: 'Số điện thoại', value: order.customer_info.phone || '-' },
+              { label: 'Địa chỉ giao', value: order.customer_info.address || 'Chưa có địa chỉ giao hàng' },
+            ]}
+          />
+          <InfoFieldGrid
+            items={[
+              { label: 'Mã khách hàng', value: order.customer_info.customer_code || 'Khách lẻ' },
+              { label: 'Loại đơn', value: orderTypeLabel },
+              { label: 'Kênh bán', value: order.sales_channel || 'Admin' },
+            ]}
+          />
+        </Stack>
+        <InfoFieldGrid
+          items={[
+            { label: 'Ngày tạo', value: formatDateTime(order.created_at) },
+            { label: 'Cập nhật cuối', value: formatDateTime(order.updated_at) },
+            { label: 'Kênh bán hàng', value: order.sales_channel ?? '-' },
+          ]}
+        />
+      </>
+    </InfoPaper>
+  )
+
+  const overviewProductsSection = (
+    <InfoPaper
+      title="Sản phẩm"
+      rows={[]}
+      paperSx={{
+        height: '100%',
+        display: 'flex',
+        flexDirection: 'column',
+      }}
+    >
+      <Stack spacing={1.5} sx={{ height: '100%' }}>
+        <Stack spacing={0.75} sx={{ flex: 1 }}>
+          {order.order_items.map((item) => (
+            <OverviewProductCard
+              key={item.id}
+              item={{
+                id: item.id,
+                imageUrl: item.image_url ?? null,
+                productName: item.product_name,
+                displayName: item.display_name ?? null,
+                sku: item.sku,
+                variantSku: item.variant_sku ?? null,
+                variantLabel: item.variant_label ?? null,
+                unitPriceLabel: formatCurrency(item.unit_price),
+                quantityLabel: String(item.quantity),
+              }}
+            />
+          ))}
+        </Stack>
+
+        <Divider />
+
+        <InfoSummaryRows rows={overviewProductSummaryRows} />
+      </Stack>
+    </InfoPaper>
+  )
+
+  const productsSection = (
+    <Paper
+      sx={{
+        ...borderedCardSx,
+        height: '100%',
+        display: 'flex',
+        flexDirection: 'column',
+      }}
+    >
+      <Stack spacing={2.5} sx={{ height: '100%' }}>
+        <Box sx={{ overflowX: 'auto', flex: 1 }}>
+          <Table sx={{ minWidth: 640 }}>
+            <TableHead>
+              <TableRow>
+                <TableCell>Sản phẩm</TableCell>
+                <TableCell align="right">SL</TableCell>
+                <TableCell align="right">Giá</TableCell>
+                <TableCell align="right">Tổng</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {order.order_items.map((item) => (
+                <TableRow key={item.id} hover>
+                  <TableCell sx={{ py: 1.75 }}>
+                    <Stack direction="row" spacing={1.5} sx={{ alignItems: 'flex-start' }}>
+                      <Box
+                        component="img"
+                        src={item.image_url ?? 'https://placehold.co/80x80?text=SP'}
+                        alt={item.display_name ?? item.product_name}
+                        sx={{
+                          width: 48,
+                          height: 48,
+                          borderRadius: 2,
+                          objectFit: 'cover',
+                          bgcolor: alpha('#132238', 0.06),
+                          flexShrink: 0,
+                        }}
+                      />
+                      <Stack spacing={0.6} sx={{ minWidth: 0 }}>
+                        <Typography sx={{ fontWeight: 700, color: '#0f172a' }}>{item.display_name ?? item.product_name}</Typography>
+                        <Typography variant="body2" color="text.secondary">
+                          SKU: {item.variant_label ?? item.variant_sku ?? item.sku}
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary">
+                          {item.notes && `Ghi chú: ${item.notes}`}
+                        </Typography>
+                      </Stack>
+                    </Stack>
+                  </TableCell>
+                  <TableCell align="right">{item.quantity}</TableCell>
+                  <TableCell align="right">{formatCurrency(item.unit_price)}</TableCell>
+                  <TableCell align="right">
+                    <Typography sx={{ fontWeight: 700 }}>{formatCurrency(item.sub_total)}</Typography>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </Box>
+
+        <Stack
+          direction={{ xs: 'column', md: 'row' }}
+          spacing={1.25}
+          sx={{ justifyContent: 'space-between', alignItems: { md: 'center' } }}
+        >
+          <Typography color="text.secondary">{order.order_items.length} sản phẩm</Typography>
+
+          {shouldShowProductEditButton ? (
+            <Button
+              variant="outlined"
+              startIcon={<EditOutlinedIcon />}
+              component={RouterLink}
+              to={`/orders/${order.id}/edit`}
+              disabled={!canEditOrder}
+            >
+              Chỉnh sửa đơn hàng
+            </Button>
+          ) : null}
+          {canExportPackingSlip ? (
+            <Button variant="outlined" startIcon={<PrintOutlinedIcon />} onClick={handleExportPackingSlip}>
+              In phiếu đóng gói
+            </Button>
+          ) : null}
+        </Stack>
+      </Stack>
+    </Paper>
+  )
+
+  const paymentSection = (
+    <OrderDetailPaymentPanel
+      itemCount={orderItemCount}
+      subTotal={orderSubTotal}
+      discountAmount={orderDiscountAmount}
+      taxAmount={orderTaxAmount}
+      vatRatePercent={orderVatRatePercent}
+      shippingFee={orderShippingFee}
+      totalAmount={orderTotalAmount}
+      paidAmount={orderPaidAmount}
+      remainingAmount={orderRemainingAmount}
+      forceShowTaxLine={shouldShowLockedVatLine}
+      paymentHistoryEntries={paymentHistoryEntries}
+      isPaymentHistoryLoading={isOrderHistoryLoading}
+      invoiceStatusLabel={invoiceStatusLabel}
+      invoiceStatusColor={invoiceStatusColor}
+      invoiceCode={order.invoice_code}
+      canExportInvoice={canExportInvoice}
+      canGeneratePaymentQr={canGeneratePaymentQr}
+      canAddPayment={canAddPayment}
+      canEditOrder={canEditOrder}
+      isActing={isActing}
+      isGeneratingQr={isGeneratingQr}
+      onOpenInvoiceDialog={() => setIsInvoiceDialogOpen(true)}
+      onOpenPaymentQr={() => void handleOpenPaymentQr()}
+      onOpenAddPaymentDialog={openAddPaymentDialog}
+      onOpenConfirmPaidDialog={openConfirmPaidDialog}
+      onOpenPaymentDialog={openPaymentDialog}
+    />
+  )
+
+  const overviewPaymentSummarySection = (
+    <InfoPaper title="Thanh toán" labelMinWidth={88} rows={[]}>
+      <InfoSummaryRows rows={overviewPaymentSummaryRows} />
+      <Divider sx={{ my: 0.25 }} />
+      <InfoSummaryRows rows={overviewPaymentSettlementRows} />
+    </InfoPaper>
+  )
+
+  const normalizedShippingProvider = order.shipping_service?.split(' - ')[0]?.trim().toLowerCase() ?? ''
+  const hasCreatedShipment =
+    ['delivering', 'delivered', 'completed', 'returned'].includes(order.processing_status) ||
+    Boolean(order.tracking_code?.trim())
+  const shouldShowShippingServiceSelector =
+    hasStoreShippingAddress && hasCustomerShippingAddress && !hasCreatedShipment
+  const shouldShowShippingTrackingPaper =
+    normalizedShippingProvider === 'ghn' && Boolean(order.tracking_code?.trim()) && hasCreatedShipment
+  const senderAddress = joinAddressParts([
+    order.from_address_detail?.address_line,
+    order.from_address_detail?.district_name,
+    order.from_address_detail?.city_name,
+    order.from_address_detail?.state_name,
+  ])
+  const receiverAddress = joinAddressParts([
+    order.to_address_detail?.address_line,
+    order.to_address_detail?.district_name,
+    order.to_address_detail?.city_name,
+    order.to_address_detail?.state_name,
+  ])
+  const shippingOrderCode = order.tracking_code?.trim() || ghnOrderInfo?.tracking_code?.trim() || ghnOrderInfo?.order_code?.trim() || order.order_code
+  const latestTrackingStatusName =
+    ghnTrackingLogs[0]?.status_name?.trim() ||
+    (typeof ghnTrackingLogs[0]?.raw?.status_name === 'string' ? ghnTrackingLogs[0].raw.status_name.trim() : '') ||
+    ghnTrackingLogs[0]?.status?.trim() ||
+    ''
+  const shippingStatusName = latestTrackingStatusName || ghnOrderInfo?.status_name?.trim() || ghnOrderInfo?.current_status?.trim() || order.shipping_status?.trim() || null
+  const parcelDimensionLabel =
+    isPositiveNumber(order.length) && isPositiveNumber(order.width) && isPositiveNumber(order.height)
+      ? `${order.length} x ${order.width} x ${order.height} cm`
+      : null
+  const orderInfoRows = [
+    { label: 'Mã đơn hàng', value: shippingOrderCode },
+    { label: 'Ngày lấy dự kiến', value: null },
+    { label: 'Ngày giao dự kiến', value: ghnOrderInfo?.leadtime ? formatDateTime(ghnOrderInfo.leadtime) : null },
+    {
+      label: 'Trạng thái đơn hàng',
+      value: shippingStatusName,
+    },
+  ].filter((item) => item.value)
+  const detailInfoRows = [
+    { label: 'Mã đơn hàng', value: order.order_code },
+    {
+      label: 'Cân nặng',
+      value: typeof order.weight === 'number' && Number.isFinite(order.weight) ? `${order.weight} g` : null,
+    },
+    { label: 'Kích thước', value: parcelDimensionLabel },
+    { label: 'Lưu ý giao hàng', value: order.required_note?.trim() || null },
+  ].filter((item) => item.value)
+  const senderInfoRows = [
+    { label: 'Họ và tên', value: order.from_name?.trim() || null },
+    { label: 'Điện thoại', value: order.from_phone?.trim() || null },
+    { label: 'Địa chỉ', value: senderAddress || null },
+  ].filter((item) => item.value)
+  const receiverInfoRows = [
+    { label: 'Họ và tên', value: order.customer_info.name?.trim() || null },
+    { label: 'Điện thoại', value: order.customer_info.phone?.trim() || null },
+    { label: 'Địa chỉ', value: receiverAddress || null },
+  ].filter((item) => item.value)
+  const shippingTimelineItems: VerticalTimelineItem[] = ghnTrackingLogs.map((entry, index) => ({
+    key: `${entry.status ?? 'tracking'}-${entry.updated_at ?? index}`,
+    label: entry.label,
+    timestamp: entry.updated_at,
+    highlighted: index === 0,
+  }))
+  const cheapestShippingOptionKey = shippingOptions[0]?.key ?? null
+  const fastestShippingOptionKey =
+    shippingOptions.reduce<(typeof shippingOptions)[number] | null>((best, current) => {
+      if (!current.expectedDeliveryTime) {
+        return best
+      }
+
+      if (!best?.expectedDeliveryTime) {
+        return current
+      }
+
+      return new Date(current.expectedDeliveryTime).getTime() < new Date(best.expectedDeliveryTime).getTime()
+        ? current
+        : best
+    }, null)?.key ?? null
+  const shippingSection = (
+    <Stack spacing={2.5}>
+      <Paper sx={borderedCardSx}>
+        <Stack spacing={2.5}>
+          <Stack spacing={1.5}>
+          {!hasStoreShippingAddress ? (
+          <Paper
+            variant="outlined"
+            sx={{
+              p: 1.5,
+              borderRadius: 2,
+              bgcolor: '#fffaf0',
+              borderColor: '#fed7aa',
+            }}
+          >
+            <Stack spacing={1.25}>
+              <Typography sx={{ fontWeight: 700, color: '#9a3412' }}>
+                Shop chưa cấu hình địa chỉ mặc định
+              </Typography>
+              <Typography variant="body2" sx={{ color: '#9a3412' }}>
+                Cần thiết lập địa chỉ giao hàng của shop trước khi lấy dịch vụ.
+              </Typography>
+              <Button variant="contained" color="secondary" onClick={() => navigate('/settings/general')}>
+                Đi tới cài đặt
+              </Button>
+            </Stack>
+          </Paper>
+        ) : null}
+
+        {hasStoreShippingAddress && !hasCustomerShippingAddress ? (
+          <Paper
+            variant="outlined"
+            sx={{
+              p: 1.5,
+              bgcolor: '#fffaf0',
+              borderColor: '#fed7aa',
+            }}
+          >
+            <Stack spacing={1.25}>
+              <Stack direction="row" spacing={1} sx={{ fontSize: '1rem', alignItems: 'center' }}>
+                <InfoIcon sx={{ color: '#9a3412' }} />
+                <Stack spacing={0.25}>
+                  <Typography variant="body2" sx={{ color: '#9a3412', fontWeight: 700 }}>
+                    {shippingAddressWarningTitle}
+                  </Typography>
+                  <Typography variant="body2" sx={{ color: '#9a3412' }}>
+                    Cập nhật địa chỉ giao hàng để lựa chọn đơn vị vận chuyển.
+                  </Typography>
+                </Stack>
+              </Stack>
+              <Button variant="contained" color="secondary" onClick={handleShippingAddressCta}>
+                {shippingAddressCtaLabel}
+              </Button>
+            </Stack>
+          </Paper>
+        ) : null}
+
+        {hasStoreShippingAddress && hasCustomerShippingAddress ? (
+          <Stack spacing={1}>
+            {shouldShowShippingServiceSelector ? (
+              <OrderShippingMeasurementsForm
+                weight={shippingWeightDraft}
+                weightUnit={shippingWeightUnit}
+                length={shippingLengthDraft}
+                width={shippingWidthDraft}
+                height={shippingHeightDraft}
+                dimensionUnit={shippingDimensionUnit}
+                isSaving={isSavingShippingMeasurements}
+                onWeightChange={setShippingWeightDraft}
+                onWeightUnitChange={(value) => setShippingWeightUnit(value as 'g' | 'kg')}
+                onLengthChange={setShippingLengthDraft}
+                onWidthChange={setShippingWidthDraft}
+                onHeightChange={setShippingHeightDraft}
+                onSubmit={() => {
+                  void handleSaveShippingMeasurements()
+                }}
+              />
+            ) : null}
+
+            {shouldShowShippingServiceSelector && isShippingOptionsLoading ? (
+              <Stack direction="row" spacing={1.25} sx={{ alignItems: 'center', py: 1 }}>
+                <CircularProgress size={18} />
+                <Typography color="text.secondary">Đang tải dịch vụ vận chuyển...</Typography>
+              </Stack>
+            ) : null}
+
+            {shouldShowShippingServiceSelector && !isShippingOptionsLoading && shippingOptionsError ? (
+              <Typography variant="body2" color="error">
+                {shippingOptionsError}
+              </Typography>
+            ) : null}
+
+            {shouldShowShippingServiceSelector && !isShippingOptionsLoading && !shippingOptionsError && shippingOptions.length > 0 ? (
+              <Stack spacing={1}>
+                {shippingOptions.map((option) => (
+                  <ShippingServiceOptionCard
+                    key={option.key}
+                    item={{
+                      key: option.key,
+                      providerDisplayName: option.providerDisplayName,
+                      providerLogoUrl: option.providerLogoUrl,
+                      serviceName: option.serviceName,
+                      expectedDeliveryLabel: option.expectedDeliveryTime ? formatDateTime(option.expectedDeliveryTime) : '-',
+                      feeLabel: option.fee !== null ? formatCurrency(option.fee) : null,
+                    }}
+                    selected={selectedShippingOptionKey === option.key}
+                    isSaving={isSavingShippingOption}
+                    disabled={isSavingShippingOption}
+                    isLowestFee={cheapestShippingOptionKey === option.key}
+                    isFastest={fastestShippingOptionKey === option.key}
+                    onSelect={() => {
+                      void handleSelectShippingOption(option)
+                    }}
+                  />
+                ))}
+              </Stack>
+            ) : null}
+
+            {shouldShowShippingTrackingPaper ? (
+              <Stack spacing={2}>
+                <InfoPaperGrid>
+                  {orderInfoRows.length > 0 ? <InfoPaper title="Thông tin đơn hàng" rows={orderInfoRows} labelMinWidth={132} /> : null}
+
+                  {detailInfoRows.length > 0 || order.order_items.length > 0 ? (
+                    <InfoPaper title="Thông tin chi tiết" rows={detailInfoRows} labelMinWidth={132}>
+                      {order.order_items.length > 0 ? (
+                        <InfoField
+                          label="Sản phẩm"
+                          variant="row"
+                          labelMinWidth={132}
+                          value={
+                            <Stack spacing={0.5}>
+                              {order.order_items.map((item) => (
+                                <Box
+                                  key={item.id}
+                                  sx={{
+                                    display: 'flex',
+                                    alignItems: 'flex-end',
+                                    justifyContent: 'flex-end',
+                                    gap: 0.75,
+                                  }}
+                                >
+                                  <Typography
+                                    variant="body2"
+                                    sx={{
+                                      color: '#101828',
+                                      fontWeight: 600,
+                                      lineHeight: '20px',
+                                      wordBreak: 'break-word',
+                                    }}
+                                  >
+                                    {item.display_name ?? item.product_name}
+                                  </Typography>
+                                  <Typography
+                                    variant="body2"
+                                    sx={{
+                                      color: '#98a2b3',
+                                      lineHeight: '20px',
+                                      flexShrink: 0,
+                                    }}
+                                  >
+                                    x{item.quantity}
+                                  </Typography>
+                                </Box>
+                              ))}
+                            </Stack>
+                          }
+                        />
+                      ) : null}
+                    </InfoPaper>
+                  ) : null}
+
+                  {senderInfoRows.length > 0 ? <InfoPaper title="Người gửi" rows={senderInfoRows} labelMinWidth={100} /> : null}
+
+                  {receiverInfoRows.length > 0 ? <InfoPaper title="Người nhận" rows={receiverInfoRows} labelMinWidth={100} /> : null}
+                </InfoPaperGrid>
+
+                {isGhnOrderInfoLoading || ghnOrderInfoError || ghnOrderInfo ? (
+                  <TimelinePanel
+                    title="Lịch sử đơn hàng"
+                    description={""}
+                    isLoading={isGhnOrderInfoLoading}
+                    loadingMessage="Đang tải timeline vận chuyển..."
+                    errorMessage={ghnOrderInfoError || null}
+                    emptyMessage="GHN chưa trả về timeline chi tiết cho vận đơn này."
+                    items={shippingTimelineItems}
+                  />
+                ) : null}
+
+              </Stack>
+            ) : null}
+
+          </Stack>
+        ) : null}
+          </Stack>
+        </Stack>
+      </Paper>
+    </Stack>
+  )
+
   return (
     <Box sx={{ px: { xs: 2, md: 3, xl: 4 }, pb: 8 }}>
       <Box sx={{ mb: 2 }}>
@@ -767,7 +1452,9 @@ export function OrdersDetailPage(): ReactElement {
           </Stack>
 
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.25}>
-            <Tooltip title={!canEditOrder ? 'Chỉ có thể chỉnh sửa đơn hàng ở bước "Chờ xác nhận"' : ''} disableHoverListener={canEditOrder}>
+            {
+              shouldShowProductEditButton &&
+              <Tooltip title={!canEditOrder ? 'Chỉ có thể chỉnh sửa đơn hàng ở bước "Nháp" hoặc "Mới"' : ''} disableHoverListener={canEditOrder}>
               <span>
                 <Button
                   variant="outlined"
@@ -780,6 +1467,7 @@ export function OrdersDetailPage(): ReactElement {
                 </Button>
               </span>
             </Tooltip>
+            }
             <Button
               variant="text"
               endIcon={<MoreHorizIcon />}
@@ -805,8 +1493,8 @@ export function OrdersDetailPage(): ReactElement {
           <Chip
             color="secondary"
             icon={nextAction.icon}
-            label={`Hành động tiếp theo: ${nextAction.label}`}
-            sx={{ fontWeight: 700, alignSelf: 'flex-start' }}
+            label={`Tiếp theo: ${nextAction.label}`}
+            sx={{ fontWeight: 700 }}
           />
           <Stack spacing={0.5} sx={{ flex: 1 }}>
             <Typography color="text.secondary">{nextAction.helper}</Typography>
@@ -820,11 +1508,25 @@ export function OrdersDetailPage(): ReactElement {
             <Button
               variant="contained"
               size="small"
-              onClick={() =>
-                nextAction.action === 'confirm_shipping' || nextAction.action === 'push_to_delivery'
-                  ? openShippingActionDialog(nextAction.action)
-                  : void runAction(nextAction.action)
-              }
+              onClick={() => {
+                if (nextAction.action === 'push_to_delivery' && hasSelectedShippingService) {
+                  const payload = validatePushToDelivery()
+
+                  if (!payload) {
+                    return
+                  }
+
+                  void runAction(nextAction.action, payload)
+                  return
+                }
+
+                if (nextAction.action === 'push_to_delivery' || nextAction.action === 'mark_delivered') {
+                  openShippingActionDialog(nextAction.action)
+                  return
+                }
+
+                void runAction(nextAction.action)
+              }}
               disabled={isActing || isNextActionBlockedByShippingService}
             >
               {isActing ? 'Đang xử lý...' : nextAction.label}
@@ -833,360 +1535,70 @@ export function OrdersDetailPage(): ReactElement {
         </Stack>
       </Paper>
 
-      <OrderProgressCard currentIndex={progressIndex} />
+      <Paper sx={{ ...borderedCardSx, mt: 2.5, p: 0 }}>
+        <Tabs
+          value={activeTab}
+          onChange={(_event, value: DetailTabKey) => setActiveTab(value)}
+          variant="scrollable"
+          scrollButtons="auto"
+          sx={{
+            px: 1.5,
+            pt: 1,
+            '& .MuiTab-root': {
+              textTransform: 'none',
+              minHeight: 44,
+              fontWeight: 600,
+            },
+          }}
+        >
+          <Tab label="Tổng quan" value="overview" />
+          <Tab label="Sản phẩm" value="products" />
+          <Tab label="Thanh toán" value="payment" />
+          <Tab label="Vận chuyển" value="shipping" />
+        </Tabs>
+      </Paper>
 
-      <Box
-        sx={{
-          display: 'grid',
-          gridTemplateColumns: { xs: '1fr', xl: 'minmax(0, 7fr) minmax(320px, 3fr)' },
-          gap: 2.5,
-          alignItems: 'start',
-          mt: 2.5,
-        }}
-      >
-        <Stack spacing={2.5}>
-          <Paper sx={borderedCardSx}>
-            <CardHeader
-              eyebrow="Sản phẩm đơn hàng"
-              title="Danh sách sản phẩm"
-              description=""
-            />
-
-            <Box sx={{ overflowX: 'auto', mt: 2 }}>
-              <Table sx={{ minWidth: 640 }}>
-                <TableHead>
-                  <TableRow>
-                    <TableCell>Sản phẩm</TableCell>
-                    <TableCell align="right">SL</TableCell>
-                    <TableCell align="right">Giá</TableCell>
-                    <TableCell align="right">Tổng</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {order.order_items.map((item) => (
-                    <TableRow key={item.id} hover>
-                      <TableCell sx={{ py: 1.75 }}>
-                        <Stack spacing={0.6}>
-                          <Typography sx={{ fontWeight: 700, color: '#0f172a' }}>{item.product_name}</Typography>
-                          <Typography variant="body2" color="text.secondary">
-                            Biến thể: {item.variant_sku ?? item.sku}
-                          </Typography>
-                          <Typography variant="body2" color="text.secondary">
-                            Ghi chú nội tuyến: {item.notes ?? 'Không có ghi chú cho item này'}
-                          </Typography>
-                        </Stack>
-                      </TableCell>
-                      <TableCell align="right">{item.quantity}</TableCell>
-                      <TableCell align="right">{formatCurrency(item.unit_price)}</TableCell>
-                      <TableCell align="right">
-                        <Typography sx={{ fontWeight: 700 }}>{formatCurrency(item.sub_total)}</Typography>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+      {activeTab === 'overview' ? (
+        <Box
+          sx={{
+            display: 'grid',
+            gridTemplateColumns: { xs: '1fr', xl: 'minmax(0, 3fr) minmax(360px, 1.4fr)' },
+            gap: 2.5,
+            alignItems: 'start',
+            mt: 2.5,
+          }}
+        >
+          <Stack spacing={2.5}>
+            <Box
+              sx={{
+                display: 'grid',
+                gridTemplateColumns: { xs: '1fr', lg: 'repeat(2, minmax(0, 1fr))' },
+                gap: 2.5,
+                alignItems: 'stretch',
+              }}
+            >
+              {customerOverviewSection}
+              {overviewProductsSection}
             </Box>
 
-            <Stack
-              direction={{ xs: 'column', md: 'row' }}
-              spacing={1.25}
-              sx={{ mt: 2, justifyContent: 'space-between', alignItems: { md: 'center' } }}
-            >
-              <Typography color="text.secondary">
-                {order.order_items.length} sản phẩm
-              </Typography>
+            <OrderTimelineCard order={order} currentIndex={progressIndex} stages={stepperStages} />
+          </Stack>
 
-              {shouldShowProductEditButton ? (
-                <Button
-                  variant="outlined"
-                  startIcon={<EditOutlinedIcon />}
-                  component={RouterLink}
-                  to={`/orders/${order.id}/edit`}
-                  disabled={!canEditOrder}
-                >
-                  Chỉnh sửa đơn hàng
-                </Button>
-              ) : null}
-              {canExportPackingSlip ? (
-                <Button variant="outlined" startIcon={<PrintOutlinedIcon />} onClick={handleExportPackingSlip}>
-                  In phiếu đóng gói
-                </Button>
-              ) : null}
-            </Stack>
-          </Paper>
+          <Stack spacing={2.5}>
+            {overviewPaymentSummarySection}
+          </Stack>
+        </Box>
+      ) : null}
 
-          <OrderDetailPaymentPanel
-            itemCount={orderItemCount}
-            subTotal={orderSubTotal}
-            discountAmount={orderDiscountAmount}
-            taxAmount={orderTaxAmount}
-            vatRatePercent={orderVatRatePercent}
-            shippingFee={orderShippingFee}
-            totalAmount={orderTotalAmount}
-            paidAmount={orderPaidAmount}
-            remainingAmount={orderRemainingAmount}
-            forceShowTaxLine={shouldShowLockedVatLine}
-            paymentHistoryEntries={paymentHistoryEntries}
-            invoiceStatusLabel={invoiceStatusLabel}
-            invoiceStatusColor={invoiceStatusColor}
-            invoiceCode={order.invoice_code}
-            canExportInvoice={canExportInvoice}
-            canGeneratePaymentQr={canGeneratePaymentQr}
-            canAddPayment={canAddPayment}
-            canEditOrder={canEditOrder}
-            isActing={isActing}
-            isGeneratingQr={isGeneratingQr}
-            onOpenInvoiceDialog={() => {
-              setInvoiceCodeDraft(order.invoice_code ?? '')
-              setIsInvoiceDialogOpen(true)
-            }}
-            onOpenPaymentQr={() => {
-              void handleOpenPaymentQr()
-            }}
-            onOpenAddPaymentDialog={openAddPaymentDialog}
-            onOpenConfirmPaidDialog={openConfirmPaidDialog}
-            onOpenPaymentDialog={openPaymentDialog}
-          />
+      {activeTab === 'products' ? <Box sx={{ mt: 2.5 }}>{productsSection}</Box> : null}
 
-          <Paper sx={borderedCardSx}>
-            <CardHeader
-              eyebrow="Vận chuyển"
-              title="Vận chuyển"
-              description=""
-            />
+      {activeTab === 'payment' ? <Box sx={{ mt: 2.5 }}>{paymentSection}</Box> : null}
 
-            <Stack spacing={1.5} sx={{ mt: 2 }}>
-              {!hasStoreShippingAddress ? (
-                <Paper
-                  variant="outlined"
-                  sx={{
-                    p: 1.5,
-                    borderRadius: 2,
-                    bgcolor: '#fffaf0',
-                    borderColor: '#fed7aa',
-                  }}
-                >
-                  <Stack spacing={1.25}>
-                    <Typography sx={{ fontWeight: 700, color: '#9a3412' }}>
-                      Shop chưa cấu hình địa chỉ mặc định
-                    </Typography>
-                    <Typography variant="body2" sx={{ color: '#9a3412' }}>
-                      Cần thiết lập địa chỉ giao hàng của shop trước khi lấy dịch vụ.
-                    </Typography>
-                    <Button variant="contained" color="secondary" onClick={() => navigate('/settings/general')}>
-                      Đi tới cài đặt
-                    </Button>
-                  </Stack>
-                </Paper>
-              ) : null}
-
-              {hasStoreShippingAddress && !hasCustomerShippingAddress ? (
-                <Paper
-                  variant="outlined"
-                  sx={{
-                    p: 1.5,
-                    bgcolor: '#fffaf0',
-                    borderColor: '#fed7aa',
-                  }}
-                >
-                  <Stack spacing={1.25}>
-                    <Stack direction="row" spacing={1} sx={{ fontSize: '1rem', alignItems: 'center' }}>
-                      <InfoIcon sx={{ color: '#9a3412' }} />
-                      <Stack spacing={0.25}>
-                        <Typography variant="body2" sx={{ color: '#9a3412', fontWeight: 700 }}>
-                          {shippingAddressWarningTitle}
-                        </Typography>
-                        <Typography variant="body2" sx={{ color: '#9a3412' }}>
-                          Cập nhật địa chỉ giao hàng để lựa chọn đơn vị vận chuyển.
-                        </Typography>
-                      </Stack>
-                    </Stack>
-                    <Button
-                      variant="contained"
-                      color="secondary"
-                      onClick={handleShippingAddressCta}
-                    >
-                      {shippingAddressCtaLabel}
-                    </Button>
-                  </Stack>
-                </Paper>
-              ) : null}
-
-              {hasStoreShippingAddress && hasCustomerShippingAddress ? (
-                <Stack spacing={1}>
-                  <OrderShippingMeasurementsForm
-                    weight={shippingWeightDraft}
-                    weightUnit={shippingWeightUnit}
-                    length={shippingLengthDraft}
-                    width={shippingWidthDraft}
-                    height={shippingHeightDraft}
-                    dimensionUnit={shippingDimensionUnit}
-                    isSaving={isSavingShippingMeasurements}
-                    onWeightChange={setShippingWeightDraft}
-                    onWeightUnitChange={(value) => setShippingWeightUnit(value as 'g' | 'kg')}
-                    onLengthChange={setShippingLengthDraft}
-                    onWidthChange={setShippingWidthDraft}
-                    onHeightChange={setShippingHeightDraft}
-                    onSubmit={() => {
-                      void handleSaveShippingMeasurements()
-                    }}
-                  />
-
-                  {isShippingOptionsLoading ? (
-                    <Stack direction="row" spacing={1.25} sx={{ alignItems: 'center', py: 1 }}>
-                      <CircularProgress size={18} />
-                      <Typography color="text.secondary">Đang tải dịch vụ vận chuyển...</Typography>
-                    </Stack>
-                  ) : null}
-
-                  {!isShippingOptionsLoading && shippingOptionsError ? (
-                    <Typography variant="body2" color="error">
-                      {shippingOptionsError}
-                    </Typography>
-                  ) : null}
-
-                  {!isShippingOptionsLoading && !shippingOptionsError && shippingOptions.filter((option) => option.fee !== null).length > 0 ? (
-                    <Stack spacing={1}>
-                      {shippingOptions.filter((option) => option.fee !== null).map((option) => {
-                        const selected = selectedShippingOptionKey === option.key
-
-                        return (
-                          <Box
-                            key={option.key}
-                            component="button"
-                            type="button"
-                            onClick={() => {
-                              void handleSelectShippingOption(option)
-                            }}
-                            disabled={isSavingShippingOption}
-                            sx={{
-                              width: '100%',
-                              p: 1.5,
-                              borderRadius: 1,
-                              border: selected ? '1px solid #2563eb' : '1px solid #d0d5dd',
-                              background: selected ? '#eff6ff' : '#ffffff',
-                              display: 'grid',
-                              gridTemplateColumns: 'auto minmax(0, 1fr) auto',
-                              gap: 1.25,
-                              alignItems: 'center',
-                              textAlign: 'left',
-                              cursor: isSavingShippingOption ? 'default' : 'pointer',
-                              appearance: 'none',
-                            }}
-                          >
-                            <Radio checked={selected} value={option.key} disableRipple />
-
-                            <Stack direction="row" spacing={1.25} sx={{ alignItems: 'center', minWidth: 0 }}>
-                              {option.providerLogoUrl ? (
-                                <Box
-                                  component="img"
-                                  src={option.providerLogoUrl}
-                                  alt={option.providerDisplayName}
-                                  sx={{ width: 40, height: 40, objectFit: 'contain', borderRadius: 1.5, bgcolor: '#fff' }}
-                                />
-                              ) : (
-                                <Box
-                                  sx={{
-                                    width: 40,
-                                    height: 40,
-                                    borderRadius: 1.5,
-                                    display: 'grid',
-                                    placeItems: 'center',
-                                    bgcolor: '#f2f4f7',
-                                    color: '#344054',
-                                    fontWeight: 700,
-                                    fontSize: 12,
-                                  }}
-                                >
-                                  {option.providerDisplayName.slice(0, 3).toUpperCase()}
-                                </Box>
-                              )}
-
-                              <Box sx={{ minWidth: 0 }}>
-                                <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center', flexWrap: 'wrap' }} useFlexGap>
-                                  <Typography sx={{ fontWeight: 700, color: '#101828' }}>
-                                    {option.providerDisplayName}
-                                  </Typography>
-                                </Stack>
-                                <Typography variant="body2" sx={{ color: '#475467' }}>
-                                  {option.serviceName}
-                                </Typography>
-                              </Box>
-                            </Stack>
-
-                            <Stack spacing={0.5} sx={{ alignItems: 'flex-end' }}>
-                              <Typography sx={{ fontWeight: 700, color: '#101828' }}>
-                                {formatCurrency(option.fee ?? 0)}
-                              </Typography>
-                              {selected && isSavingShippingOption ? (
-                                <Typography variant="caption" sx={{ color: '#475467' }}>
-                                  Đang lưu...
-                                </Typography>
-                              ) : null}
-                            </Stack>
-                          </Box>
-                        )
-                      })}
-                    </Stack>
-                  ) : null}
-                </Stack>
-              ) : null}
-            </Stack>
-          </Paper>
+      {activeTab === 'shipping' ? (
+        <Stack spacing={2.5} sx={{ mt: 2.5 }}>
+          <Box>{shippingSection}</Box>
         </Stack>
-
-        <Stack spacing={2.5}>
-          <SidebarCard title="Thông tin đơn hàng">
-            <SidebarLine label="Cửa hàng / Chi nhánh" value={activeStore?.name ?? '-'} />
-            <SidebarLine label="Nhân viên được giao" value={displayConfirmedBy} />
-            <SidebarLine label="Tạo bởi" value={displayCreatedBy} />
-            <SidebarLine label="Ngày tạo" value={formatDateTime(order.created_at)} />
-            <SidebarLine label="Cập nhật cuối" value={formatDateTime(order.updated_at)} />
-          </SidebarCard>
-          
-          <SidebarCard icon={<PersonOutlineOutlinedIcon fontSize="small" />} title="Khách hàng">
-            <Stack spacing={1.25}>
-              <SidebarLine label="Mã khách hàng" value={order.customer_info.customer_code ?? 'Khách lẻ'} />
-              <SidebarLine label="Tên khách hàng" value={order.customer_info.name} />
-              <SidebarLine label="Số điện thoại" value={order.customer_info.phone} />
-            </Stack>
-          </SidebarCard>
-
-          <SidebarCard title="Ghi chú">
-            <Stack spacing={1.25}>
-              <NoteBlock label="Ghi chú đơn hàng" value={order.order_notes ?? 'Chưa có ghi chú đơn hàng'} />
-              <NoteBlock label="Ghi chú thanh toán" value={order.payment_notes ?? 'Chưa có ghi chú thanh toán'} />
-            </Stack>
-          </SidebarCard>
-
-          <Paper sx={borderedCardSx}>
-            <CardHeader
-              eyebrow="Hoạt động đơn hàng"
-              title="Nhật ký lịch sử"
-              description="Timeline hiển thị action, user và mốc thời gian để đội operations đối chiếu nhanh."
-            />
-
-            <Stack spacing={0} sx={{ mt: 2 }}>
-              {order.order_history.map((entry, index) => (
-                <ActivityRow
-                  key={entry.id}
-                  title={entry.description}
-                  subtitle={`${entry.actor_name ?? 'Hệ thống'}`}
-                  timestamp={formatDateTime(entry.timestamp)}
-                  isLast={index === order.order_history.length - 1}
-                  extra={
-                    getOrderHistoryPaymentAmount(entry) ? (
-                      <Typography variant="body2" sx={{ mt: 0.35, fontWeight: 700, color: '#0f172a' }}>
-                        Số tiền: {getOrderHistoryPaymentAmount(entry)}
-                      </Typography>
-                    ) : undefined
-                  }
-                />
-              ))}
-            </Stack>
-          </Paper>
-        </Stack>
-      </Box>
+      ) : null}
 
       <Menu anchorEl={anchorEl} open={Boolean(anchorEl)} onClose={() => setAnchorEl(null)}>
         <MenuItem onClick={handleDuplicateOrder}>Nhân bản đơn hàng</MenuItem>
@@ -1214,7 +1626,7 @@ export function OrdersDetailPage(): ReactElement {
             setAnchorEl(null)
             void runAction('complete')
           }}
-          disabled={isActing || order.processing_status === 'completed' || order.payment_status !== 'paid'}
+          disabled={isActing || order.processing_status !== 'delivered' || order.payment_status !== 'paid'}
         >
           Đánh dấu hoàn thành
         </MenuItem>
@@ -1292,177 +1704,7 @@ export function OrdersDetailPage(): ReactElement {
   )
 }
 
-function OrderProgressCard({
-  currentIndex,
-}: {
-  currentIndex: number
-}): ReactElement {
-  return (
-    <Paper sx={borderedCardSx}>
-      <CardHeader
-        eyebrow="Tiến trình đơn hàng"
-        title="Tiến trình đơn hàng"
-        description=""
-      />
 
-      <Box sx={{ mt: 2.5, display: { xs: 'none', md: 'block' } }}>
-        <Stepper id="desktop-stepper" activeStep={Math.max(currentIndex, 0)} sx={{ width: '100%', height: 40 }}>
-          {stepperStages.map((stage) => (
-            <Step sx={{ ':first-child': { pl: 0 }, ':last-child': { pr: 0 } }} key={stage.key}>
-              <StepLabel>{stage.label}</StepLabel>
-            </Step>
-          ))}
-        </Stepper>
-      </Box>
 
-      <Stepper
-        id="mobile-stepper"
-        activeStep={Math.max(currentIndex, 0)}
-        alternativeLabel
-        sx={{ display: { xs: 'flex', md: 'none' }, mt: 2.5 }}
-      >
-        {stepperStages.map((stage) => (
-          <Step
-            sx={{
-              ':first-child': { pl: 0 },
-              ':last-child': { pr: 0 },
-              '& .MuiStepConnector-root': { top: { xs: 6, sm: 12 } },
-            }}
-            key={stage.key}
-          >
-            <StepLabel sx={{ '.MuiStepLabel-labelContainer': { maxWidth: '70px' } }}>
-              {stage.label}
-            </StepLabel>
-          </Step>
-        ))}
-      </Stepper>
-    </Paper>
-  )
-}
 
-function CardHeader({
-  eyebrow,
-  title,
-  description,
-}: {
-  eyebrow: string
-  title: string
-  description: string
-}): ReactElement {
-  return (
-    <Box>
-      <Typography
-        variant="caption"
-        sx={{ display: 'block', color: '#98a2b3', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.8 }}
-      >
-        {eyebrow}
-      </Typography>
-      <Typography variant="h6" sx={{ fontWeight: 600, color: '#101828' }}>
-        {title}
-      </Typography>
-      <Typography sx={{ color: '#667085', mt: 0.5 }}>{description}</Typography>
-    </Box>
-  )
-}
 
-function ActivityRow({
-  title,
-  subtitle,
-  timestamp,
-  extra,
-  isLast,
-}: {
-  title: string
-  subtitle: string
-  timestamp: string
-  extra?: ReactNode
-  isLast: boolean
-}): ReactElement {
-  return (
-    <Box sx={{ display: 'grid', gridTemplateColumns: '24px minmax(0, 1fr)', columnGap: 1.5 }}>
-      <Stack sx={{ alignItems: 'center' }}>
-        <Box
-          sx={{
-            width: 12,
-            height: 12,
-            mt: 0.8,
-            borderRadius: '50%',
-            bgcolor: 'primary.main',
-            boxShadow: '0 0 0 4px rgba(20, 184, 166, 0.14)',
-          }}
-        />
-        {!isLast ? <Box sx={{ width: 2, flex: 1, bgcolor: 'divider', minHeight: 58, mt: 0.5 }} /> : null}
-      </Stack>
-
-      <Box sx={{ pb: 2 }}>
-        <Typography sx={{ fontWeight: 700, color: '#0f172a' }}>{title}</Typography>
-        <Typography variant="body2" color="text.secondary" sx={{ mt: 0.35 }}>
-          {subtitle}
-        </Typography>
-        <Typography variant="body2" color="text.secondary" sx={{ mt: 0.35 }}>
-          {timestamp}
-        </Typography>
-        {extra ? <Box sx={{ mt: 0.75 }}>{extra}</Box> : null}
-      </Box>
-    </Box>
-  )
-}
-
-function SidebarCard({
-  title,
-  icon,
-  description,
-  children,
-}: {
-  title: string
-  icon?: ReactNode
-  description?: string
-  children: ReactNode
-}): ReactElement {
-  return (
-    <Paper sx={borderedCardSx}>
-      <Stack spacing={1.5}>
-        <Box>
-          <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-            {icon ? <Box sx={{ color: '#667085', display: 'grid', placeItems: 'center' }}>{icon}</Box> : null}
-            <Typography variant="h6" sx={{ fontWeight: 600, color: '#101828' }}>
-              {title}
-            </Typography>
-          </Stack>
-          {description ? <Typography sx={{ color: '#667085', mt: 0.5 }}>{description}</Typography> : null}
-        </Box>
-        {children}
-      </Stack>
-    </Paper>
-  )
-}
-
-function SidebarLine({ label, value }: { label: string; value: string }): ReactElement {
-  return (
-    <Stack direction="row" spacing={1.5} sx={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
-      <Typography variant="body2" color="text.secondary" sx={{ minWidth: 108 }}>
-        {label}
-      </Typography>
-      <Typography variant="body2" sx={{ textAlign: 'right', color: '#0f172a', fontWeight: 600 }}>
-        {value}
-      </Typography>
-    </Stack>
-  )
-}
-
-function NoteBlock({ label, value }: { label: string; value: string }): ReactElement {
-  return (
-    <Paper
-      variant="outlined"
-      sx={{
-        p: 1.5,
-        bgcolor: (theme) => alpha(theme.palette.background.default, 0.7),
-      }}
-    >
-      <Typography variant="body2" color="text.secondary">
-        {label}
-      </Typography>
-      <Typography sx={{ mt: 0.8, color: '#0f172a', lineHeight: 1.7 }}>{value}</Typography>
-    </Paper>
-  )
-}

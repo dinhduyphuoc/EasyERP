@@ -462,6 +462,7 @@ type PaymentInformationCardProps = {
   title?: string
   headerAction?: ReactNode
   itemCount?: number
+  renderVatToggleOnly?: boolean
   canEdit: boolean
   paymentMethod: PaymentMethod
   discountAmount: string
@@ -487,6 +488,7 @@ export function PaymentInformationCard({
   title = 'Thanh toán',
   headerAction,
   itemCount = 0,
+  renderVatToggleOnly = false,
   canEdit,
   paymentMethod,
   discountAmount,
@@ -604,42 +606,44 @@ export function PaymentInformationCard({
             <PaymentDetailRow label={vatLabel} value={formatCurrency(taxAmount)} />
           ) : null}
 
-          <Stack
-            spacing={1}
-            sx={{
-              p: 1.5,
-              borderRadius: 2,
-              border: '1px solid',
-              borderColor: alpha('#0f172a', 0.08),
-              bgcolor: alpha('#f8fafc', 0.9),
-            }}
-          >
-            <FormControlLabel
-              control={
-                <Checkbox
-                  checked={vatEnabled}
-                  onChange={(event) => onVatEnabledChange(event.target.checked)}
-                  disabled={!canEdit || !canEditVat}
-                />
-              }
-              label="Apply VAT"
-              sx={{ m: 0 }}
-            />
-            <TextField
-              label="VAT %"
-              type="number"
-              value={vatRatePercent}
-              onChange={(event) => onVatRatePercentChange(event.target.value)}
-              disabled={!canEdit || !canEditVat || !vatEnabled}
-              slotProps={{ htmlInput: { min: 0, step: 0.01 } }}
-              sx={{ maxWidth: 180 }}
-            />
-            {canEdit && !canEditVat ? (
-              <Typography variant="caption" color="text.secondary">
-                Bạn không có quyền thay đổi VAT của đơn hàng.
-              </Typography>
-            ) : null}
-          </Stack>
+          {!renderVatToggleOnly ? (
+            <Stack
+              spacing={1}
+              sx={{
+                p: 1.5,
+                borderRadius: 2,
+                border: '1px solid',
+                borderColor: alpha('#0f172a', 0.08),
+                bgcolor: alpha('#f8fafc', 0.9),
+              }}
+            >
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    checked={vatEnabled}
+                    onChange={(event) => onVatEnabledChange(event.target.checked)}
+                    disabled={!canEdit || !canEditVat}
+                  />
+                }
+                label="Apply VAT"
+                sx={{ m: 0 }}
+              />
+              <TextField
+                label="VAT %"
+                type="number"
+                value={vatRatePercent}
+                onChange={(event) => onVatRatePercentChange(event.target.value)}
+                disabled={!canEdit || !canEditVat || !vatEnabled}
+                slotProps={{ htmlInput: { min: 0, step: 0.01 } }}
+                sx={{ maxWidth: 180 }}
+              />
+              {canEdit && !canEditVat ? (
+                <Typography variant="caption" color="text.secondary">
+                  Bạn không có quyền thay đổi VAT của đơn hàng.
+                </Typography>
+              ) : null}
+            </Stack>
+          ) : null}
 
           <PaymentDetailRow label="Phí vận chuyển" value={formatCurrency(shippingFee)} />
 
@@ -682,23 +686,6 @@ export function PaymentInformationCard({
             />
           </Box>
 
-          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.25}>
-            <PaymentMethodMiniCard
-              title="Tiền mặt"
-              icon={<PaymentsOutlinedIcon fontSize="small" />}
-              selected={selectedMethod === 'cod'}
-              disabled={!canEdit}
-              onClick={() => onPaymentMethodChange('cod')}
-            />
-            <PaymentMethodMiniCard
-              title="Chuyển khoản"
-              icon={<AccountBalanceOutlinedIcon fontSize="small" />}
-              selected={selectedMethod === 'bank_transfer'}
-              disabled={!canEdit}
-              onClick={() => onPaymentMethodChange('bank_transfer')}
-            />
-          </Stack>
-
           <Divider />
 
           <Stack direction="row" spacing={1.5} sx={{ justifyContent: 'space-between', alignItems: 'center' }}>
@@ -714,6 +701,23 @@ export function PaymentInformationCard({
             >
               {formatCurrency(remainingAmount)}
             </Typography>
+          </Stack>
+
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.25}>
+            <PaymentMethodMiniCard
+              title="Tiền mặt"
+              icon={<PaymentsOutlinedIcon fontSize="small" />}
+              selected={selectedMethod === 'cod'}
+              disabled={!canEdit}
+              onClick={() => onPaymentMethodChange('cod')}
+            />
+            <PaymentMethodMiniCard
+              title="Chuyển khoản"
+              icon={<AccountBalanceOutlinedIcon fontSize="small" />}
+              selected={selectedMethod === 'bank_transfer'}
+              disabled={!canEdit}
+              onClick={() => onPaymentMethodChange('bank_transfer')}
+            />
           </Stack>
         </Stack>
       </Stack>

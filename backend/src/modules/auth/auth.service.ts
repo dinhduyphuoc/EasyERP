@@ -236,7 +236,7 @@ export const AuthService = {
         },
       });
 
-      throw new UnauthorizedError("Invalid email or password", "AUTH_INVALID_CREDENTIALS");
+      throw new UnauthorizedError("Email hoặc mật khẩu không đúng", "AUTH_INVALID_CREDENTIALS");
     }
 
     if (user.status === "blocked") {
@@ -253,15 +253,15 @@ export const AuthService = {
         request_id: input.request_id,
       });
 
-      throw new ForbiddenError("Account is blocked");
+      throw new ForbiddenError("Tài khoản đã bị khóa");
     }
 
     if (user.status !== "active") {
-      throw new ForbiddenError("Account is not active");
+      throw new ForbiddenError("Tài khoản không hoạt động");
     }
 
     if (user.locked_until && user.locked_until > new Date()) {
-      throw new TooManyRequestsError("Account is temporarily locked", {
+      throw new TooManyRequestsError("Tài khoản đang bị khóa tạm thời", {
         locked_until: user.locked_until.toISOString(),
       });
     }
@@ -294,7 +294,7 @@ export const AuthService = {
         },
       });
 
-      throw new UnauthorizedError("Invalid email or password", "AUTH_INVALID_CREDENTIALS");
+      throw new UnauthorizedError("Email hoặc mật khẩu không đúng", "AUTH_INVALID_CREDENTIALS");
     }
 
     const authUser = await prisma.user.update({
@@ -441,7 +441,7 @@ export const AuthService = {
     }
 
     if (session.user.status !== "active") {
-      throw new ForbiddenError("Account is not active");
+      throw new ForbiddenError("Tài khoản không hoạt động");
     }
 
     await prisma.session.update({

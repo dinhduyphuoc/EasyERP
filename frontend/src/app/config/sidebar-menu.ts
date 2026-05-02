@@ -1,9 +1,4 @@
-﻿import type {
-  SidebarGroupItem,
-  SidebarItem,
-  SidebarLinkItem,
-} from '@/shared/ui/sidebar/sidebar.types'
-
+import type { SvgIconComponent } from '@mui/icons-material'
 import AssessmentOutlinedIcon from '@mui/icons-material/AssessmentOutlined'
 import CampaignOutlinedIcon from '@mui/icons-material/CampaignOutlined'
 import DashboardOutlinedIcon from '@mui/icons-material/DashboardOutlined'
@@ -12,155 +7,57 @@ import Inventory2OutlinedIcon from '@mui/icons-material/Inventory2Outlined'
 import LocalShippingOutlinedIcon from '@mui/icons-material/LocalShippingOutlined'
 import ReceiptLongOutlinedIcon from '@mui/icons-material/ReceiptLongOutlined'
 import SellOutlinedIcon from '@mui/icons-material/SellOutlined'
+import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined'
 import WalletOutlinedIcon from '@mui/icons-material/WalletOutlined'
-import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined';
+import { sidebarRouteItems } from '@/app/config/sidebar-routes'
 import type { AuthUser } from '@/modules/auth/auth.types'
+import type { SidebarGroupItem, SidebarItem, SidebarLinkItem } from '@/shared/ui/sidebar/sidebar.types'
 
-export const sidebarMenu: SidebarItem[] = [
-  {
-    id: 'dashboard',
-    kind: 'item',
-    label: 'Tổng quan',
-    to: '/',
-    exact: true,
-    icon: DashboardOutlinedIcon,
-  },
-  {
-    id: 'orders',
-    kind: 'group',
-    label: 'Đơn hàng',
-    icon: ReceiptLongOutlinedIcon,
-    children: [
-      {
-        id: 'orders-list',
-        kind: 'item',
-        label: 'Danh sách đơn hàng',
-        to: '/orders',
-        exact: true,
-        icon: ReceiptLongOutlinedIcon,
+const sidebarIconsById: Record<string, SvgIconComponent> = {
+  dashboard: DashboardOutlinedIcon,
+  orders: ReceiptLongOutlinedIcon,
+  'orders-list': ReceiptLongOutlinedIcon,
+  'orders-draft': ReceiptLongOutlinedIcon,
+  'orders-return': ReceiptLongOutlinedIcon,
+  'orders-incomplete': ReceiptLongOutlinedIcon,
+  'orders-cancelled': ReceiptLongOutlinedIcon,
+  shipping: LocalShippingOutlinedIcon,
+  'shipping-overview': LocalShippingOutlinedIcon,
+  'shipping-bills': LocalShippingOutlinedIcon,
+  products: SellOutlinedIcon,
+  'products-list': SellOutlinedIcon,
+  'products-create': SellOutlinedIcon,
+  'products-categories': SellOutlinedIcon,
+  'products-pricing': SellOutlinedIcon,
+  inventory: Inventory2OutlinedIcon,
+  'inventory-stock': Inventory2OutlinedIcon,
+  'inventory-audit': Inventory2OutlinedIcon,
+  'inventory-goods-receipt': Inventory2OutlinedIcon,
+  'inventory-return': Inventory2OutlinedIcon,
+  'inventory-transfer': Inventory2OutlinedIcon,
+  'inventory-suppliers': Inventory2OutlinedIcon,
+  customers: GroupsOutlinedIcon,
+  promotions: CampaignOutlinedIcon,
+  cashbook: WalletOutlinedIcon,
+  reports: AssessmentOutlinedIcon,
+  settings: SettingsOutlinedIcon,
+}
+
+export const sidebarMenu: SidebarItem[] = sidebarRouteItems.map((item) =>
+  item.kind === 'item'
+    ? {
+        ...item,
+        icon: sidebarIconsById[item.id],
+      }
+    : {
+        ...item,
+        icon: sidebarIconsById[item.id],
+        children: item.children.map((child) => ({
+          ...child,
+          icon: sidebarIconsById[child.id],
+        })),
       },
-      { id: 'orders-draft', kind: 'item', label: 'Đơn hàng nháp', to: '/orders/drafts', icon: ReceiptLongOutlinedIcon },
-      { id: 'orders-return', kind: 'item', label: 'Trả hàng', to: '/orders/returns', icon: ReceiptLongOutlinedIcon },
-      {
-        id: 'orders-incomplete',
-        kind: 'item',
-        label: 'Đơn hàng chưa hoàn tất',
-        to: '/orders/incomplete',
-        icon: ReceiptLongOutlinedIcon,
-      },
-      { id: 'orders-cancelled', kind: 'item', label: 'Đơn đã hủy', to: '/orders/cancelled', icon: ReceiptLongOutlinedIcon },
-    ],
-  },
-  {
-    id: 'shipping',
-    kind: 'group',
-    label: 'Vận chuyển',
-    icon: LocalShippingOutlinedIcon,
-    children: [
-      {
-        id: 'shipping-overview',
-        kind: 'item',
-        label: 'Tổng quan',
-        to: '/shipping',
-        exact: true,
-        icon: LocalShippingOutlinedIcon,
-      },
-      { id: 'shipping-bills', kind: 'item', label: 'Vận đơn', to: '/shipping/bills', icon: LocalShippingOutlinedIcon },
-    ],
-  },
-  {
-    id: 'products',
-    kind: 'group',
-    label: 'Sản phẩm',
-    icon: SellOutlinedIcon,
-    children: [
-      {
-        id: 'products-list',
-        kind: 'item',
-        label: 'Danh sách sản phẩm',
-        to: '/products',
-        exact: true,
-        icon: SellOutlinedIcon,
-      },
-      { id: 'products-create', kind: 'item', label: 'Thêm sản phẩm', to: '/products/create', icon: SellOutlinedIcon },
-      {
-        id: 'products-categories',
-        kind: 'item',
-        label: 'Danh mục sản phẩm',
-        to: '/products/categories',
-        icon: SellOutlinedIcon,
-      },
-      { id: 'products-pricing', kind: 'item', label: 'Bảng giá', to: '/products/pricing', icon: SellOutlinedIcon },
-    ],
-  },
-  {
-    id: 'inventory',
-    kind: 'group',
-    label: 'Quản lý kho',
-    icon: Inventory2OutlinedIcon,
-    children: [
-      { id: 'inventory-stock', kind: 'item', label: 'Tồn kho', to: '/inventory/stock', icon: Inventory2OutlinedIcon },
-      {
-        id: 'inventory-audit',
-        kind: 'item',
-        label: 'Kiểm kho',
-        to: '/inventory/audit',
-        icon: Inventory2OutlinedIcon,
-      },
-      { id: 'inventory-goods-receipt', kind: 'item', label: 'Nhập hàng', to: '/inventory/receipts', icon: Inventory2OutlinedIcon },
-      {
-        id: 'inventory-return',
-        kind: 'item',
-        label: 'Trả hàng nhập',
-        to: '/inventory/returns',
-        icon: Inventory2OutlinedIcon,
-      },
-      { id: 'inventory-transfer', kind: 'item', label: 'Chuyển kho', to: '/inventory/transfers', icon: Inventory2OutlinedIcon },
-      {
-        id: 'inventory-suppliers',
-        kind: 'item',
-        label: 'Nhà cung cấp',
-        to: '/inventory/suppliers',
-        icon: Inventory2OutlinedIcon,
-      },
-    ],
-  },
-  {
-    id: 'customers',
-    kind: 'item',
-    label: 'Khách hàng',
-    to: '/customers',
-    icon: GroupsOutlinedIcon,
-  },
-  {
-    id: 'promotions',
-    kind: 'item',
-    label: 'Khuyến mãi',
-    to: '/promotions',
-    icon: CampaignOutlinedIcon,
-  },
-  {
-    id: 'cashbook',
-    kind: 'item',
-    label: 'Sổ quỹ',
-    to: '/cashbook',
-    icon: WalletOutlinedIcon,
-  },
-  {
-    id: 'reports',
-    kind: 'item',
-    label: 'Báo cáo',
-    to: '/reports',
-    icon: AssessmentOutlinedIcon,
-  },
-  {
-    id: 'settings',
-    kind: 'item',
-    label: 'Cài đặt',
-    to: '/settings',
-    icon: SettingsOutlinedIcon,
-  }
-]
+)
 
 const sidebarPermissionMap: Record<string, string[]> = {
   '/': ['reports.read', 'orders.read', 'products.read', 'inventory.read', 'customers.read'],

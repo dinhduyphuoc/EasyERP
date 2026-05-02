@@ -1,4 +1,4 @@
-import type { OrderListItem } from '../api/order.api'
+import type { OrderDetailItem } from '../api/order.api'
 import type { PaymentHistoryEntry } from '../components/payment/payment-history-section'
 import type { PaymentMethod } from './order-payment'
 
@@ -78,10 +78,10 @@ export const getPaymentMethodLabelFromMetadata = (value: unknown, fallbackMethod
   return FALLBACK_PAYMENT_METHOD_LABELS[fallbackMethod]
 }
 
-export const buildPaymentHistoryEntries = (order: OrderListItem, fallbackMethod: PaymentMethod): PaymentHistoryEntry[] => {
+export const buildPaymentHistoryEntries = (order: OrderDetailItem, fallbackMethod: PaymentMethod): PaymentHistoryEntry[] => {
   let previousPaid = 0
 
-  const chronologicalEntries = [...order.order_history]
+  const chronologicalEntries = [...(order.order_history ?? [])]
     .filter((entry) => entry.event_type === 'payment_updated')
     .sort((left, right) => new Date(left.timestamp).getTime() - new Date(right.timestamp).getTime())
     .map((entry) => {

@@ -30,7 +30,7 @@ import {
   Typography,
 } from '@mui/material'
 import { productApi, type ProductCategory, type ProductUpsertPayload } from '@/pages/products/product.api'
-import type { ProductListItem } from '@/pages/products/product-list.data'
+import type { ProductDetailItem } from '@/pages/products/product-list.data'
 import { defaultCardSx } from '@/shared/ui/paper'
 import { appToast } from '@/shared/ui/toast/toast.helpers'
 import { StackedTextField } from '@/shared/ui/form/stacked-text-field'
@@ -120,7 +120,7 @@ function buildVariants(attributes: AttributeRow[], baseSku: string): VariantRow[
   }))
 }
 
-function buildVariantSeedMap(product: ProductListItem) {
+function buildVariantSeedMap(product: ProductDetailItem) {
   const seeds: Record<string, Pick<VariantRow, 'sku' | 'price' | 'cogs' | 'image_url'>> = {}
   const attributeNameById = new Map(product.attributes.map((attribute) => [attribute.id, attribute.name]))
 

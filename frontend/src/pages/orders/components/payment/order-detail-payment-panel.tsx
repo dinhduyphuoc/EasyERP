@@ -22,6 +22,7 @@ export function OrderDetailPaymentPanel({
   remainingAmount,
   forceShowTaxLine = false,
   paymentHistoryEntries,
+  isPaymentHistoryLoading = false,
   invoiceStatusLabel,
   invoiceStatusColor,
   invoiceCode,
@@ -48,6 +49,7 @@ export function OrderDetailPaymentPanel({
   remainingAmount: number
   forceShowTaxLine?: boolean
   paymentHistoryEntries: PaymentHistoryEntry[]
+  isPaymentHistoryLoading?: boolean
   invoiceStatusLabel: string
   invoiceStatusColor: 'default' | 'success'
   invoiceCode: string | null
@@ -65,102 +67,96 @@ export function OrderDetailPaymentPanel({
 }): ReactElement {
   return (
     <Paper sx={borderedCardSx}>
-      <Stack spacing={0.5}>
-        <Typography
-          variant="caption"
-          sx={{ display: 'block', color: '#98a2b3', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.8 }}
-        >
+      <Stack spacing={2.5}>
+        <Typography variant="h6" sx={{ fontWeight: 700, color: '#101828' }}>
           Thanh toán
         </Typography>
-        <Typography variant="h6" sx={{ fontWeight: 600, color: '#101828' }}>
-          Thanh toán
-        </Typography>
-      </Stack>
 
-      <Stack spacing={2} sx={{ mt: 2 }}>
-        <PaymentSummarySection
-          itemCount={itemCount}
-          subTotal={subTotal}
-          discountAmount={discountAmount}
-          taxAmount={taxAmount}
-          vatRatePercent={vatRatePercent}
-          shippingFee={shippingFee}
-          totalAmount={totalAmount}
-          paidAmount={paidAmount}
-          remainingAmount={remainingAmount}
-          forceShowTaxLine={forceShowTaxLine}
-        />
+        <Stack spacing={2}>
+          <PaymentSummarySection
+            itemCount={itemCount}
+            subTotal={subTotal}
+            discountAmount={discountAmount}
+            taxAmount={taxAmount}
+            vatRatePercent={vatRatePercent}
+            shippingFee={shippingFee}
+            totalAmount={totalAmount}
+            paidAmount={paidAmount}
+            remainingAmount={remainingAmount}
+            forceShowTaxLine={forceShowTaxLine}
+          />
 
-        <PaymentHistorySection entries={paymentHistoryEntries} />
+          <PaymentHistorySection entries={paymentHistoryEntries} isLoading={isPaymentHistoryLoading} />
 
-        <Stack
-          direction={{ xs: 'column', md: 'row' }}
-          spacing={1.5}
-          sx={{
-            justifyContent: 'space-between',
-            alignItems: { md: 'center' },
-            p: 1.5,
-            borderRadius: 2,
-            border: '1px solid',
-            borderColor: 'divider',
-            bgcolor: (theme) => alpha(theme.palette.background.default, 0.5),
-          }}
-        >
-          <Stack spacing={1}>
-            <Chip label={invoiceStatusLabel} color={invoiceStatusColor} sx={{ alignSelf: 'flex-start' }} />
-            <Typography color="text.secondary">
-              Mã hóa đơn: {invoiceCode ?? 'Chưa có mã hóa đơn điện tử'}
-            </Typography>
+          <Stack
+            direction={{ xs: 'column', md: 'row' }}
+            spacing={1.5}
+            sx={{
+              justifyContent: 'space-between',
+              alignItems: { md: 'center' },
+              p: 1.5,
+              borderRadius: 2,
+              border: '1px solid',
+              borderColor: 'divider',
+              bgcolor: (theme) => alpha(theme.palette.background.default, 0.5),
+            }}
+          >
+            <Stack spacing={1}>
+              <Chip label={invoiceStatusLabel} color={invoiceStatusColor} sx={{ alignSelf: 'flex-start' }} />
+              <Typography color="text.secondary">
+                Mã hóa đơn: {invoiceCode ?? 'Chưa có mã hóa đơn điện tử'}
+              </Typography>
+            </Stack>
+
+            {canExportInvoice ? (
+              <Button
+                variant="outlined"
+                startIcon={<ReceiptLongOutlinedIcon />}
+                onClick={onOpenInvoiceDialog}
+                disabled={isActing}
+              >
+                Xuất hóa đơn điện tử
+              </Button>
+            ) : null}
           </Stack>
 
-          {canExportInvoice ? (
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.25}>
+            {canGeneratePaymentQr ? (
+              <Button
+                variant="outlined"
+                startIcon={<QrCode2OutlinedIcon />}
+                onClick={onOpenPaymentQr}
+                disabled={isGeneratingQr}
+              >
+                Tạo QR
+              </Button>
+            ) : null}
+            <Button
+              variant="contained"
+              color="secondary"
+              startIcon={<PaymentsOutlinedIcon />}
+              onClick={onOpenAddPaymentDialog}
+              disabled={isActing || !canAddPayment}
+            >
+              Thêm thanh toán
+            </Button>
             <Button
               variant="outlined"
-              startIcon={<ReceiptLongOutlinedIcon />}
-              onClick={onOpenInvoiceDialog}
-              disabled={isActing}
+              startIcon={<CheckCircleOutlinedIcon />}
+              onClick={onOpenConfirmPaidDialog}
+              disabled={isActing || !canAddPayment}
             >
-              Xuất hóa đơn điện tử
+              Xác nhận đã thu đủ tiền
             </Button>
-          ) : null}
-        </Stack>
-
-        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.25}>
-          {canGeneratePaymentQr ? (
             <Button
               variant="outlined"
-              startIcon={<QrCode2OutlinedIcon />}
-              onClick={onOpenPaymentQr}
-              disabled={isGeneratingQr}
+              startIcon={<EditOutlinedIcon />}
+              onClick={onOpenPaymentDialog}
+              disabled={isActing || !canEditOrder}
             >
-              Tạo QR
+              Cấu hình thanh toán
             </Button>
-          ) : null}
-          <Button
-            variant="contained"
-            color="secondary"
-            startIcon={<PaymentsOutlinedIcon />}
-            onClick={onOpenAddPaymentDialog}
-            disabled={isActing || !canAddPayment}
-          >
-            Thêm thanh toán
-          </Button>
-          <Button
-            variant="outlined"
-            startIcon={<CheckCircleOutlinedIcon />}
-            onClick={onOpenConfirmPaidDialog}
-            disabled={isActing || !canAddPayment}
-          >
-            Xác nhận đã thu đủ tiền
-          </Button>
-          <Button
-            variant="outlined"
-            startIcon={<EditOutlinedIcon />}
-            onClick={onOpenPaymentDialog}
-            disabled={isActing || !canEditOrder}
-          >
-            Cấu hình thanh toán
-          </Button>
+          </Stack>
         </Stack>
       </Stack>
     </Paper>

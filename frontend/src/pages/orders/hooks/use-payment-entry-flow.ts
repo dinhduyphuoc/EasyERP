@@ -1,6 +1,8 @@
 import { useCallback, useState } from 'react'
 import { appToast } from '@/shared/ui/toast/toast.helpers'
-import { orderApi, type OrderListItem } from '../api/order.api'
+import { orderApi, type OrderDetailItem } from '../api/order.api'
+import { getErrorMessage } from '../lib/error-message'
+import { buildConfirmPaidSuccessMessage, buildPaymentRecordedMessage, ORDER_TOAST_MESSAGES } from '../lib/toast-messages'
 import type { PaymentCollectionMethod } from '../lib/payment-display.helpers'
 import type { PaymentMethod } from '../lib/order-payment'
 import { formatCurrencyInput } from '../lib/order.utils'
@@ -17,20 +19,6 @@ const getDefaultPaymentCollectionMethod = (paymentMethod: PaymentMethod): Paymen
   return 'cash'
 }
 
-const getErrorMessage = (error: unknown, fallback: string) =>
-  typeof error === 'object' &&
-  error !== null &&
-  'response' in error &&
-  typeof error.response === 'object' &&
-  error.response !== null &&
-  'data' in error.response &&
-  typeof error.response.data === 'object' &&
-  error.response.data !== null &&
-  'message' in error.response.data &&
-  typeof error.response.data.message === 'string'
-    ? error.response.data.message
-    : fallback
-
 const normalizeCurrencyInput = (value: string): number => {
   const digits = value.replace(/\D/g, '')
   return Number(digits || '0')
@@ -45,11 +33,11 @@ export function usePaymentEntryFlow({
   onOrderUpdated,
 }: {
   orderId: string | undefined
-  order: OrderListItem | null
+  order: OrderDetailItem | null
   canAddPayment: boolean
   currentPaymentMethod: PaymentMethod
   orderRemainingAmount: number
-  onOrderUpdated: (order: OrderListItem) => void
+  onOrderUpdated: (order: OrderDetailItem) => void
 }) {
   const [isAddPaymentDialogOpen, setIsAddPaymentDialogOpen] = useState(false)
   const [isConfirmPaidDialogOpen, setIsConfirmPaidDialogOpen] = useState(false)
@@ -112,12 +100,12 @@ export function usePaymentEntryFlow({
     const normalizedAmount = normalizeCurrencyInput(paymentEntryAmount)
 
     if (!Number.isFinite(normalizedAmount) || normalizedAmount <= 0) {
-      appToast.warning('Vui lòng nhập số tiền thanh toán lớn hơn 0.')
+      appToast.warning(ORDER_TOAST_MESSAGES.invalidPaymentAmount)
       return
     }
 
     if (normalizedAmount > orderRemainingAmount) {
-      appToast.warning('Số tiền thu không được lớn hơn số tiền còn lại.')
+      appToast.warning(ORDER_TOAST_MESSAGES.paymentAmountExceedsRemaining)
       return
     }
 
@@ -131,7 +119,7 @@ export function usePaymentEntryFlow({
 
       onOrderUpdated(updatedOrder)
       setIsAddPaymentDialogOpen(false)
-      appToast.success(`Đã ghi nhận thanh toán cho đơn ${updatedOrder.order_code}.`)
+      appToast.success(buildPaymentRecordedMessage(updatedOrder.order_code))
     } catch (error) {
       console.error('Lỗi khi thêm thanh toán:', error)
       appToast.error(getErrorMessage(error, 'Không thể ghi nhận thanh toán.'))
@@ -146,7 +134,7 @@ export function usePaymentEntryFlow({
     }
 
     if (!paymentEntryNote.trim()) {
-      appToast.warning('Vui lòng nhập ghi chú xác nhận đã thu đủ tiền.')
+      appToast.warning(ORDER_TOAST_MESSAGES.confirmPaidNoteRequired)
       return
     }
 
@@ -159,7 +147,7 @@ export function usePaymentEntryFlow({
 
       onOrderUpdated(updatedOrder)
       setIsConfirmPaidDialogOpen(false)
-      appToast.success(`Đã xác nhận thu đủ tiền cho đơn ${updatedOrder.order_code}.`)
+      appToast.success(buildConfirmPaidSuccessMessage(updatedOrder.order_code))
     } catch (error) {
       console.error('Lỗi khi xác nhận thu đủ tiền:', error)
       appToast.error(getErrorMessage(error, 'Không thể xác nhận đã thu đủ tiền.'))

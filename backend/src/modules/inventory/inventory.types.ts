@@ -96,3 +96,26 @@ export type InventoryAuditListQuery = {
 export type InventoryAuditParams = {
   id?: string;
 };
+
+export type InventoryAuditSummary = {
+  total_lines: number;
+  counted_lines: number;
+  adjusted_lines: number;
+  total_delta_qty: number;
+};
+
+export type InventoryAuditListResponseItem = {
+  id: number;
+  audit_code: string;
+  status: "draft" | "completed";
+  note: string | null;
+  account: {
+    id: string | null;
+    name: string | null;
+  };
+  counted_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+  summary: InventoryAuditSummary;
+};

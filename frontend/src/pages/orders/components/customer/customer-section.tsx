@@ -53,6 +53,8 @@ export function CustomerSection({
   onClearCustomer,
   onSelectCustomer,
 }: CustomerSectionProps) {
+  const visibleOptions = isLoading ? [] : customerSearchOptions
+
   return (
     <Stack spacing={3}>
       <SummaryPaperHeader title="Thông tin khách hàng" />
@@ -125,10 +127,11 @@ export function CustomerSection({
         </Stack>
       ) : (
         <Autocomplete<CustomerAutocompleteOption, false, false, false>
-          options={customerSearchOptions}
+          options={visibleOptions}
           value={null}
           inputValue={customerSearch}
           loading={isLoading}
+          loadingText="Đang cập nhật khách hàng..."
           filterOptions={(availableOptions) => availableOptions}
           getOptionLabel={(option) =>
             option.kind === 'create'
@@ -156,9 +159,11 @@ export function CustomerSection({
             onSelectCustomer(value.customer)
           }}
           renderOption={(props, option) => {
+            const { key, ...optionProps } = props
+
             if (option.kind === 'create') {
               return (
-                <Box component="li" {...props}>
+                <Box key={key} component="li" {...optionProps}>
                   <Stack direction="row" spacing={1.25} sx={{ alignItems: 'center', py: 0.25 }}>
                     <Box
                       sx={{
@@ -181,7 +186,7 @@ export function CustomerSection({
             }
 
             return (
-              <Box component="li" {...props}>
+              <Box key={key} component="li" {...optionProps}>
                 <Stack spacing={0.35} sx={{ py: 0.25 }}>
                   <Typography sx={{ fontWeight: 700, color: '#0f172a' }}>
                     {option.customer.full_name} - {option.customer.client_code}

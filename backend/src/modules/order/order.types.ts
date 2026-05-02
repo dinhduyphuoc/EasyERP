@@ -2,9 +2,8 @@ export type OrderPaymentStatusInput = "unpaid" | "paid" | "deposit";
 export type OrderProcessingStatusInput =
   | "draft"
   | "placed"
-  | "confirmed"
-  | "picked_up"
   | "delivering"
+  | "delivered"
   | "completed"
   | "cancelled"
   | "returned";
@@ -16,7 +15,45 @@ export interface OrderListQuery {
   processing_status?: OrderProcessingStatusInput;
   order_type?: OrderTypeInput;
   customer_id?: string;
+  page?: string;
+  page_size?: string;
   view?: "all" | "drafts" | "returns" | "cancelled" | "incomplete";
+}
+
+export interface OrderOverviewQuery {
+  source?: string;
+  period?: "today" | "this_week" | "this_month" | "all_time";
+}
+
+export interface OrderOverviewResponse {
+  source_options: string[];
+  summary: {
+    net_revenue: string;
+    total_orders: number;
+    unpaid_orders: number;
+    average_order_value: string;
+    sold_quantity: number;
+    pending_shipping_orders: number;
+    delivering_orders: number;
+    cancelled_orders: number;
+  };
+  previous_summary: {
+    net_revenue: string;
+    total_orders: number;
+    unpaid_orders: number;
+    average_order_value: string;
+    sold_quantity: number;
+    pending_shipping_orders: number;
+    delivering_orders: number;
+    cancelled_orders: number;
+  } | null;
+}
+
+export interface OrderOptionSearchQuery {
+  search?: string;
+  limit?: string;
+  ids?: string;
+  skus?: string;
 }
 
 export interface OrderParams {
@@ -35,6 +72,47 @@ export interface OrderShippingPrintResponse {
     "80x80": string;
     "52x70": string;
   };
+}
+
+export interface OrderShippingProviderLogItem {
+  status: string;
+  label: string;
+  updated_at: string | null;
+}
+
+export interface OrderShippingTrackingLogItem {
+  status: string | null;
+  label: string;
+  updated_at: string | null;
+  raw: Record<string, unknown>;
+}
+
+export interface OrderShippingOrderInfoResponse {
+  provider: "ghn";
+  order_id: number;
+  order_code: string;
+  tracking_code: string;
+  current_status: string | null;
+  leadtime: string | null;
+  finish_date: string | null;
+  logs: OrderShippingProviderLogItem[];
+}
+
+export interface OrderShippingTrackingLogsResponse {
+  provider: "ghn";
+  order_id: number;
+  order_code: string;
+  tracking_code: string;
+  logs: OrderShippingTrackingLogItem[];
+}
+
+export interface OrderHistoryResponseItem {
+  id: number;
+  event_type: string;
+  description: string;
+  actor_name: string | null;
+  metadata: unknown;
+  timestamp: string;
 }
 
 export interface DuplicateOrderRequestInput {
@@ -112,8 +190,6 @@ export interface OrderRequestInput {
   return_address?: string | null;
   return_district_id?: number | null;
   return_ward_code?: string | null;
-  to_ward_code?: string | null;
-  to_district_id?: number | null;
   cod_amount?: number | string | null;
   content?: string | null;
   weight?: number | null;
@@ -169,14 +245,16 @@ export interface OrderActionRequestInput {
   shipping_service?: string | null;
   tracking_code?: string | null;
   shipping_status?: string | null;
+  from_name?: string | null;
+  from_phone?: string | null;
   warehouse_status?: string | null;
   invoice_code?: string | null;
 }
 
 export type OrderActionName =
   | "confirm"
-  | "confirm_shipping"
   | "push_to_delivery"
+  | "mark_delivered"
   | "add_payment"
   | "confirm_full_payment"
   | "mark_paid"

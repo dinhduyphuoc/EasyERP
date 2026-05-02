@@ -1,12 +1,15 @@
 import { prisma } from "@lib/prisma";
+import { Prisma } from "../../../generated/prisma/client";
 import { deleteManagedProductImageFromS3 } from "@lib/s3";
 import { BadRequestError, ConflictError, NotFoundError } from "@/common";
 import type {
   ProductCategoryItem,
+  ProductListResponseItem,
   ProductCategoryRequestInput,
   ProductInput,
   ProductRequestInput,
   ProductStatusInput,
+  ProductVariantKindInput,
 } from "./product.types";
 
 type PrismaTransaction = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
@@ -84,6 +87,27 @@ const productInclude = {
   },
 } as const;
 
+const productListSelect = {
+  id: true,
+  product_name: true,
+  default_variant_sku: true,
+  image_url: true,
+  status: true,
+  category_id: true,
+  variants: {
+    where: {
+      status: "active",
+    },
+    select: {
+      sku: true,
+      kind: true,
+      selling_price: true,
+      image_url: true,
+    },
+    orderBy: [{ sku: "asc" as const }],
+  },
+} satisfies Prisma.ProductSelect;
+
 const toOptionalTrimmedString = (value: unknown) => {
   if (typeof value !== "string") {
     return undefined;
@@ -138,6 +162,56 @@ const toOptionalNumber = (value: unknown) => {
   }
 
   return undefined;
+};
+
+const decimalToString = (value: { toString(): string } | null | undefined) =>
+  value ? value.toString() : null;
+
+const mapProductListItem = (product: {
+  id: number;
+  product_name: string;
+  default_variant_sku: string | null;
+  image_url: string | null;
+  status: ProductStatusInput;
+  category_id: number | null;
+  variants: Array<{
+    sku: string;
+    kind: ProductVariantKindInput;
+    selling_price: { toString(): string };
+    image_url: string | null;
+  }>;
+}): ProductListResponseItem => {
+  const numericPrices = product.variants
+    .map((variant) => Number(variant.selling_price.toString()))
+    .filter((value) => Number.isFinite(value))
+    .sort((left, right) => left - right);
+  const primaryVariant =
+    product.variants.find((variant) => variant.sku === product.default_variant_sku) ??
+    product.variants[0] ??
+    null;
+
+  return {
+    id: product.id,
+    product_name: product.product_name,
+    default_variant_sku: product.default_variant_sku,
+    image_url: product.image_url,
+    status: product.status,
+    category_id: product.category_id,
+    min_price:
+      numericPrices.length > 0 ? String(numericPrices[0]) : null,
+    max_price:
+      numericPrices.length > 0 ? String(numericPrices[numericPrices.length - 1]) : null,
+    variant_count: product.variants.length,
+    has_generated_variants: product.variants.some((variant) => variant.kind === "generated"),
+    primary_variant: primaryVariant
+      ? {
+          sku: primaryVariant.sku,
+          kind: primaryVariant.kind,
+          selling_price: primaryVariant.selling_price.toString(),
+          image_url: primaryVariant.image_url,
+        }
+      : null,
+  };
 };
 
 const PRODUCT_STATUSES: ProductStatusInput[] = ["active", "inactive", "draft", "deleted"];
@@ -799,15 +873,17 @@ export const ProductService = {
   },
 
   getProducts: async (storeId: string) => {
-    return prisma.product.findMany({
+    const products = await prisma.product.findMany({
       where: {
         store_id: storeId,
         status: {
           not: "deleted",
         },
       },
-      include: productInclude,
+      select: productListSelect,
     });
+
+    return products.map((product) => mapProductListItem(product));
   },
 
   getProductById: async (storeId: string, id: number) => getProductOrThrow(storeId, id),
