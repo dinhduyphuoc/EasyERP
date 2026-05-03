@@ -15,10 +15,11 @@ import {
   Typography,
   alpha,
 } from '@mui/material'
-import { Outlet, useLocation, useNavigate } from 'react-router'
+import { Outlet, useLocation } from 'react-router'
 import { useAuth } from '@/modules/auth/use-auth'
 import { useStore } from '@/modules/store/use-store'
 import { settingsItemsByPath, settingsSections } from './settings.config'
+import { SettingsUnsavedProvider, useSettingsUnsavedActions } from './settings-unsaved-context'
 
 const nestedBreadcrumbItems: Record<string, { parentPath: string; title: string }> = {
   '/settings/general/store-details': {
@@ -42,8 +43,15 @@ const getInitials = (value: string) =>
 const OVERLAY_ANIMATION_MS = 220
 
 export function SettingsWorkspaceLayout(): ReactElement {
+  return (
+    <SettingsUnsavedProvider>
+      <SettingsWorkspaceLayoutContent />
+    </SettingsUnsavedProvider>
+  )
+}
+
+function SettingsWorkspaceLayoutContent(): ReactElement {
   const location = useLocation()
-  const navigate = useNavigate()
   const { user, hasAnyPermission } = useAuth()
   const { activeStore } = useStore()
   const [search, setSearch] = useState('')
@@ -83,6 +91,7 @@ export function SettingsWorkspaceLayout(): ReactElement {
     typeof location.state.overlayFrom === 'string'
       ? location.state.overlayFrom
       : '/'
+  const { attemptNavigate, pulse, isDirty } = useSettingsUnsavedActions()
 
   useEffect(() => {
     const animationFrame = window.requestAnimationFrame(() => {
@@ -103,9 +112,14 @@ export function SettingsWorkspaceLayout(): ReactElement {
       return
     }
 
+    if (isDirty) {
+      pulse()
+      return
+    }
+
     setIsClosing(true)
     closeTimeoutRef.current = window.setTimeout(() => {
-      navigate(overlayFrom, { replace: true })
+      attemptNavigate(overlayFrom)
     }, OVERLAY_ANIMATION_MS)
   }
 
@@ -251,7 +265,7 @@ export function SettingsWorkspaceLayout(): ReactElement {
                     return (
                       <ListItemButton
                         key={item.path}
-                        onClick={() => navigate(item.path, { state: location.state })}
+                        onClick={() => attemptNavigate(item.path)}
                         sx={{
                           mb: 0.5,
                           borderRadius: 3,
@@ -366,7 +380,7 @@ export function SettingsWorkspaceLayout(): ReactElement {
                           spacing={1}
                           onClick={
                             isNested
-                              ? () => navigate(breadcrumb.parent.path, { state: location.state })
+                              ? () => attemptNavigate(breadcrumb.parent.path)
                               : undefined
                           }
                           type={isNested ? 'button' : undefined}

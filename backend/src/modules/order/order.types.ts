@@ -22,13 +22,16 @@ export interface OrderListQuery {
 
 export interface OrderOverviewQuery {
   source?: string;
-  period?: "today" | "this_week" | "this_month" | "all_time";
+  period?: "today" | "this_month" | "this_quarter" | "last_6_months" | "this_year";
 }
 
 export interface OrderOverviewResponse {
   source_options: string[];
   summary: {
     net_revenue: string;
+    total_cost: string;
+    gross_profit: string;
+    gross_margin_percent: string;
     total_orders: number;
     unpaid_orders: number;
     average_order_value: string;
@@ -39,6 +42,9 @@ export interface OrderOverviewResponse {
   };
   previous_summary: {
     net_revenue: string;
+    total_cost: string;
+    gross_profit: string;
+    gross_margin_percent: string;
     total_orders: number;
     unpaid_orders: number;
     average_order_value: string;

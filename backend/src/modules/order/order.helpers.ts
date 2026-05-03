@@ -1,4 +1,3 @@
-import { prisma } from "@lib/prisma";
 import { Prisma } from "../../../generated/prisma/client";
 import { BadRequestError, ForbiddenError, NotFoundError } from "@/common";
 import { AuditLogService } from "@/common/services/audit-log.service";
@@ -10,6 +9,7 @@ import type {
   OrderProcessingStatusInput,
   OrderTypeInput,
 } from "./order.types";
+import { OrderRepository } from "./order.repository";
 
 export type OrderActorContext = {
   userId: string;
@@ -782,7 +782,7 @@ export const buildNormalizedItems = async (storeId: string, items: OrderItemRequ
 
   const [variants, products] = await Promise.all([
     requestedVariantSkus.length > 0
-      ? prisma.productVariant.findMany({
+      ? OrderRepository.findProductVariants({
           where: { sku: { in: requestedVariantSkus }, store_id: storeId },
           include: {
             product: {
@@ -795,7 +795,7 @@ export const buildNormalizedItems = async (storeId: string, items: OrderItemRequ
         })
       : Promise.resolve([]),
     requestedProductIds.length > 0
-      ? prisma.product.findMany({
+      ? OrderRepository.findProducts({
           where: { id: { in: requestedProductIds }, store_id: storeId },
           select: {
             id: true,

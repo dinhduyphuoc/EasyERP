@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { customerApi, type CityItem, type DistrictItem, type LocationItem } from '@/pages/customers/customer.api'
 import { appToast } from '@/shared/ui/toast/toast.helpers'
+import { showErrorToast } from '@/shared/ui/toast/toast-error'
 import { orderApi, type OrderDetailItem } from '../api'
 import type { CustomerModalForm } from '../components'
 import { buildCustomerUpdatedMessage, ORDER_TOAST_MESSAGES } from '../lib/toast-messages'
@@ -117,7 +118,7 @@ export function useOrderCustomerEditor({
       } catch (error) {
         if (!cancelled) {
           console.error('Lỗi khi tải tỉnh/thành phố khách hàng:', error)
-          appToast.error(getErrorMessage(error, 'Không thể tải danh sách tỉnh/thành phố.'))
+          showErrorToast(error, 'Không thể tải danh sách tỉnh/thành phố.')
         }
       } finally {
         if (!cancelled) {
@@ -156,7 +157,7 @@ export function useOrderCustomerEditor({
       } catch (error) {
         if (!cancelled) {
           console.error('Lỗi khi tải quận/huyện khách hàng:', error)
-          appToast.error(getErrorMessage(error, 'Không thể tải danh sách quận/huyện.'))
+          showErrorToast(error, 'Không thể tải danh sách quận/huyện.')
         }
       } finally {
         if (!cancelled) {
@@ -195,7 +196,7 @@ export function useOrderCustomerEditor({
       } catch (error) {
         if (!cancelled) {
           console.error('Lỗi khi tải phường/xã khách hàng:', error)
-          appToast.error(getErrorMessage(error, 'Không thể tải danh sách phường/xã.'))
+          showErrorToast(error, 'Không thể tải danh sách phường/xã.')
         }
       } finally {
         if (!cancelled) {
@@ -367,7 +368,7 @@ export function useOrderCustomerEditor({
       }
     } catch (error) {
       console.error('Lỗi khi tải thông tin khách hàng:', error)
-      appToast.error(getErrorMessage(error, 'Không thể tải thông tin khách hàng để chỉnh sửa.'))
+      showErrorToast(error, 'Không thể tải thông tin khách hàng để chỉnh sửa.')
     }
   }, [getErrorMessage, order])
 
@@ -439,7 +440,7 @@ export function useOrderCustomerEditor({
       appToast.success(buildCustomerUpdatedMessage(updatedOrder.order_code))
     } catch (error) {
       console.error('Lỗi khi cập nhật khách hàng từ đơn hàng:', error)
-      appToast.error(getErrorMessage(error, 'Không thể cập nhật thông tin khách hàng.'))
+      showErrorToast(error, 'Không thể cập nhật thông tin khách hàng.')
     } finally {
       setIsCustomerModalSaving(false)
     }

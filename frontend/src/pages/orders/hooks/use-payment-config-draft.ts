@@ -1,7 +1,7 @@
 ﻿import { useCallback, useMemo, useState } from 'react'
 import { appToast } from '@/shared/ui/toast/toast.helpers'
+import { showErrorToast } from '@/shared/ui/toast/toast-error'
 import { orderApi, type OrderDetailItem } from '../api/order.api'
-import { getErrorMessage } from '../lib/error-message'
 import { buildPaymentConfigUpdatedMessage, ORDER_TOAST_MESSAGES } from '../lib/toast-messages'
 import {
   buildPaymentNoteContent,
@@ -226,7 +226,7 @@ export function usePaymentConfigDraft({
       appToast.success(buildPaymentConfigUpdatedMessage(updatedOrder.order_code))
     } catch (error) {
       console.error('Lỗi khi cập nhật thanh toán:', error)
-      appToast.error(getErrorMessage(error, 'Không thể cập nhật thanh toán.'))
+      showErrorToast(error, 'Không thể cập nhật thanh toán.')
     } finally {
       setIsSavingPayment(false)
     }

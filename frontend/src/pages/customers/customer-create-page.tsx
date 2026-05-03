@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
 import { useNavigate, useParams } from 'react-router'
-import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 import SaveOutlinedIcon from '@mui/icons-material/SaveOutlined'
 import {
   Box,
@@ -21,8 +20,11 @@ import {
 } from './customer.api'
 import { defaultCardSx } from '@/shared/ui/paper'
 import { appToast } from '@/shared/ui/toast/toast.helpers'
+import { showErrorToast } from '@/shared/ui/toast/toast-error'
 import { StackedDropdown } from '@/shared/ui/form/stacked-dropdown'
 import { StackedTextField } from '@/shared/ui/form/stacked-text-field'
+import { CreateEditPageHeader } from '@/shared/ui/page'
+import { UnsavedChangesBanner, useJsonDirtyState, useUnsavedChangesPrompt } from '@/shared/ui/unsaved-changes'
 
 type GenderValue = '' | 'male' | 'female' | 'other'
 
@@ -52,6 +54,25 @@ export function CustomerCreatePage(): ReactElement {
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
   const [hasAttemptedSave, setHasAttemptedSave] = useState(false)
+  const dirtyState = useJsonDirtyState(
+    {
+      clientCode,
+      fullName,
+      customerCategoryId,
+      phone,
+      email,
+      stateId,
+      cityId,
+      districtId,
+      addressLine,
+      addressLine2,
+      addressNote,
+      birthDate,
+      gender,
+      taxCode,
+    },
+    !isLoading,
+  )
 
   useEffect(() => {
     const fetchInitialData = async () => {
@@ -91,14 +112,51 @@ export function CustomerCreatePage(): ReactElement {
           setAddressLine(address?.address_line ?? '')
           setAddressLine2(address?.address_line2 ?? '')
           setAddressNote(primaryAddress?.note ?? address?.note ?? '')
+          dirtyState.setInitialSnapshot(
+            JSON.stringify({
+              clientCode: customerData.client_code,
+              fullName: customerData.full_name,
+              customerCategoryId: customerData.customer_category_id ? String(customerData.customer_category_id) : '',
+              phone: customerData.phone ?? '',
+              email: customerData.email ?? '',
+              stateId: address ? String(address.state_id) : '',
+              cityId: address ? String(address.city_id) : '',
+              districtId: address?.district_id ? String(address.district_id) : '',
+              addressLine: address?.address_line ?? '',
+              addressLine2: address?.address_line2 ?? '',
+              addressNote: primaryAddress?.note ?? address?.note ?? '',
+              birthDate: customerData.birth_date ? customerData.birth_date.slice(0, 10) : '',
+              gender: customerData.gender ?? '',
+              taxCode: customerData.tax_code ?? '',
+            }),
+          )
 
           window.setTimeout(() => {
             isHydratingRef.current = false
           }, 0)
+        } else {
+          dirtyState.setInitialSnapshot(
+            JSON.stringify({
+              clientCode: '',
+              fullName: '',
+              customerCategoryId: '',
+              phone: '',
+              email: '',
+              stateId: '',
+              cityId: '',
+              districtId: '',
+              addressLine: '',
+              addressLine2: '',
+              addressNote: '',
+              birthDate: '',
+              gender: '',
+              taxCode: '',
+            }),
+          )
         }
       } catch (error) {
         console.error('Lỗi khi tải dữ liệu khách hàng:', error)
-        appToast.error('Không thể tải dữ liệu tạo khách hàng.')
+        showErrorToast(error, 'Không thể tải dữ liệu tạo khách hàng.')
       } finally {
         setIsLoading(false)
       }
@@ -126,7 +184,7 @@ export function CustomerCreatePage(): ReactElement {
         setCities(data)
       } catch (error) {
         console.error('Lỗi khi tải huyện/quận:', error)
-        appToast.error('Không thể tải danh sách huyện/quận.')
+        showErrorToast(error, 'Không thể tải danh sách huyện/quận.')
       }
     }
 
@@ -153,7 +211,7 @@ export function CustomerCreatePage(): ReactElement {
         setDistricts(data)
       } catch (error) {
         console.error('Lỗi khi tải xã/phường:', error)
-        appToast.error('Không thể tải danh sách xã/phường.')
+        showErrorToast(error, 'Không thể tải danh sách xã/phường.')
       }
     }
 
@@ -195,6 +253,51 @@ export function CustomerCreatePage(): ReactElement {
 
   const visibleErrors = hasAttemptedSave ? errors : {}
   const canSave = !isLoading && !isSaving && Object.keys(errors).length === 0
+  const { isDirty } = dirtyState
+
+  const handleDiscard = () => {
+    if (!dirtyState.initialSnapshot) {
+      return
+    }
+
+    const snapshot = JSON.parse(dirtyState.initialSnapshot) as {
+      clientCode: string
+      fullName: string
+      customerCategoryId: string
+      phone: string
+      email: string
+      stateId: string
+      cityId: string
+      districtId: string
+      addressLine: string
+      addressLine2: string
+      addressNote: string
+      birthDate: string
+      gender: GenderValue
+      taxCode: string
+    }
+
+    isHydratingRef.current = true
+    setClientCode(snapshot.clientCode)
+    setFullName(snapshot.fullName)
+    setCustomerCategoryId(snapshot.customerCategoryId)
+    setPhone(snapshot.phone)
+    setEmail(snapshot.email)
+    setStateId(snapshot.stateId)
+    setCityId(snapshot.cityId)
+    setDistrictId(snapshot.districtId)
+    setAddressLine(snapshot.addressLine)
+    setAddressLine2(snapshot.addressLine2)
+    setAddressNote(snapshot.addressNote)
+    setBirthDate(snapshot.birthDate)
+    setGender(snapshot.gender)
+    setTaxCode(snapshot.taxCode)
+    setHasAttemptedSave(false)
+
+    window.setTimeout(() => {
+      isHydratingRef.current = false
+    }, 0)
+  }
 
   const handleSave = async () => {
     setHasAttemptedSave(true)
@@ -253,51 +356,41 @@ export function CustomerCreatePage(): ReactElement {
       navigate('/customers')
     } catch (error) {
       console.error('Lỗi khi tạo khách hàng:', error)
-      const message =
-        typeof error === 'object' &&
-        error !== null &&
-        'response' in error &&
-        typeof error.response === 'object' &&
-        error.response !== null &&
-        'data' in error.response &&
-        typeof error.response.data === 'object' &&
-        error.response.data !== null &&
-        'message' in error.response.data &&
-        typeof error.response.data.message === 'string'
-          ? error.response.data.message
-          : isEditMode
-            ? 'Không thể cập nhật khách hàng. Vui lòng thử lại.'
-            : 'Không thể tạo khách hàng. Vui lòng thử lại.'
-
-      appToast.error(message)
+      showErrorToast(
+        error,
+        isEditMode
+          ? 'Không thể cập nhật khách hàng. Vui lòng thử lại.'
+          : 'Không thể tạo khách hàng. Vui lòng thử lại.',
+      )
     } finally {
       setIsSaving(false)
     }
   }
+  const { bannerProps, attemptNavigate } = useUnsavedChangesPrompt({
+    isDirty,
+    isSaving,
+    onDiscard: handleDiscard,
+    onSave: () => void handleSave(),
+  })
 
   return (
     <Box sx={{ px: { xs: 2, md: 3, xl: 4 }, pb: 8 }}>
       <Box sx={{ mb: 2 }}>
-        <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} sx={{ justifyContent: 'space-between', alignItems: { md: 'center' } }}>
-          <Stack direction="row" spacing={2} sx={{ alignItems: 'center', cursor: 'pointer' }} onClick={() => navigate('/customers')}>
-            <Paper sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', p: 1 }}>
-              <ArrowBackIcon sx={{ color: '#344054' }} />
-            </Paper>
-            <Typography variant="h6" sx={{ fontWeight: 600, color: '#101828' }}>
-              {isEditMode ? 'Chỉnh sửa khách hàng' : 'Thêm khách hàng'}
-            </Typography>
-          </Stack>
-
-          <Button
-            variant="contained"
-            color="secondary"
-            startIcon={isSaving ? <CircularProgress size={16} color="inherit" /> : <SaveOutlinedIcon />}
-            onClick={() => void handleSave()}
-            disabled={!canSave}
-          >
-            {isSaving ? 'Đang lưu...' : isEditMode ? 'Cập nhật' : 'Lưu'}
-          </Button>
-        </Stack>
+        <CreateEditPageHeader
+          title={isEditMode ? 'Chỉnh sửa khách hàng' : 'Thêm khách hàng'}
+          onBack={() => attemptNavigate('/customers')}
+          actions={
+            <Button
+              variant="contained"
+              color="secondary"
+              startIcon={isSaving ? <CircularProgress size={16} color="inherit" /> : <SaveOutlinedIcon />}
+              onClick={() => void handleSave()}
+              disabled={!canSave}
+            >
+              {isSaving ? 'Đang lưu...' : isEditMode ? 'Cập nhật' : 'Lưu'}
+            </Button>
+          }
+        />
       </Box>
 
       <Stack spacing={3}>
@@ -497,6 +590,8 @@ export function CustomerCreatePage(): ReactElement {
           </Stack>
         </Paper>
       </Stack>
+
+      <UnsavedChangesBanner {...bannerProps} />
     </Box>
   )
 }

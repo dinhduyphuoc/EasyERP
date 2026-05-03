@@ -14,10 +14,9 @@ import { useStore } from '@/modules/store/use-store'
 import { CommonListLayout } from '@/shared/ui/list/common-list-layout'
 import { ListEmptyState } from '@/shared/ui/list/list-empty-state'
 import type { ListColumn, ListFilterConfig, ListTabConfig } from '@/shared/ui/list/common-list.types'
-import { appToast } from '@/shared/ui/toast/toast.helpers'
+import { showErrorToast } from '@/shared/ui/toast/toast-error'
 import { orderApi, type OrderListItem } from '../api/order.api'
 import { ListTableSkeleton } from '../components/shared/skeletons'
-import { getErrorMessage } from './error-message'
 import { formatCurrency, formatDateTime, getPaymentStatusMeta, getProcessingStatusMeta } from './order.utils'
 
 type OrdersCollectionPageProps = {
@@ -131,7 +130,7 @@ export function OrdersCollectionPage({
       setTotal(data.total)
     } catch (error) {
       console.error('Lỗi khi tải đơn hàng:', error)
-      appToast.error(getErrorMessage(error, 'Không thể tải dữ liệu đơn hàng.'))
+      showErrorToast(error, 'Không thể tải dữ liệu đơn hàng.')
     } finally {
       setIsLoading(false)
       setHasResolvedInitialLoad(true)

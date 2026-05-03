@@ -15,21 +15,10 @@ import { StackedTextField } from '@/shared/ui/form/stacked-text-field'
 import { borderedCardSx } from '@/shared/ui/paper'
 import { SummaryPaperHeader } from '@/shared/ui/summary-paper-header'
 import { appToast } from '@/shared/ui/toast/toast.helpers'
+import { showErrorToast } from '@/shared/ui/toast/toast-error'
+import { useJsonDirtyState } from '@/shared/ui/unsaved-changes'
 import { generalSettingsApi } from './general-settings.api'
-
-const getErrorMessage = (error: unknown, fallback: string) =>
-  typeof error === 'object' &&
-  error !== null &&
-  'response' in error &&
-  typeof error.response === 'object' &&
-  error.response !== null &&
-  'data' in error.response &&
-  typeof error.response.data === 'object' &&
-  error.response.data !== null &&
-  'message' in error.response.data &&
-  typeof error.response.data.message === 'string'
-    ? error.response.data.message
-    : fallback
+import { useSettingsUnsavedRegistration } from './settings-unsaved-context'
 
 export function SettingsAddressManagementPage(): ReactElement {
   const [isLoading, setIsLoading] = useState(true)
@@ -55,6 +44,10 @@ export function SettingsAddressManagementPage(): ReactElement {
     enabled: false,
     rate_percent: 0,
   })
+  const dirtyState = useJsonDirtyState(
+    { contactName, phone, stateId, cityId, districtId, addressLine },
+    !isLoading,
+  )
 
   useEffect(() => {
     const load = async () => {
@@ -74,8 +67,18 @@ export function SettingsAddressManagementPage(): ReactElement {
         setAddressLine(settings.defaults.shipping_address.address_line)
         setBankSnapshot(settings.defaults.bank_account)
         setVatSnapshot(settings.defaults.vat)
+        dirtyState.setInitialSnapshot(
+          JSON.stringify({
+            contactName: settings.defaults.shipping_address.contact_name,
+            phone: settings.defaults.shipping_address.phone,
+            stateId: settings.defaults.shipping_address.state_id ?? '',
+            cityId: settings.defaults.shipping_address.city_id ?? '',
+            districtId: settings.defaults.shipping_address.district_id ?? '',
+            addressLine: settings.defaults.shipping_address.address_line,
+          }),
+        )
       } catch (error) {
-        appToast.error(getErrorMessage(error, 'Không thể tải địa chỉ gửi mặc định.'))
+        showErrorToast(error, 'Không thể tải địa chỉ gửi mặc định.')
       } finally {
         setIsLoading(false)
       }
@@ -97,7 +100,7 @@ export function SettingsAddressManagementPage(): ReactElement {
       try {
         setCities(await customerApi.getCities({ state_id: stateId, is_active: true }))
       } catch (error) {
-        appToast.error(getErrorMessage(error, 'Không thể tải quận/huyện.'))
+        showErrorToast(error, 'Không thể tải quận/huyện.')
       }
     }
 
@@ -115,7 +118,7 @@ export function SettingsAddressManagementPage(): ReactElement {
       try {
         setDistricts(await customerApi.getDistricts({ city_id: cityId, is_active: true }))
       } catch (error) {
-        appToast.error(getErrorMessage(error, 'Không thể tải phường/xã.'))
+        showErrorToast(error, 'Không thể tải phường/xã.')
       }
     }
 
@@ -129,6 +132,7 @@ export function SettingsAddressManagementPage(): ReactElement {
 
     return [addressLine, districtName, cityName, stateName].filter(Boolean).join(', ') || 'Chưa có địa chỉ mặc định'
   }, [addressLine, cities, cityId, districtId, districts, stateId, states])
+  const { initialSnapshot, currentSnapshot, isDirty } = dirtyState
 
   const handleSave = async () => {
     setIsSaving(true)
@@ -147,13 +151,47 @@ export function SettingsAddressManagementPage(): ReactElement {
           vat: vatSnapshot,
         },
       })
+      dirtyState.setInitialSnapshot(currentSnapshot)
       appToast.success('Đã cập nhật địa chỉ gửi mặc định.')
     } catch (error) {
-      appToast.error(getErrorMessage(error, 'Không thể lưu địa chỉ gửi mặc định.'))
+      showErrorToast(error, 'Không thể lưu địa chỉ gửi mặc định.')
     } finally {
       setIsSaving(false)
     }
   }
+
+  const handleDiscard = () => {
+    if (!initialSnapshot) {
+      return
+    }
+
+    const snapshot = JSON.parse(initialSnapshot) as {
+      contactName: string
+      phone: string
+      stateId: number | ''
+      cityId: number | ''
+      districtId: number | ''
+      addressLine: string
+    }
+
+    setContactName(snapshot.contactName)
+    setPhone(snapshot.phone)
+    setStateId(snapshot.stateId)
+    setCityId(snapshot.cityId)
+    setDistrictId(snapshot.districtId)
+    setAddressLine(snapshot.addressLine)
+  }
+  useSettingsUnsavedRegistration(
+    useMemo(
+      () => ({
+        isDirty,
+        isSaving,
+        onSave: () => void handleSave(),
+        onDiscard: handleDiscard,
+      }),
+      [isDirty, isSaving, handleDiscard],
+    ),
+  )
 
   return (
     <Stack spacing={2.5} sx={{ pb: 8 }}>
@@ -181,7 +219,7 @@ export function SettingsAddressManagementPage(): ReactElement {
               <FmdGoodOutlinedIcon fontSize="small" />
             </Box>
             <Box>
-              <Typography sx={{ fontWeight: 700, color: '#101828' }}>Default shipping address</Typography>
+              <Typography sx={{ fontWeight: 700, color: '#101828' }}>Địa chỉ gửi hàng mặc định</Typography>
               <Typography variant="body2" sx={{ color: '#667085' }}>
                 {addressSummary}
               </Typography>
@@ -229,14 +267,7 @@ export function SettingsAddressManagementPage(): ReactElement {
               </StackedDropdown>
             </Box>
 
-            <StackedTextField
-              fullWidth
-              label="Address line"
-              value={addressLine}
-              onChange={(event) => setAddressLine(event.target.value)}
-              multiline
-              minRows={3}
-            />
+            <StackedTextField fullWidth label="Địa chỉ chi tiết" value={addressLine} onChange={(event) => setAddressLine(event.target.value)} multiline minRows={3} />
           </Stack>
         </Stack>
       </Paper>

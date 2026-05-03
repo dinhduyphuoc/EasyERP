@@ -1,13 +1,11 @@
-import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded'
+import { useEffect, useMemo, useState, type ReactElement } from 'react'
 import {
-  Alert,
   Button,
   CircularProgress,
   MenuItem,
   Paper,
   Stack,
 } from '@mui/material'
-import { useEffect, useState, type ReactElement } from 'react'
 import { useNavigate } from 'react-router'
 import { useAuth } from '@/modules/auth/use-auth'
 import { storeApi } from '@/modules/store/store.api'
@@ -17,28 +15,17 @@ import { StackedTextField } from '@/shared/ui/form/stacked-text-field'
 import { borderedCardSx } from '@/shared/ui/paper'
 import { SummaryPaperHeader } from '@/shared/ui/summary-paper-header'
 import { appToast } from '@/shared/ui/toast/toast.helpers'
+import { showErrorToast } from '@/shared/ui/toast/toast-error'
+import { useJsonDirtyState } from '@/shared/ui/unsaved-changes'
+import { useSettingsUnsavedRegistration } from './settings-unsaved-context'
 
 const BUSINESS_TYPES = [
-  { value: 'individual', label: 'Ca nhan' },
-  { value: 'business', label: 'Doanh nghiep' },
+  { value: 'individual', label: 'Cá nhân' },
+  { value: 'business', label: 'Doanh nghiệp' },
 ]
 
 const CURRENCIES = ['USD', 'VND', 'EUR']
 const TIMEZONES = ['Asia/Saigon', 'UTC', 'America/New_York']
-
-const getErrorMessage = (error: unknown, fallback: string) =>
-  typeof error === 'object' &&
-  error !== null &&
-  'response' in error &&
-  typeof error.response === 'object' &&
-  error.response !== null &&
-  'data' in error.response &&
-  typeof error.response.data === 'object' &&
-  error.response.data !== null &&
-  'message' in error.response.data &&
-  typeof error.response.data.message === 'string'
-    ? error.response.data.message
-    : fallback
 
 export function SettingsStoreDetailsPage(): ReactElement {
   const navigate = useNavigate()
@@ -53,6 +40,18 @@ export function SettingsStoreDetailsPage(): ReactElement {
   const [legalFullName, setLegalFullName] = useState('')
   const [contactEmail, setContactEmail] = useState('')
   const [contactPhone, setContactPhone] = useState('')
+  const dirtyState = useJsonDirtyState(
+    {
+      storeName,
+      currency,
+      timezone,
+      businessType,
+      legalFullName,
+      contactEmail,
+      contactPhone,
+    },
+    !isLoading,
+  )
 
   useEffect(() => {
     if (!activeStore) {
@@ -78,9 +77,20 @@ export function SettingsStoreDetailsPage(): ReactElement {
         setLegalFullName(store.profile.legal_full_name)
         setContactEmail(store.profile.contact_email || user?.email || '')
         setContactPhone(store.profile.contact_phone)
+        dirtyState.setInitialSnapshot(
+          JSON.stringify({
+            storeName: store.name,
+            currency: store.default_currency,
+            timezone: store.default_timezone,
+            businessType: store.profile.business_type || 'individual',
+            legalFullName: store.profile.legal_full_name,
+            contactEmail: store.profile.contact_email || user?.email || '',
+            contactPhone: store.profile.contact_phone,
+          }),
+        )
       } catch (error) {
         if (!cancelled) {
-          appToast.error(getErrorMessage(error, 'Khong the tai cau hinh cua hang.'))
+          showErrorToast(error, 'Không thể tải cấu hình cửa hàng.')
         }
       } finally {
         if (!cancelled) {
@@ -95,6 +105,8 @@ export function SettingsStoreDetailsPage(): ReactElement {
       cancelled = true
     }
   }, [activeStore?.id, user?.email])
+
+  const { initialSnapshot, currentSnapshot, isDirty } = dirtyState
 
   const handleSave = async () => {
     if (!activeStore) {
@@ -117,62 +129,86 @@ export function SettingsStoreDetailsPage(): ReactElement {
       })
 
       await Promise.all([refreshUser(), refreshStores()])
-      appToast.success('Da cap nhat thong tin cua hang.')
+      dirtyState.setInitialSnapshot(currentSnapshot)
+      appToast.success('Đã cập nhật thông tin cửa hàng.')
       navigate('/settings/general', { state: { overlayFrom: '/' } })
     } catch (error) {
-      appToast.error(getErrorMessage(error, 'Khong the luu thong tin cua hang.'))
+      showErrorToast(error, 'Không thể lưu thông tin cửa hàng.')
     } finally {
       setIsSaving(false)
     }
   }
 
+  const handleDiscard = () => {
+    if (!initialSnapshot) {
+      return
+    }
+
+    const snapshot = JSON.parse(initialSnapshot) as {
+      storeName: string
+      currency: string
+      timezone: string
+      businessType: string
+      legalFullName: string
+      contactEmail: string
+      contactPhone: string
+    }
+
+    setStoreName(snapshot.storeName)
+    setCurrency(snapshot.currency)
+    setTimezone(snapshot.timezone)
+    setBusinessType(snapshot.businessType)
+    setLegalFullName(snapshot.legalFullName)
+    setContactEmail(snapshot.contactEmail)
+    setContactPhone(snapshot.contactPhone)
+  }
+
+  const { attemptNavigate, pulse } = useSettingsUnsavedRegistration(
+    useMemo(
+      () => ({
+        isDirty,
+        isSaving,
+        onSave: () => void handleSave(),
+        onDiscard: handleDiscard,
+      }),
+      [isDirty, isSaving, handleDiscard],
+    ),
+  )
+
   return (
     <Stack spacing={2.5} sx={{ pb: 8 }}>
       <Paper sx={borderedCardSx}>
-        <Stack spacing={1.5}>
-          <Button
-            variant="text"
-            startIcon={<ArrowBackRoundedIcon />}
-            onClick={() => navigate('/settings/general', { state: { overlayFrom: '/' } })}
-            sx={{ alignSelf: 'flex-start', px: 0 }}
-          >
-            Quay lai Cai dat chung
-          </Button>
-          <SummaryPaperHeader title="Thong tin cua hang" />
-          <Alert severity="info" sx={{ borderRadius: 3 }}>
-            Chinh sua ten cua hang, thong tin lien he, ho so phap ly va thiet lap van hanh mac dinh.
-          </Alert>
-        </Stack>
-      </Paper>
-
-      <Paper sx={borderedCardSx}>
         <Stack spacing={2}>
-          <SummaryPaperHeader title="Ho so cua hang" />
+          <SummaryPaperHeader title="Thông tin cửa hàng" />
           {isLoading ? <CircularProgress size={24} /> : null}
 
           <StackedTextField
             fullWidth
-            label="Ten cua hang"
+            label="Tên cửa hàng"
             value={storeName}
             onChange={(event) => setStoreName(event.target.value)}
-            helperText="Hien thi tren cua hang cua ban."
           />
 
           <StackedTextField
             fullWidth
-            label="Email cua hang"
+            label="Email"
             value={contactEmail}
             onChange={(event) => setContactEmail(event.target.value)}
           />
 
           <StackedTextField
             fullWidth
-            label="So dien thoai cua hang"
+            label="Số điện thoại"
             value={contactPhone}
             onChange={(event) => setContactPhone(event.target.value)}
           />
 
-          <StackedDropdown fullWidth label="Loai hinh" value={businessType} onChange={(event) => setBusinessType(String(event.target.value))}>
+          <StackedDropdown
+            fullWidth
+            label="Mô hình cửa hàng"
+            value={businessType}
+            onChange={(event) => setBusinessType(String(event.target.value))}
+          >
             {BUSINESS_TYPES.map((item) => (
               <MenuItem key={item.value} value={item.value}>
                 {item.label}
@@ -182,27 +218,24 @@ export function SettingsStoreDetailsPage(): ReactElement {
 
           <StackedTextField
             fullWidth
-            label="Ten phap ly / Ho va ten"
+            label="Họ và tên pháp lý"
             value={legalFullName}
             onChange={(event) => setLegalFullName(event.target.value)}
           />
 
-          <Alert severity="info" sx={{ borderRadius: 3 }}>
-            Dia chi giao hang mac dinh cua shop duoc quan ly tai "Quan ly dia chi" va duoc dung lam nguon chuan cho shipping flow.
-          </Alert>
           <Button
             variant="outlined"
-            onClick={() => navigate('/settings/address-management', { state: { overlayFrom: '/' } })}
+            onClick={() => attemptNavigate('/settings/address-management')}
             sx={{ alignSelf: 'flex-start' }}
           >
-            Quan ly dia chi giao hang mac dinh
+            Quản lý địa chỉ giao hàng mặc định
           </Button>
         </Stack>
       </Paper>
 
       <Paper sx={borderedCardSx}>
         <Stack spacing={2}>
-          <SummaryPaperHeader title="Thiet lap mac dinh" />
+          <SummaryPaperHeader title="Thiết lập mặc định" />
           <StackedDropdown fullWidth label="Currency" value={currency} onChange={(event) => setCurrency(String(event.target.value))}>
             {CURRENCIES.map((item) => (
               <MenuItem key={item} value={item}>
@@ -222,11 +255,21 @@ export function SettingsStoreDetailsPage(): ReactElement {
       </Paper>
 
       <Stack direction="row" spacing={1.25} sx={{ justifyContent: 'flex-end' }}>
-        <Button variant="outlined" onClick={() => navigate('/settings/general', { state: { overlayFrom: '/' } })}>
-          Huy
+        <Button
+          variant="outlined"
+          onClick={() => {
+            if (isDirty) {
+              pulse()
+              return
+            }
+
+            navigate('/settings/general', { state: { overlayFrom: '/' } })
+          }}
+        >
+          Hủy
         </Button>
         <Button variant="contained" onClick={() => void handleSave()} disabled={isSaving || isLoading || !activeStore}>
-          {isSaving ? 'Dang luu...' : 'Luu cau hinh'}
+          {isSaving ? 'Đang lưu...' : 'Lưu cấu hình'}
         </Button>
       </Stack>
     </Stack>

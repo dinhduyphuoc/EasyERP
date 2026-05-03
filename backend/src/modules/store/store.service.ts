@@ -1,6 +1,6 @@
-import { prisma } from "@lib/prisma";
 import type { Prisma } from "../../../generated/prisma/client";
 import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from "@/common";
+import { StoreRepository } from "./store.repository";
 import type { CreateStoreInput, UpdateStoreInput } from "./store.types";
 
 const DEFAULT_CURRENCY = "USD";
@@ -80,10 +80,7 @@ const mapStore = (store: {
 });
 
 const ensureSlugIsAvailable = async (slug: string, ignoreStoreId?: string) => {
-  const existingStore = await prisma.store.findUnique({
-    where: { slug },
-    select: { id: true },
-  });
+  const existingStore = await StoreRepository.findStoreIdBySlug(slug);
 
   if (existingStore && existingStore.id !== ignoreStoreId) {
     throw new ConflictError(`Store slug "${slug}" already exists`);
@@ -91,17 +88,7 @@ const ensureSlugIsAvailable = async (slug: string, ignoreStoreId?: string) => {
 };
 
 const getUserStoreMembership = async (userId: string, storeId: string) => {
-  const membership = await prisma.userStore.findUnique({
-    where: {
-      user_id_store_id: {
-        user_id: userId,
-        store_id: storeId,
-      },
-    },
-    include: {
-      store: true,
-    },
-  });
+  const membership = await StoreRepository.findUserStoreMembership(userId, storeId);
 
   if (!membership || membership.store.deleted_at) {
     throw new NotFoundError("Store not found");
@@ -112,28 +99,7 @@ const getUserStoreMembership = async (userId: string, storeId: string) => {
 
 export const StoreService = {
   getUserStores: async (userId: string) => {
-    const stores = await prisma.store.findMany({
-      where: {
-        deleted_at: null,
-        user_stores: {
-          some: {
-            user_id: userId,
-          },
-        },
-      },
-      include: {
-        user_stores: {
-          where: {
-            user_id: userId,
-          },
-          select: {
-            role: true,
-            user_id: true,
-          },
-        },
-      },
-      orderBy: [{ created_at: "asc" }],
-    });
+    const stores = await StoreRepository.findUserStores(userId);
 
     return stores.map(mapStore);
   },
@@ -153,46 +119,22 @@ export const StoreService = {
 
     let nextSlug = baseSlug;
     let suffix = 1;
-    while (await prisma.store.findUnique({ where: { slug: nextSlug }, select: { id: true } })) {
+    while (await StoreRepository.findStoreIdBySlug(nextSlug)) {
       suffix += 1;
       nextSlug = `${baseSlug}-${suffix}`;
     }
 
-    const store = await prisma.$transaction(async (tx) => {
-      const createdStore = await tx.store.create({
-        data: {
-          name,
-          slug: nextSlug,
-          tenant_id: user.tenant_id,
-          owner_user_id: user.id,
-          default_currency: toTrimmedString(input.currency) || DEFAULT_CURRENCY,
-          default_timezone: toTrimmedString(input.timezone) || DEFAULT_TIMEZONE,
-          user_stores: {
-            create: {
-              user_id: user.id,
-              role: "owner",
-            },
-          },
-        },
-        include: {
-          user_stores: {
-            where: {
-              user_id: user.id,
-            },
-            select: {
-              role: true,
-              user_id: true,
-            },
-          },
-        },
+    const store = await StoreRepository.withTransaction(async (tx) => {
+      const createdStore = await StoreRepository.createStoreWithOwnerMembership(tx, {
+        name,
+        slug: nextSlug,
+        tenantId: user.tenant_id,
+        ownerUserId: user.id,
+        defaultCurrency: toTrimmedString(input.currency) || DEFAULT_CURRENCY,
+        defaultTimezone: toTrimmedString(input.timezone) || DEFAULT_TIMEZONE,
       });
 
-      await tx.user.update({
-        where: { id: user.id },
-        data: {
-          active_store_id: createdStore.id,
-        },
-      });
+      await StoreRepository.updateUserActiveStore(tx, user.id, createdStore.id);
 
       return createdStore;
     });
@@ -228,8 +170,9 @@ export const StoreService = {
 
     await ensureSlugIsAvailable(slugInput, storeId);
 
-    const updated = await prisma.store.update({
-      where: { id: storeId },
+    const updated = await StoreRepository.updateStoreWithMembership({
+      storeId,
+      userId,
       data: {
         name,
         slug: slugInput,
@@ -261,17 +204,6 @@ export const StoreService = {
             ? toJsonValue(membership.store.return_address_json)
             : toJsonValue(input.return_address),
       },
-      include: {
-        user_stores: {
-          where: {
-            user_id: userId,
-          },
-          select: {
-            role: true,
-            user_id: true,
-          },
-        },
-      },
     });
 
     return mapStore(updated);
@@ -284,41 +216,18 @@ export const StoreService = {
       throw new ForbiddenError("Only the store owner can delete this store");
     }
 
-    const userStoreCount = await prisma.userStore.count({
-      where: {
-        user_id: userId,
-      },
-    });
+    const userStoreCount = await StoreRepository.countUserStores(userId);
 
     if (userStoreCount <= 1) {
       throw new BadRequestError("You must keep at least one active store");
     }
 
-    await prisma.$transaction(async (tx) => {
-      await tx.store.update({
-        where: { id: storeId },
-        data: {
-          deleted_at: new Date(),
-        },
-      });
+    await StoreRepository.withTransaction(async (tx) => {
+      await StoreRepository.softDeleteStore(tx, storeId, new Date());
 
-      const fallbackMembership = await tx.userStore.findFirst({
-        where: {
-          user_id: userId,
-          store_id: { not: storeId },
-          store: {
-            deleted_at: null,
-          },
-        },
-        orderBy: [{ created_at: "asc" }],
-      });
+      const fallbackMembership = await StoreRepository.findFallbackMembership(tx, userId, storeId);
 
-      await tx.user.update({
-        where: { id: userId },
-        data: {
-          active_store_id: fallbackMembership?.store_id ?? null,
-        },
-      });
+      await StoreRepository.updateUserActiveStore(tx, userId, fallbackMembership?.store_id ?? null);
     });
 
     return { deleted: true };
@@ -327,12 +236,7 @@ export const StoreService = {
   switchStore: async (userId: string, storeId: string) => {
     await getUserStoreMembership(userId, storeId);
 
-    await prisma.user.update({
-      where: { id: userId },
-      data: {
-        active_store_id: storeId,
-      },
-    });
+    await StoreRepository.updateUserActiveStoreDirect(userId, storeId);
 
     return StoreService.getStoreById(userId, storeId);
   },

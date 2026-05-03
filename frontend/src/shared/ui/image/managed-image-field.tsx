@@ -14,8 +14,8 @@ import {
   type SxProps,
   type Theme,
 } from '@mui/material'
-import { appToast } from '@/shared/ui/toast/toast.helpers'
-import { cropImageFileToSize, preloadImageUrl } from '@/shared/utils/image'
+import { showErrorToast } from '@/shared/ui/toast/toast-error'
+import { cropImageFileToSize, preloadImageUrl, resizeImageFileToMax720p } from '@/shared/utils/image'
 
 type ResponsiveLength = number | string | Record<string, number | string>
 type HolderHeightValue = ResponsiveLength | 'same-as-width'
@@ -64,21 +64,6 @@ export type ManagedImageFieldHandle = {
   openCrop: () => void
   openFilePicker: () => void
   remove: () => void
-}
-
-function getErrorMessage(error: unknown, fallback: string) {
-  return typeof error === 'object' &&
-    error !== null &&
-    'response' in error &&
-    typeof error.response === 'object' &&
-    error.response !== null &&
-    'data' in error.response &&
-    typeof error.response.data === 'object' &&
-    error.response.data !== null &&
-    'message' in error.response.data &&
-    typeof error.response.data.message === 'string'
-    ? error.response.data.message
-    : fallback
 }
 
 function ImageProcessingOverlay({
@@ -134,7 +119,7 @@ export const ManagedImageField = forwardRef<ManagedImageFieldHandle, ManagedImag
   cropApplyLabel = 'Áp dụng crop',
   cropAspect = 1,
   disabled = false,
-  accept = 'image/*',
+  accept = 'image/jpeg,image/png',
   holderSx,
   imageSx,
   overlaySx,
@@ -221,19 +206,20 @@ export const ManagedImageField = forwardRef<ManagedImageFieldHandle, ManagedImag
   const handleUpload = async (file: File) => {
     notifyBusyChange(true)
     setProgress(0)
+    const processedFile = await resizeImageFileToMax720p(file)
     const holderBounds = holderRef.current?.getBoundingClientRect()
     const shouldUseHolderPreview =
       cropPreviewToHolder && holderBounds && holderBounds.width > 0 && holderBounds.height > 0
     const previewFile = shouldUseHolderPreview
-      ? await cropImageFileToSize(file, holderBounds.width, holderBounds.height)
-      : file
+      ? await cropImageFileToSize(processedFile, holderBounds.width, holderBounds.height)
+      : processedFile
     const previewUrl = URL.createObjectURL(previewFile)
     clearLocalPreview()
     localPreviewUrlRef.current = previewUrl
     setDisplayUrl(previewUrl)
 
     try {
-      const uploaded = await uploadImage(file, setProgress)
+      const uploaded = await uploadImage(processedFile, setProgress)
       await preloadImageUrl(uploaded.image_url)
       latestCommittedUrlRef.current = uploaded.image_url
       onChange(uploaded.image_url)
@@ -262,7 +248,7 @@ export const ManagedImageField = forwardRef<ManagedImageFieldHandle, ManagedImag
 
     void handleUpload(file).catch((error) => {
       console.error('Managed image upload error:', error)
-      appToast.error(getErrorMessage(error, uploadErrorMessage))
+      showErrorToast(error, uploadErrorMessage)
     })
   }
 
@@ -505,7 +491,7 @@ export const ManagedImageField = forwardRef<ManagedImageFieldHandle, ManagedImag
               onClick={() => {
                 void handleApplyCrop().catch((error) => {
                   console.error('Managed image crop error:', error)
-                  appToast.error(getErrorMessage(error, cropErrorMessage))
+                  showErrorToast(error, cropErrorMessage)
                 })
               }}
               disabled={!cropAreaPixels}

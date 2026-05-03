@@ -1,5 +1,5 @@
-import { prisma } from "@lib/prisma";
 import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from "@/common";
+import { RbacRepository } from "./rbac.repository";
 
 const normalizeRoleSlug = (value: string) => value.trim().toLowerCase().replace(/\s+/g, "_");
 
@@ -38,17 +38,7 @@ const validateRoleInput = (input: {
 };
 
 const getPermissionsByCodes = async (permissionCodes: string[]) => {
-  const permissions = await prisma.permission.findMany({
-    where: {
-      code: {
-        in: permissionCodes,
-      },
-    },
-    select: {
-      id: true,
-      code: true,
-    },
-  });
+  const permissions = await RbacRepository.findPermissionsByCodes(permissionCodes);
 
   if (permissions.length !== permissionCodes.length) {
     throw new BadRequestError("One or more permissions are invalid");
@@ -80,28 +70,7 @@ const toRoleSummary = (role: {
 
 export const RbacService = {
   listRoles: async () => {
-    const roles = await prisma.role.findMany({
-      where: {
-        tenant_id: null,
-      },
-      include: {
-        permissions: {
-          include: {
-            permission: {
-              select: {
-                code: true,
-                description: true,
-              },
-            },
-          },
-        },
-      },
-      orderBy: [
-        {
-          name: "asc",
-        },
-      ],
-    });
+    const roles = await RbacRepository.findAllRolesWithPermissions();
 
     return {
       items: roles.map((role) => toRoleSummary(role)),
@@ -115,15 +84,7 @@ export const RbacService = {
     permission_codes: string[];
   }) => {
     const payload = validateRoleInput(input);
-    const existingRole = await prisma.role.findFirst({
-      where: {
-        tenant_id: null,
-        slug: payload.slug,
-      },
-      select: {
-        id: true,
-      },
-    });
+    const existingRole = await RbacRepository.findRoleBySlug(payload.slug);
 
     if (existingRole) {
       throw new ConflictError(`Role "${payload.slug}" already exists`);
@@ -131,31 +92,11 @@ export const RbacService = {
 
     const permissions = await getPermissionsByCodes(payload.permission_codes);
 
-    const role = await prisma.role.create({
-      data: {
-        tenant_id: null,
-        slug: payload.slug,
-        name: payload.name,
-        description: payload.description,
-        is_system: false,
-        permissions: {
-          create: permissions.map((permission) => ({
-            permission_id: permission.id,
-          })),
-        },
-      },
-      include: {
-        permissions: {
-          include: {
-            permission: {
-              select: {
-                code: true,
-                description: true,
-              },
-            },
-          },
-        },
-      },
+    const role = await RbacRepository.createRoleWithPermissions({
+      slug: payload.slug,
+      name: payload.name,
+      description: payload.description,
+      permissions,
     });
 
     return toRoleSummary(role);
@@ -166,13 +107,7 @@ export const RbacService = {
     description?: string | null;
     permission_codes: string[];
   }) => {
-    const existingRole = await prisma.role.findUnique({
-      where: { id },
-      select: {
-        id: true,
-        is_system: true,
-      },
-    });
+    const existingRole = await RbacRepository.findRoleForUpdate(id);
 
     if (!existingRole) {
       throw new NotFoundError("Role not found");
@@ -195,59 +130,18 @@ export const RbacService = {
 
     const permissions = await getPermissionsByCodes(permissionCodes);
 
-    const role = await prisma.$transaction(async (tx) => {
-      await tx.role.update({
-        where: { id },
-        data: {
-          name,
-          description: input.description?.trim() || null,
-        },
-      });
-
-      await tx.rolePermission.deleteMany({
-        where: {
-          role_id: id,
-        },
-      });
-
-      await tx.rolePermission.createMany({
-        data: permissions.map((permission) => ({
-          role_id: id,
-          permission_id: permission.id,
-        })),
-      });
-
-      return tx.role.findUniqueOrThrow({
-        where: { id },
-        include: {
-          permissions: {
-            include: {
-              permission: {
-                select: {
-                  code: true,
-                  description: true,
-                },
-              },
-            },
-          },
-        },
-      });
+    const role = await RbacRepository.replaceRolePermissionsAndLoad({
+      id,
+      name,
+      description: input.description?.trim() || null,
+      permissions,
     });
 
     return toRoleSummary(role);
   },
 
   deleteRole: async (id: string) => {
-    const existingRole = await prisma.role.findUnique({
-      where: { id },
-      include: {
-        users: {
-          select: {
-            user_id: true,
-          },
-        },
-      },
-    });
+    const existingRole = await RbacRepository.findRoleWithUsers(id);
 
     if (!existingRole) {
       throw new NotFoundError("Role not found");
@@ -261,21 +155,13 @@ export const RbacService = {
       throw new ConflictError("Role is still assigned to one or more users");
     }
 
-    await prisma.role.delete({
-      where: { id },
-    });
+    await RbacRepository.deleteRole(id);
 
     return { deleted: true, id };
   },
 
   listPermissions: async () => {
-    const permissions = await prisma.permission.findMany({
-      orderBy: [
-        {
-          code: "asc",
-        },
-      ],
-    });
+    const permissions = await RbacRepository.findAllPermissions();
 
     return {
       items: permissions,

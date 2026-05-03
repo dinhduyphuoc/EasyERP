@@ -5,17 +5,12 @@ import CropOutlinedIcon from '@mui/icons-material/CropOutlined'
 import DeleteOutlineOutlinedIcon from '@mui/icons-material/DeleteOutlineOutlined'
 import ImageOutlinedIcon from '@mui/icons-material/ImageOutlined'
 import SaveOutlinedIcon from '@mui/icons-material/SaveOutlined'
-import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 import {
   Alert,
   Box,
   Button,
   Chip,
   CircularProgress,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
   IconButton,
   InputAdornment,
   MenuItem,
@@ -32,10 +27,13 @@ import {
 import { productApi, type ProductCategory, type ProductUpsertPayload } from '@/pages/products/product.api'
 import type { ProductDetailItem } from '@/pages/products/product-list.data'
 import { defaultCardSx } from '@/shared/ui/paper'
+import { CreateEditPageHeader } from '@/shared/ui/page'
 import { appToast } from '@/shared/ui/toast/toast.helpers'
+import { showErrorToast } from '@/shared/ui/toast/toast-error'
 import { StackedTextField } from '@/shared/ui/form/stacked-text-field'
 import { StackedDropdown } from '@/shared/ui/form/stacked-dropdown'
 import { ManagedImageField, type ManagedImageFieldHandle } from '@/shared/ui/image'
+import { UnsavedChangesBanner, useUnsavedChangesPrompt } from '@/shared/ui/unsaved-changes'
 import { formatCurrencyInput as formatCurrency } from '@/shared/utils/currency'
 import { isObjectUrl } from '@/shared/utils/image'
 import { ProductPageSkeleton } from '@/pages/products/product-skeletons'
@@ -54,6 +52,22 @@ type VariantRow = {
   price: string
   cogs: string
   image_url: string
+}
+
+type ProductFormSnapshot = {
+  name: string
+  sku: string
+  unit: string
+  status: 'active' | 'inactive' | 'draft' | 'deleted'
+  category: string | null
+  description: string
+  basePrice: string
+  baseCogs: string
+  attributes: AttributeRow[]
+  variants: VariantRow[]
+  imagePreview: string
+  variantSeedMap: Record<string, Pick<VariantRow, 'sku' | 'price' | 'cogs' | 'image_url'>>
+  removedVariantIds: string[]
 }
 
 
@@ -190,11 +204,11 @@ export function ProductCreatePage(): ReactElement {
   const [isPageLoading, setIsPageLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
   const [errors, setErrors] = useState<Record<string, string>>({})
-  const [showExitDialog, setShowExitDialog] = useState(false)
   const [dirty, setDirty] = useState(false)
   const [hasAttemptedSave, setHasAttemptedSave] = useState(false)
   const [variantSeedMap, setVariantSeedMap] = useState<Record<string, Pick<VariantRow, 'sku' | 'price' | 'cogs' | 'image_url'>>>({})
   const [removedVariantIds, setRemovedVariantIds] = useState<string[]>([])
+  const [initialSnapshot, setInitialSnapshot] = useState<ProductFormSnapshot | null>(null)
 
   useEffect(() => {
     setVariants((current) => {
@@ -212,79 +226,144 @@ export function ProductCreatePage(): ReactElement {
   }, [attributes, sku, variantSeedMap, removedVariantIds])
 
   useEffect(() => {
+    let cancelled = false
+
     const fetchPageData = async () => {
       setIsPageLoading(true)
       try {
         const categoryData = await productApi.getProductCategories()
+        if (cancelled) {
+          return
+        }
         setCategories(categoryData)
 
         if (!id) {
           setVariantSeedMap({})
           setRemovedVariantIds([])
+          setInitialSnapshot({
+            name: '',
+            sku: '',
+            unit: '',
+            status: 'active',
+            category: null,
+            description: '',
+            basePrice: formatCurrency(0, { zeroAsEmpty: false }),
+            baseCogs: formatCurrency(0, { zeroAsEmpty: false }),
+            attributes: [],
+            variants: [],
+            imagePreview: '',
+            variantSeedMap: {},
+            removedVariantIds: [],
+          })
           return
         }
 
         const product = await productApi.getProductById(id)
-        if (!product) {
+        if (cancelled || !product) {
           return
         }
 
         const categoryNameById = new Map(categoryData.map((item) => [item.id, item.category_name]))
 
-        setName(product.product_name)
-        setSku(product.default_variant_sku ?? product.variants[0]?.sku.split('-').slice(0, -1).join('-') ?? '')
-        setUnit(product.unit ?? '')
-        setStatus(product.status ?? 'draft')
-        setCategory(product.category_id ? categoryNameById.get(product.category_id) ?? null : null)
-        setDescription(product.description ?? '')
-        setImagePreview(product.image_url ?? product.variants[0]?.image_url ?? '')
+        const nextName = product.product_name
+        const nextSku = product.default_variant_sku ?? product.variants[0]?.sku.split('-').slice(0, -1).join('-') ?? ''
+        const nextUnit = product.unit ?? ''
+        const nextStatus = product.status ?? 'draft'
+        const nextCategory = product.category_id ? categoryNameById.get(product.category_id) ?? null : null
+        const nextDescription = product.description ?? ''
+        const nextImagePreview = product.image_url ?? product.variants[0]?.image_url ?? ''
+
+        setName(nextName)
+        setSku(nextSku)
+        setUnit(nextUnit)
+        setStatus(nextStatus)
+        setCategory(nextCategory)
+        setDescription(nextDescription)
+        setImagePreview(nextImagePreview)
         setHasAttemptedSave(false)
         setDirty(false)
         setRemovedVariantIds([])
 
         if (product.attributes.length === 0) {
           setAttributes([])
-          setBasePrice(formatCurrency(product.base_price ?? product.variants[0]?.selling_price ?? ''))
-          setBaseCogs(formatCurrency(product.cogs ?? product.variants[0]?.cogs ?? ''))
+          const nextBasePrice = formatCurrency(product.base_price ?? product.variants[0]?.selling_price ?? '')
+          const nextBaseCogs = formatCurrency(product.cogs ?? product.variants[0]?.cogs ?? '')
+          setBasePrice(nextBasePrice)
+          setBaseCogs(nextBaseCogs)
           setVariantSeedMap({})
+          setInitialSnapshot({
+            name: nextName,
+            sku: nextSku,
+            unit: nextUnit,
+            status: nextStatus,
+            category: nextCategory,
+            description: nextDescription,
+            basePrice: nextBasePrice,
+            baseCogs: nextBaseCogs,
+            attributes: [],
+            variants: [],
+            imagePreview: nextImagePreview,
+            variantSeedMap: {},
+            removedVariantIds: [],
+          })
           return
         }
 
-        setBasePrice('')
-        setBaseCogs(formatCurrency(product.cogs ?? ''))
-        setAttributes(
-          product.attributes.map((attribute) => ({
-            id: String(attribute.id),
-            name: attribute.name,
-            values: attribute.values.map((value) => value.value),
-            draft: '',
-          })),
-        )
-        setVariantSeedMap(buildVariantSeedMap(product))
+        const nextBasePrice = ''
+        const nextBaseCogs = formatCurrency(product.cogs ?? '')
+        const nextAttributes = product.attributes.map((attribute) => ({
+          id: String(attribute.id),
+          name: attribute.name,
+          values: attribute.values.map((value) => value.value),
+          draft: '',
+        }))
+        const nextVariantSeedMap = buildVariantSeedMap(product)
+        const nextVariants = buildVariants(nextAttributes, nextSku).map((item) => {
+          const seeded = nextVariantSeedMap[item.id]
+          return seeded
+            ? { ...item, price: seeded.price, cogs: seeded.cogs, sku: seeded.sku || item.sku, image_url: seeded.image_url }
+            : item
+        })
+
+        setBasePrice(nextBasePrice)
+        setBaseCogs(nextBaseCogs)
+        setAttributes(nextAttributes)
+        setVariantSeedMap(nextVariantSeedMap)
+        setVariants(nextVariants)
+        setInitialSnapshot({
+          name: nextName,
+          sku: nextSku,
+          unit: nextUnit,
+          status: nextStatus,
+          category: nextCategory,
+          description: nextDescription,
+          basePrice: nextBasePrice,
+          baseCogs: nextBaseCogs,
+          attributes: nextAttributes,
+          variants: nextVariants,
+          imagePreview: nextImagePreview,
+          variantSeedMap: nextVariantSeedMap,
+          removedVariantIds: [],
+        })
       } catch (error) {
+        if (cancelled) {
+          return
+        }
         console.error('Lỗi khi lấy dữ liệu sản phẩm:', error)
         appToast.error('Không thể tải dữ liệu sản phẩm. Vui lòng thử lại!')
       } finally {
-        setIsPageLoading(false)
+        if (!cancelled) {
+          setIsPageLoading(false)
+        }
       }
     }
 
     void fetchPageData()
-  }, [id])
 
-  useEffect(() => {
-    const beforeUnload = (event: BeforeUnloadEvent) => {
-      if (!dirty) {
-        return
-      }
-
-      event.preventDefault()
-      event.returnValue = ''
+    return () => {
+      cancelled = true
     }
-
-    window.addEventListener('beforeunload', beforeUnload)
-    return () => window.removeEventListener('beforeunload', beforeUnload)
-  }, [dirty])
+  }, [id])
 
   useEffect(() => {
     return () => {
@@ -308,7 +387,7 @@ export function ProductCreatePage(): ReactElement {
       nextErrors.name = 'Tên sản phẩm là bắt buộc.'
     }
     if (!sku.trim()) {
-      nextErrors.sku = 'SKU mặc định là bắt buộc.'
+      nextErrors.sku = 'Mã sản phẩm là bắt buộc.'
     }
 
     attributes.forEach((attribute) => {
@@ -331,10 +410,6 @@ export function ProductCreatePage(): ReactElement {
     busyVariantIds.length === 0 &&
     Object.keys(validationErrors).length === 0 &&
     (!isEditMode || dirty)
-
-  if (isPageLoading) {
-    return <ProductPageSkeleton />
-  }
 
   const handleSave = async () => {
     setHasAttemptedSave(true)
@@ -404,23 +479,24 @@ export function ProductCreatePage(): ReactElement {
 
       setDirty(false)
       setHasAttemptedSave(false)
+      setInitialSnapshot({
+        name,
+        sku,
+        unit,
+        status,
+        category,
+        description,
+        basePrice,
+        baseCogs,
+        attributes,
+        variants,
+        imagePreview,
+        variantSeedMap,
+        removedVariantIds,
+      })
     } catch (error) {
       console.error('Lỗi khi lưu sản phẩm:', error)
-      const message =
-        typeof error === 'object' &&
-        error !== null &&
-        'response' in error &&
-        typeof error.response === 'object' &&
-        error.response !== null &&
-        'data' in error.response &&
-        typeof error.response.data === 'object' &&
-        error.response.data !== null &&
-        'message' in error.response.data &&
-        typeof error.response.data.message === 'string'
-          ? error.response.data.message
-          : 'Có lỗi xảy ra khi lưu sản phẩm. Vui lòng thử lại!'
-
-      appToast.error(message)
+      showErrorToast(error, 'Có lỗi xảy ra khi lưu sản phẩm. Vui lòng thử lại!')
     } finally {
       setIsSaving(false)
     }
@@ -453,31 +529,58 @@ export function ProductCreatePage(): ReactElement {
     commitAttributeValues(id)
   }
 
+  const handleDiscard = () => {
+    if (!initialSnapshot) {
+      return
+    }
+
+    setName(initialSnapshot.name)
+    setSku(initialSnapshot.sku)
+    setUnit(initialSnapshot.unit)
+    setStatus(initialSnapshot.status)
+    setCategory(initialSnapshot.category)
+    setDescription(initialSnapshot.description)
+    setBasePrice(initialSnapshot.basePrice)
+    setBaseCogs(initialSnapshot.baseCogs)
+    setAttributes(initialSnapshot.attributes)
+    setVariants(initialSnapshot.variants)
+    setImagePreview(initialSnapshot.imagePreview)
+    setVariantSeedMap(initialSnapshot.variantSeedMap)
+    setRemovedVariantIds(initialSnapshot.removedVariantIds)
+    setHasAttemptedSave(false)
+    setDirty(false)
+  }
+  const { bannerProps, attemptNavigate } = useUnsavedChangesPrompt({
+    isDirty: dirty,
+    isSaving,
+    onDiscard: handleDiscard,
+    onSave: handleSave,
+  })
+
+  if (isPageLoading) {
+    return <ProductPageSkeleton />
+  }
+
   return (
     <Box sx={{ px: { xs: 2, md: 3, xl: 4 }, pb: 8 }}>
-      <Box sx={{
-        mb: 2,
-      }}>
-        <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} sx={{ justifyContent: 'space-between', alignItems: { md: 'center' } }}>
-            <Stack direction="row" spacing={2} sx={{ alignItems: 'center', cursor: 'pointer' }} onClick={() => (dirty ? setShowExitDialog(true) : navigate('/products'))}>
-              <Paper sx={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                p: 1
-              }}>
-                <ArrowBackIcon sx={{color: '#344054' }} />
-              </Paper>
-            <Typography variant="h6" sx={{ fontWeight: 600, color: '#101828' }}>
-              {isEditMode ? 'Chỉnh sửa sản phẩm' : 'Thêm sản phẩm'}
-            </Typography>
+      <Box sx={{ mb: 2 }}>
+        <CreateEditPageHeader
+          title={isEditMode ? 'Chỉnh sửa sản phẩm' : 'Thêm sản phẩm'}
+          onBack={() => attemptNavigate('/products')}
+          actions={(
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
+              <Button
+                variant="contained"
+                color="secondary"
+                startIcon={isSaving ? <CircularProgress size={16} color="inherit" /> : <SaveOutlinedIcon />}
+                onClick={handleSave}
+                disabled={!canSave}
+              >
+                {isSaving ? 'Đang lưu...' : isEditMode ? 'Cập nhật' : 'Lưu'}
+              </Button>
             </Stack>
-          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
-            <Button variant="contained" color="secondary" startIcon={isSaving ? <CircularProgress size={16} color="inherit" /> : <SaveOutlinedIcon />} onClick={handleSave} disabled={!canSave}>
-              {isSaving ? 'Đang lưu...' : isEditMode ? 'Cập nhật' : 'Lưu'}
-            </Button>
-          </Stack>
-        </Stack>
+          )}
+        />
       </Box>
 
       <Box sx={{ display: 'grid', gap: 3, gridTemplateColumns: { xs: '1fr', xl: 'minmax(0, 2fr) minmax(320px, 1fr)' } }}>
@@ -495,9 +598,9 @@ export function ProductCreatePage(): ReactElement {
                   <StackedTextField fullWidth label="Tên sản phẩm *" placeholder="Ví dụ: Túi deo chéo canvas" value={name} onChange={(event) => { setDirty(true); setName(event.target.value) }} error={Boolean(errors.name)} helperText={errors.name} />
                 </Box>
 
-                <StackedTextField fullWidth label="SKU mặc định *" placeholder="Ví dụ: TUI-CANVAS-01" value={sku} onChange={(event) => { setDirty(true); setSku(sanitizeSku(event.target.value)) }} error={Boolean(errors.sku)} helperText={errors.sku} />
+                <StackedTextField fullWidth label="Mã sản phẩm *" placeholder="Ví dụ: TUI-CANVAS-01" value={sku} onChange={(event) => { setDirty(true); setSku(sanitizeSku(event.target.value)) }} error={Boolean(errors.sku)} helperText={errors.sku} />
 
-                <StackedTextField fullWidth label="Đơn vị tính" placeholder="Ví dụ: cái, hộp, kg" value={unit} onChange={(event) => { setDirty(true); setUnit(event.target.value) }} />
+                <StackedTextField fullWidth label="Đơn vị" placeholder="Ví dụ: cái, hộp, kg" value={unit} onChange={(event) => { setDirty(true); setUnit(event.target.value) }} />
 
                 <StackedDropdown
                   fullWidth
@@ -608,8 +711,8 @@ export function ProductCreatePage(): ReactElement {
                               cropLabel="Cắt"
                               removeLabel="Xóa"
                               cropDialogTitle={`Cắt ảnh phiên bản ${variant.name}`}
-                              uploadErrorMessage="Không thể tải ảnh phiên bản lên. Vui lòng thử lại!"
-                              cropErrorMessage="Không thể crop ảnh phiên bản. Vui lòng thử lại!"
+                              uploadErrorMessage="Không thể tải ảnh. Vui lòng thử lại!"
+                              cropErrorMessage="Không thể cắt ảnh. Vui lòng thử lại!"
                               holderSx={{
                                 borderRadius: 2.5,
                                 border: '1px dashed #cbd5e1',
@@ -817,7 +920,7 @@ export function ProductCreatePage(): ReactElement {
                     <CloudUploadOutlinedIcon sx={{ fontSize: 40 }} />
                     <Typography sx={{ fontWeight: 700 }}>Chọn hoặc kéo thả ảnh sản phẩm</Typography>
                     <Typography variant="body2" sx={{ color: '#667085' }}>
-                      Hỗ trợ JPG, PNG, WEBP. Tự động resize tối đa 800px.
+                      Hỗ trợ JPG, PNG. Tự động resize tối đa 720p trước khi tải lên.
                     </Typography>
                   </Stack>
                 )}
@@ -867,20 +970,7 @@ export function ProductCreatePage(): ReactElement {
         </Stack>
       </Box>
 
-      <Dialog open={showExitDialog} onClose={() => setShowExitDialog(false)}>
-        <DialogTitle>Rời trang khi chưa lưu?</DialogTitle>
-        <DialogContent>
-          <Typography color="text.secondary">
-            Bạn đang có thay đổi chưa lưu. Nếu quay lại bây giờ, dữ liệu hiện tại sẽ bị mất.
-          </Typography>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setShowExitDialog(false)}>Ở lại</Button>
-          <Button color="error" onClick={() => navigate('/products')}>
-            Rời trang
-          </Button>
-        </DialogActions>
-      </Dialog>
+      <UnsavedChangesBanner {...bannerProps} />
     </Box>
   )
 }

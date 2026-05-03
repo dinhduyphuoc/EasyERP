@@ -80,7 +80,7 @@ function SidebarLink({
         width: '100%',
         px: collapsed ? 1.75 : nested ? 2 : 2.25,
         pl: collapsed ? 1.75 : nested ? 4.5 : 2.25,
-        borderRadius: 3,
+        borderRadius: 1,
         mb: 0.5,
         color: isActive ? '#0f766e' : '#344054',
         bgcolor: isActive ? '#ecfdf3' : 'transparent',
@@ -227,7 +227,7 @@ export function AppSidebar({ collapsed, showExpandedContent, onToggleCollapsed }
               minHeight: 46,
               width: '100%',
               mb: 0.5,
-              borderRadius: 3,
+              borderRadius: 1,
               color: '#344054',
               justifyContent: collapsed ? 'center' : 'flex-start',
               transition: 'background-color 160ms ease, transform 160ms ease',
@@ -299,7 +299,7 @@ export function AppSidebar({ collapsed, showExpandedContent, onToggleCollapsed }
               alignItems: 'center',
               flex: 1,
               p: 1.25,
-              borderRadius: 4,
+              borderRadius: 1,
               background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
               border: '1px solid rgba(15, 23, 42, 0.06)',
               boxShadow: '0 12px 28px rgba(15, 23, 42, 0.06)',
@@ -309,7 +309,7 @@ export function AppSidebar({ collapsed, showExpandedContent, onToggleCollapsed }
               sx={{
                 width: 46,
                 height: 46,
-                borderRadius: 3,
+                borderRadius: 1,
                 display: 'grid',
                 placeItems: 'center',
                 color: '#ffffff',
@@ -321,11 +321,8 @@ export function AppSidebar({ collapsed, showExpandedContent, onToggleCollapsed }
               E
             </Box>
             <Box>
-              <Typography variant="subtitle1" sx={{ fontWeight: 800, color: '#101828' }}>
+              <Typography variant="subtitle1" sx={{ fontWeight: 700, color: '#101828' }}>
                 EasyERP
-              </Typography>
-              <Typography variant="body2" color="#667085">
-                Sales operations
               </Typography>
             </Box>
           </Stack>
@@ -369,7 +366,7 @@ export function AppSidebar({ collapsed, showExpandedContent, onToggleCollapsed }
             sx={{
               width: hoveredItem.kind === 'group' ? 220 : 164,
               p: hoveredItem.kind === 'group' ? 0.75 : 0.5,
-              borderRadius: 3,
+              borderRadius: 1,
               border: '1px solid rgba(15, 23, 42, 0.08)',
               boxShadow: '0 18px 36px rgba(15, 23, 42, 0.12)',
               bgcolor: '#ffffff',
@@ -383,7 +380,7 @@ export function AppSidebar({ collapsed, showExpandedContent, onToggleCollapsed }
                       sx={{
                         width: 30,
                         height: 30,
-                        borderRadius: 2,
+                        borderRadius: 1,
                         display: 'grid',
                         placeItems: 'center',
                         bgcolor: '#f2f4f7',
@@ -427,7 +424,7 @@ export function AppSidebar({ collapsed, showExpandedContent, onToggleCollapsed }
                   }}
                   sx={{
                     alignItems: 'center',
-                    borderRadius: 2.5,
+                    borderRadius: 1,
                     px: 0.5,
                     py: 0.25,
                     cursor: 'pointer',
@@ -445,7 +442,7 @@ export function AppSidebar({ collapsed, showExpandedContent, onToggleCollapsed }
                     sx={{
                       width: 30,
                       height: 30,
-                      borderRadius: 2,
+                      borderRadius: 1,
                       display: 'grid',
                       placeItems: 'center',
                       bgcolor: '#f2f4f7',

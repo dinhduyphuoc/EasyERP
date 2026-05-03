@@ -41,14 +41,6 @@ const getFileExtension = (fileName: string, mimeType: string) => {
     return ".png";
   }
 
-  if (mimeType === "image/webp") {
-    return ".webp";
-  }
-
-  if (mimeType === "image/gif") {
-    return ".gif";
-  }
-
   return "";
 };
 

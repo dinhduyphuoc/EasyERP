@@ -1,4 +1,3 @@
-import { prisma } from "@lib/prisma";
 import { createGHNClient, type GHNCreateOrderResponse } from "@/lib/ghn";
 import { BadRequestError, NotFoundError } from "@/common";
 import { resolveProviderLocationFromCanonical } from "@/modules/shipping/shipping.location.service";
@@ -13,9 +12,10 @@ import {
   toProviderRequestError,
 } from "./order.helpers";
 import type { OrderForMutation } from "./order.persistence";
+import { OrderRepository } from "./order.repository";
 
 export const getConnectedGHNCredentials = async (storeId: string) => {
-  const provider = await prisma.shippingProvider.findUnique({
+  const provider = await OrderRepository.findShippingProviderUnique({
     where: { code: "ghn" },
     select: { id: true },
   });
@@ -24,32 +24,31 @@ export const getConnectedGHNCredentials = async (storeId: string) => {
     throw new NotFoundError("GHN provider is not configured");
   }
 
-  const connection = await prisma.shippingConnection.findUnique({
+  const connection = await OrderRepository.findShippingConnections({
     where: {
-      provider_id_store_id: {
-        provider_id: provider.id,
-        store_id: storeId,
-      },
+      provider_id: provider.id,
+      store_id: storeId,
     },
     select: {
       status: true,
       credentials_json: true,
     },
   });
+  const connected = connection[0] ?? null;
 
-  if (!connection || connection.status !== "connected") {
+  if (!connected || connected.status !== "connected") {
     throw new BadRequestError("GHN connection is not available for this store");
   }
 
   if (
-    !connection.credentials_json ||
-    typeof connection.credentials_json !== "object" ||
-    Array.isArray(connection.credentials_json)
+    !connected.credentials_json ||
+    typeof connected.credentials_json !== "object" ||
+    Array.isArray(connected.credentials_json)
   ) {
     throw new BadRequestError("GHN credentials are missing");
   }
 
-  const credentials = connection.credentials_json as Record<string, unknown>;
+  const credentials = connected.credentials_json as Record<string, unknown>;
   const token = typeof credentials.token === "string" ? credentials.token.trim() : "";
   const shopId = typeof credentials.shop_id === "string" ? credentials.shop_id.trim() : "";
 
@@ -65,7 +64,7 @@ export const getConnectedGHNCredentials = async (storeId: string) => {
 };
 
 const getConnectedGHNProviderContext = async (storeId: string) => {
-  const provider = await prisma.shippingProvider.findUnique({
+  const provider = await OrderRepository.findShippingProviderUnique({
     where: { code: "ghn" },
     select: { id: true, code: true, display_name: true },
   });

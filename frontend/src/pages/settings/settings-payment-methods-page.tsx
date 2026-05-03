@@ -13,21 +13,10 @@ import { useEffect, useMemo, useState, type ReactElement } from 'react'
 import { StackedTextField } from '@/shared/ui/form/stacked-text-field'
 import { borderedCardSx } from '@/shared/ui/paper'
 import { appToast } from '@/shared/ui/toast/toast.helpers'
+import { showErrorToast } from '@/shared/ui/toast/toast-error'
+import { useJsonDirtyState } from '@/shared/ui/unsaved-changes'
 import { generalSettingsApi, type VietQrBankItem } from './general-settings.api'
-
-const getErrorMessage = (error: unknown, fallback: string) =>
-  typeof error === 'object' &&
-  error !== null &&
-  'response' in error &&
-  typeof error.response === 'object' &&
-  error.response !== null &&
-  'data' in error.response &&
-  typeof error.response.data === 'object' &&
-  error.response.data !== null &&
-  'message' in error.response.data &&
-  typeof error.response.data.message === 'string'
-    ? error.response.data.message
-    : fallback
+import { useSettingsUnsavedRegistration } from './settings-unsaved-context'
 
 export function SettingsPaymentMethodsPage(): ReactElement {
   const [isLoading, setIsLoading] = useState(true)
@@ -50,6 +39,10 @@ export function SettingsPaymentMethodsPage(): ReactElement {
     rate_percent: 0,
   })
   const [bankOptions, setBankOptions] = useState<VietQrBankItem[]>([])
+  const dirtyState = useJsonDirtyState(
+    { bankName, bankBin, bankCode, accountNumber, accountHolder },
+    !isLoading,
+  )
 
   useEffect(() => {
     const load = async () => {
@@ -68,8 +61,17 @@ export function SettingsPaymentMethodsPage(): ReactElement {
         setShippingSnapshot(settings.defaults.shipping_address)
         setVatSnapshot(settings.defaults.vat)
         setBankOptions(banksResponse.data)
+        dirtyState.setInitialSnapshot(
+          JSON.stringify({
+            bankName: settings.defaults.bank_account.bank_name,
+            bankBin: settings.defaults.bank_account.bank_bin,
+            bankCode: settings.defaults.bank_account.bank_code,
+            accountNumber: settings.defaults.bank_account.account_number,
+            accountHolder: settings.defaults.bank_account.account_holder,
+          }),
+        )
       } catch (error) {
-        appToast.error(getErrorMessage(error, 'Không thể tải tài khoản ngân hàng mặc định.'))
+        showErrorToast(error, 'Không thể tải tài khoản ngân hàng mặc định.')
       } finally {
         setIsLoading(false)
       }
@@ -86,6 +88,7 @@ export function SettingsPaymentMethodsPage(): ReactElement {
       null,
     [bankBin, bankCode, bankName, bankOptions],
   )
+  const { initialSnapshot, currentSnapshot, isDirty } = dirtyState
 
   const handleSave = async () => {
     setIsSaving(true)
@@ -104,13 +107,45 @@ export function SettingsPaymentMethodsPage(): ReactElement {
           vat: vatSnapshot,
         },
       })
+      dirtyState.setInitialSnapshot(currentSnapshot)
       appToast.success('Đã cập nhật tài khoản ngân hàng mặc định.')
     } catch (error) {
-      appToast.error(getErrorMessage(error, 'Không thể lưu tài khoản ngân hàng mặc định.'))
+      showErrorToast(error, 'Không thể lưu tài khoản ngân hàng mặc định.')
     } finally {
       setIsSaving(false)
     }
   }
+
+  const handleDiscard = () => {
+    if (!initialSnapshot) {
+      return
+    }
+
+    const snapshot = JSON.parse(initialSnapshot) as {
+      bankName: string
+      bankBin: string
+      bankCode: string
+      accountNumber: string
+      accountHolder: string
+    }
+
+    setBankName(snapshot.bankName)
+    setBankBin(snapshot.bankBin)
+    setBankCode(snapshot.bankCode)
+    setAccountNumber(snapshot.accountNumber)
+    setAccountHolder(snapshot.accountHolder)
+  }
+  useSettingsUnsavedRegistration(
+    useMemo(
+      () => ({
+        isDirty,
+        isSaving,
+        onSave: () => void handleSave(),
+        onDiscard: handleDiscard,
+      }),
+      [isDirty, isSaving, handleDiscard],
+    ),
+  )
 
   return (
     <Stack spacing={2.5} sx={{ pb: 8 }}>
@@ -166,13 +201,7 @@ export function SettingsPaymentMethodsPage(): ReactElement {
                   </Stack>
                 </Box>
               )}
-              renderInput={(params) => (
-                <TextField
-                  {...params}
-                  label="Ngân hàng"
-                  placeholder="Chọn ngân hàng"
-                />
-              )}
+              renderInput={(params) => <TextField {...params} label="Ngân hàng" placeholder="Chọn ngân hàng" />}
             />
 
             <StackedTextField fullWidth label="Số tài khoản" value={accountNumber} onChange={(event) => setAccountNumber(event.target.value)} />

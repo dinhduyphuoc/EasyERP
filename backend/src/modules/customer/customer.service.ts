@@ -1,6 +1,10 @@
-import { prisma } from "@lib/prisma";
 import { Prisma } from "../../../generated/prisma/client";
 import { BadRequestError, NotFoundError } from "@/common";
+import {
+  CustomerRepository,
+  type CustomerRecord,
+  type CustomerTransaction,
+} from "./customer.repository";
 import type {
   AddressRequestInput,
   CustomerAddressRequestInput,
@@ -157,16 +161,11 @@ const parseOptionalDate = (value: unknown, fieldName: string) => {
 };
 
 const generateNextCustomerCode = async (tx: Prisma.TransactionClient) => {
-  const codeRegex = `${CUSTOMER_CODE_PREFIX}([0-9]+)$`;
-  const matchingPattern = `^${CUSTOMER_CODE_PREFIX}[0-9]+$`;
-  const rows = await tx.$queryRaw<Array<{ max_sequence: number | null }>>(Prisma.sql`
-    SELECT MAX(SUBSTRING(client_code FROM ${codeRegex})::integer) AS max_sequence
-    FROM "Customer"
-    WHERE client_code ~ ${matchingPattern}
-  `);
-  const nextSequence = (rows[0]?.max_sequence ?? 0) + 1;
-
-  return `${CUSTOMER_CODE_PREFIX}${String(nextSequence).padStart(CUSTOMER_CODE_NUMBER_LENGTH, "0")}`;
+  return CustomerRepository.generateNextCustomerCode(
+    tx,
+    CUSTOMER_CODE_PREFIX,
+    CUSTOMER_CODE_NUMBER_LENGTH,
+  );
 };
 
 const isDuplicateGeneratedCustomerCodeError = (error: unknown) => {
@@ -191,7 +190,7 @@ const parseCustomerAddressType = (value: unknown) => {
 };
 
 const getOrCreateAddress = async (
-  tx: Prisma.TransactionClient,
+  tx: CustomerTransaction,
   input: AddressRequestInput | null | undefined,
   fieldName: string,
 ) => {
@@ -201,10 +200,7 @@ const getOrCreateAddress = async (
       : parseOptionalPositiveInt(input.id, `${fieldName}.id`) ?? null;
 
   if (existingAddressId) {
-    const address = await tx.address.findUnique({
-      where: { id: existingAddressId },
-      select: { id: true },
-    });
+    const address = await CustomerRepository.findAddressById(tx, existingAddressId);
 
     if (!address) {
       throw new BadRequestError(`${fieldName}.id is invalid`);
@@ -237,16 +233,12 @@ const getOrCreateAddress = async (
     throw new BadRequestError(`${fieldName}.address_line is required`);
   }
 
-  const [state, city, district] = await Promise.all([
-    tx.state.findUnique({ where: { id: stateId }, select: { id: true, name: true } }),
-    tx.city.findUnique({ where: { id: cityId }, select: { id: true, state_id: true, name: true } }),
-    districtId
-      ? tx.district.findUnique({
-          where: { id: districtId },
-          select: { id: true, city_id: true, name: true },
-        })
-      : Promise.resolve(null),
-  ]);
+  const [state, city, district] = await CustomerRepository.findLocationRefs(
+    tx,
+    stateId,
+    cityId,
+    districtId,
+  );
 
   if (!state) {
     throw new BadRequestError(`${fieldName}.state_id is invalid`);
@@ -260,23 +252,20 @@ const getOrCreateAddress = async (
     throw new BadRequestError(`${fieldName}.district_id is invalid for the selected city`);
   }
 
-  const address = await tx.address.create({
-    data: {
-      state_id: state.id,
-      city_id: city.id,
-      district_id: district?.id ?? null,
-      address_line: addressLine,
-      address_line2: toOptionalTrimmedString(input.address_line2) ?? null,
-      state_name: state.name,
-      city_name: city.name,
-      district_name: district?.name ?? null,
-      postal_code: toOptionalTrimmedString(input.postal_code) ?? null,
-      country_code: toOptionalTrimmedString(input.country_code) ?? "VN",
-      latitude: parseDecimalOrNull(input.latitude, `${fieldName}.latitude`),
-      longitude: parseDecimalOrNull(input.longitude, `${fieldName}.longitude`),
-      note: toOptionalTrimmedString(input.note) ?? null,
-    },
-    select: { id: true },
+  const address = await CustomerRepository.createAddress(tx, {
+    state_id: state.id,
+    city_id: city.id,
+    district_id: district?.id ?? null,
+    address_line: addressLine,
+    address_line2: toOptionalTrimmedString(input.address_line2) ?? null,
+    state_name: state.name,
+    city_name: city.name,
+    district_name: district?.name ?? null,
+    postal_code: toOptionalTrimmedString(input.postal_code) ?? null,
+    country_code: toOptionalTrimmedString(input.country_code) ?? "VN",
+    latitude: parseDecimalOrNull(input.latitude, `${fieldName}.latitude`),
+    longitude: parseDecimalOrNull(input.longitude, `${fieldName}.longitude`),
+    note: toOptionalTrimmedString(input.note) ?? null,
   });
 
   return address.id;
@@ -314,13 +303,7 @@ const mapAddress = (address: {
   note: address.note,
 });
 
-const mapCustomer = (customer: Prisma.CustomerGetPayload<{
-  include: {
-    customer_category: true;
-    orders: { select: { order_date: true } };
-    addresses: { include: { address: true } };
-  };
-}>) => ({
+const mapCustomer = (customer: CustomerRecord) => ({
   id: customer.id,
   client_code: customer.client_code,
   full_name: customer.full_name,
@@ -354,7 +337,7 @@ const mapCustomer = (customer: Prisma.CustomerGetPayload<{
 });
 
 const normalizeCustomerAddresses = async (
-  tx: Prisma.TransactionClient,
+  tx: CustomerTransaction,
   customerId: number,
   addresses: CustomerAddressRequestInput[] | undefined,
 ) => {
@@ -373,48 +356,27 @@ const normalizeCustomerAddresses = async (
       throw new BadRequestError(`${fieldName}.address_id is required`);
     }
 
-    const existingAddress = await tx.address.findUnique({
-      where: { id: addressId },
-      select: { id: true },
-    });
+    const existingAddress = await CustomerRepository.findAddressById(tx, addressId);
 
     if (!existingAddress) {
       throw new BadRequestError(`${fieldName}.address_id is invalid`);
     }
 
-    await tx.customerAddress.create({
-      data: {
-        customer_id: customerId,
-        address_id: addressId,
-        type: parseCustomerAddressType(item.type),
-        label: toOptionalTrimmedString(item.label) ?? null,
-        is_default: item.is_default ?? false,
-        recipient_name: toOptionalTrimmedString(item.recipient_name) ?? null,
-        recipient_phone: toOptionalTrimmedString(item.recipient_phone) ?? null,
-        note: toOptionalTrimmedString(item.note) ?? null,
-      },
+    await CustomerRepository.createCustomerAddress(tx, {
+      customer_id: customerId,
+      address_id: addressId,
+      type: parseCustomerAddressType(item.type),
+      label: toOptionalTrimmedString(item.label) ?? null,
+      is_default: item.is_default ?? false,
+      recipient_name: toOptionalTrimmedString(item.recipient_name) ?? null,
+      recipient_phone: toOptionalTrimmedString(item.recipient_phone) ?? null,
+      note: toOptionalTrimmedString(item.note) ?? null,
     });
   }
 };
 
-const customerInclude = {
-  customer_category: true,
-  orders: {
-    select: { order_date: true },
-    orderBy: { order_date: "desc" },
-    take: 1,
-  },
-  addresses: {
-    include: { address: true },
-    orderBy: [{ is_default: "desc" }, { id: "asc" }],
-  },
-} satisfies Prisma.CustomerInclude;
-
 const getCustomerByIdOrThrow = async (storeId: string, id: number) => {
-  const customer = await prisma.customer.findFirst({
-    where: { id, store_id: storeId },
-    include: customerInclude,
-  });
+  const customer = await CustomerRepository.findCustomerByIdWithRelations(storeId, id);
 
   if (!customer) {
     throw new NotFoundError("Customer not found");
@@ -424,20 +386,18 @@ const getCustomerByIdOrThrow = async (storeId: string, id: number) => {
 };
 
 const ensurePhoneIsAvailable = async (
-  tx: Prisma.TransactionClient,
+  tx: CustomerTransaction,
   storeId: string,
   phone: string,
   currentCustomerId?: number,
 ) => {
-  const existingPhone = await tx.customer.findFirst({
-    where: {
-      store_id: storeId,
-      phone,
-      status: { in: LIVE_CUSTOMER_STATUSES },
-      ...(currentCustomerId ? { id: { not: currentCustomerId } } : {}),
-    },
-    select: { id: true, client_code: true },
-  });
+  const existingPhone = await CustomerRepository.findLiveCustomerByPhone(
+    tx,
+    storeId,
+    phone,
+    LIVE_CUSTOMER_STATUSES,
+    currentCustomerId,
+  );
 
   if (existingPhone) {
     throw new BadRequestError("Số điện thoại này đã được sử dụng bởi khách hàng khác");
@@ -445,7 +405,7 @@ const ensurePhoneIsAvailable = async (
 };
 
 const replaceCustomerAddresses = async (
-  tx: Prisma.TransactionClient,
+  tx: CustomerTransaction,
   customerId: number,
   addresses: CustomerAddressRequestInput[] | undefined,
 ) => {
@@ -453,9 +413,7 @@ const replaceCustomerAddresses = async (
     return;
   }
 
-  await tx.customerAddress.deleteMany({
-    where: { customer_id: customerId },
-  });
+  await CustomerRepository.deleteCustomerAddresses(tx, customerId);
 
   await normalizeCustomerAddresses(tx, customerId, addresses);
 };
@@ -489,27 +447,19 @@ export const CustomerService = {
 
     for (let attempt = 0; attempt < CUSTOMER_CODE_GENERATION_RETRIES; attempt += 1) {
       try {
-        return await prisma.$transaction(async (tx) => {
+        return await CustomerRepository.withTransaction(async (tx) => {
           const resolvedClientCode = clientCode ?? (await generateNextCustomerCode(tx));
 
           const [existingClientCode, existingPhone, category] = await Promise.all([
-            tx.customer.findFirst({
-              where: { client_code: resolvedClientCode, store_id: storeId },
-              select: { id: true },
-            }),
-            tx.customer.findFirst({
-              where: {
-                store_id: storeId,
-                phone,
-                status: { in: LIVE_CUSTOMER_STATUSES },
-              },
-              select: { id: true },
-            }),
+            CustomerRepository.findCustomerCodeConflict(tx, storeId, resolvedClientCode),
+            CustomerRepository.findLiveCustomerByPhone(
+              tx,
+              storeId,
+              phone,
+              LIVE_CUSTOMER_STATUSES,
+            ),
             customerCategoryId
-              ? tx.customerCategory.findFirst({
-                  where: { id: customerCategoryId, store_id: storeId },
-                  select: { id: true },
-                })
+              ? CustomerRepository.findCustomerCategoryById(tx, storeId, customerCategoryId)
               : Promise.resolve(null),
           ]);
 
@@ -525,28 +475,26 @@ export const CustomerService = {
             throw new BadRequestError("customer_category_id is invalid");
           }
 
-          const customer = await tx.customer.create({
-            data: {
-              client_code: resolvedClientCode,
-              full_name: fullName,
-              phone,
-              email,
-              birth_date: birthDate,
-              gender,
-              tax_code: taxCode,
-              status,
-              customer_category_id: customerCategoryId,
-              store_id: storeId,
-            },
-            include: customerInclude,
+          const customer = await CustomerRepository.createCustomer(tx, {
+            client_code: resolvedClientCode,
+            full_name: fullName,
+            phone,
+            email,
+            birth_date: birthDate,
+            gender,
+            tax_code: taxCode,
+            status,
+            customer_category_id: customerCategoryId,
+            store_id: storeId,
           });
 
           await normalizeCustomerAddresses(tx, customer.id, input.addresses);
 
-          const customerWithAddresses = await tx.customer.findFirstOrThrow({
-            where: { id: customer.id, store_id: storeId },
-            include: customerInclude,
-          });
+          const customerWithAddresses = await CustomerRepository.findCustomerByIdWithRelationsOrThrowInTx(
+            tx,
+            storeId,
+            customer.id,
+          );
 
           return mapCustomer(customerWithAddresses);
         });
@@ -568,25 +516,12 @@ export const CustomerService = {
       "customer_category_id",
     );
 
-    const customers = await prisma.customer.findMany({
-      where: {
-        store_id: storeId,
-        ...(status ? { status } : { status: { notIn: DELETED_CUSTOMER_STATUSES } }),
-        ...(customerCategoryId ? { customer_category_id: customerCategoryId } : {}),
-        ...(search
-          ? {
-              OR: [
-                { client_code: { contains: search, mode: "insensitive" } },
-                { full_name: { contains: search, mode: "insensitive" } },
-                { phone: { contains: search, mode: "insensitive" } },
-                { email: { contains: search, mode: "insensitive" } },
-                { tax_code: { contains: search, mode: "insensitive" } },
-              ],
-            }
-          : {}),
-      },
-      include: customerInclude,
-      orderBy: [{ created_at: "desc" }, { id: "desc" }],
+    const customers = await CustomerRepository.findCustomers({
+      storeId,
+      status,
+      excludedStatuses: status ? undefined : DELETED_CUSTOMER_STATUSES,
+      customerCategoryId,
+      search,
     });
 
     return customers.map(mapCustomer);
@@ -645,23 +580,13 @@ export const CustomerService = {
       throw new BadRequestError("status must be one of: active, inactive");
     }
 
-    const updatedCustomer = await prisma.$transaction(async (tx) => {
+    const updatedCustomer = await CustomerRepository.withTransaction(async (tx) => {
       const [existingClientCode, category] = await Promise.all([
         input.client_code
-          ? tx.customer.findFirst({
-              where: {
-                client_code: input.client_code,
-                store_id: storeId,
-                id: { not: id },
-              },
-              select: { id: true },
-            })
+          ? CustomerRepository.findCustomerCodeConflict(tx, storeId, input.client_code, id)
           : Promise.resolve(null),
         customerCategoryId
-          ? tx.customerCategory.findFirst({
-              where: { id: customerCategoryId, store_id: storeId },
-              select: { id: true },
-            })
+          ? CustomerRepository.findCustomerCategoryById(tx, storeId, customerCategoryId)
           : Promise.resolve(null),
       ]);
 
@@ -679,20 +604,16 @@ export const CustomerService = {
 
       await replaceCustomerAddresses(tx, id, input.addresses);
 
-      return tx.customer.update({
-        where: { id },
-        data: {
-          client_code: toOptionalTrimmedString(input.client_code) ?? existingCustomer.client_code,
-          full_name: fullName,
-          phone,
-          email,
-          birth_date: birthDate,
-          gender,
-          tax_code: taxCode,
-          status,
-          customer_category_id: customerCategoryId,
-        },
-        include: customerInclude,
+      return CustomerRepository.updateCustomer(tx, id, {
+        client_code: toOptionalTrimmedString(input.client_code) ?? existingCustomer.client_code,
+        full_name: fullName,
+        phone,
+        email,
+        birth_date: birthDate,
+        gender,
+        tax_code: taxCode,
+        status,
+        customer_category_id: customerCategoryId,
       });
     });
 
@@ -700,10 +621,7 @@ export const CustomerService = {
   },
 
   getCustomerCategories: async (storeId: string) => {
-    const categories = await prisma.customerCategory.findMany({
-      where: { is_active: true, store_id: storeId },
-      orderBy: [{ category_name: "asc" }],
-    });
+    const categories = await CustomerRepository.findCustomerCategories(storeId);
 
     return categories.map((category) => ({
       id: category.id,
@@ -719,11 +637,8 @@ export const CustomerService = {
   deleteCustomers: async (storeId: string, ids: number[]) => {
     const uniqueIds = [...new Set(ids)];
 
-    return prisma.$transaction(async (tx) => {
-      const existingCustomers = await tx.customer.findMany({
-        where: { id: { in: uniqueIds }, store_id: storeId },
-        select: { id: true, phone: true },
-      });
+    return CustomerRepository.withTransaction(async (tx) => {
+      const existingCustomers = await CustomerRepository.findCustomersByIds(tx, storeId, uniqueIds);
 
       if (existingCustomers.length !== uniqueIds.length) {
         throw new NotFoundError("One or more customers were not found");
@@ -736,13 +651,11 @@ export const CustomerService = {
           throw new BadRequestError(`Customer ${customer.id} is missing phone and cannot be soft deleted safely`);
         }
 
-        await tx.customer.update({
-          where: { id: customer.id },
-          data: {
-            status: "soft_deleted",
-            phone: archivePhone(customer.id, customer.phone),
-          },
-        });
+        await CustomerRepository.softDeleteCustomer(
+          tx,
+          customer.id,
+          archivePhone(customer.id, customer.phone),
+        );
       }
 
       return {
@@ -758,35 +671,26 @@ export const CustomerService = {
       return mapCustomer(existingCustomer);
     }
 
-    const restoredCustomer = await prisma.$transaction(async (tx) => {
+    const restoredCustomer = await CustomerRepository.withTransaction(async (tx) => {
       const restoredPhone = restoreArchivedPhone(existingCustomer.phone ?? "");
 
       if (!restoredPhone) {
         throw new BadRequestError("Customer phone could not be restored from archived data");
       }
 
-      const conflictingCustomer = await tx.customer.findFirst({
-        where: {
-          store_id: storeId,
-          phone: restoredPhone,
-          status: { in: LIVE_CUSTOMER_STATUSES },
-          id: { not: id },
-        },
-        select: { id: true },
-      });
+      const conflictingCustomer = await CustomerRepository.findLiveCustomerByPhone(
+        tx,
+        storeId,
+        restoredPhone,
+        LIVE_CUSTOMER_STATUSES,
+        id,
+      );
 
       if (conflictingCustomer) {
         throw new BadRequestError("Số điện thoại này đã được sử dụng bởi khách hàng khác");
       }
 
-      return tx.customer.update({
-        where: { id },
-        data: {
-          status: "active",
-          phone: restoredPhone,
-        },
-        include: customerInclude,
-      });
+      return CustomerRepository.restoreCustomer(tx, id, restoredPhone);
     });
 
     return mapCustomer(restoredCustomer);
@@ -795,10 +699,7 @@ export const CustomerService = {
   getStates: async (query: LocationListQuery) => {
     const isActive = parseOptionalBoolean(query.is_active, "is_active");
 
-    const states = await prisma.state.findMany({
-      where: isActive === undefined ? undefined : { is_active: isActive },
-      orderBy: [{ name: "asc" }],
-    });
+    const states = await CustomerRepository.findStates(isActive);
 
     return states.map((state) => ({
       id: state.id,
@@ -815,13 +716,7 @@ export const CustomerService = {
     const stateId = parseOptionalPositiveInt(query.state_id, "state_id");
     const isActive = parseOptionalBoolean(query.is_active, "is_active");
 
-    const cities = await prisma.city.findMany({
-      where: {
-        ...(stateId ? { state_id: stateId } : {}),
-        ...(isActive === undefined ? {} : { is_active: isActive }),
-      },
-      orderBy: [{ name: "asc" }],
-    });
+    const cities = await CustomerRepository.findCities({ stateId, isActive });
 
     return cities.map((city) => ({
       id: city.id,
@@ -839,13 +734,7 @@ export const CustomerService = {
     const cityId = parseOptionalPositiveInt(query.city_id, "city_id");
     const isActive = parseOptionalBoolean(query.is_active, "is_active");
 
-    const districts = await prisma.district.findMany({
-      where: {
-        ...(cityId ? { city_id: cityId } : {}),
-        ...(isActive === undefined ? {} : { is_active: isActive }),
-      },
-      orderBy: [{ name: "asc" }],
-    });
+    const districts = await CustomerRepository.findDistricts({ cityId, isActive });
 
     return districts.map((district) => ({
       id: district.id,

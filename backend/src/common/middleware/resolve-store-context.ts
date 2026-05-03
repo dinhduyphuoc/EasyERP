@@ -15,7 +15,24 @@ export const resolveStoreContext = async (
     }
 
     const requestedStoreId = req.header(STORE_HEADER)?.trim();
-    const fallbackStoreId = req.auth.user.active_store_id ?? req.auth.user.stores[0]?.id ?? null;
+    let fallbackStoreId = req.auth.user.active_store_id;
+
+    if (!fallbackStoreId) {
+      const firstMembership = await prisma.userStore.findFirst({
+        where: {
+          user_id: req.auth.user.id,
+        },
+        orderBy: {
+          created_at: "asc",
+        },
+        select: {
+          store_id: true,
+        },
+      });
+
+      fallbackStoreId = firstMembership?.store_id ?? null;
+    }
+
     const storeId = requestedStoreId || fallbackStoreId;
 
     if (!storeId) {

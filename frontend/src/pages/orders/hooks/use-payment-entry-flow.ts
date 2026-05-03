@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react'
 import { appToast } from '@/shared/ui/toast/toast.helpers'
+import { showErrorToast } from '@/shared/ui/toast/toast-error'
 import { orderApi, type OrderDetailItem } from '../api/order.api'
-import { getErrorMessage } from '../lib/error-message'
 import { buildConfirmPaidSuccessMessage, buildPaymentRecordedMessage, ORDER_TOAST_MESSAGES } from '../lib/toast-messages'
 import type { PaymentCollectionMethod } from '../lib/payment-display.helpers'
 import type { PaymentMethod } from '../lib/order-payment'
@@ -122,7 +122,7 @@ export function usePaymentEntryFlow({
       appToast.success(buildPaymentRecordedMessage(updatedOrder.order_code))
     } catch (error) {
       console.error('Lỗi khi thêm thanh toán:', error)
-      appToast.error(getErrorMessage(error, 'Không thể ghi nhận thanh toán.'))
+      showErrorToast(error, 'Không thể ghi nhận thanh toán.')
     } finally {
       setIsSubmittingPaymentEntry(false)
     }
@@ -150,7 +150,7 @@ export function usePaymentEntryFlow({
       appToast.success(buildConfirmPaidSuccessMessage(updatedOrder.order_code))
     } catch (error) {
       console.error('Lỗi khi xác nhận thu đủ tiền:', error)
-      appToast.error(getErrorMessage(error, 'Không thể xác nhận đã thu đủ tiền.'))
+      showErrorToast(error, 'Không thể xác nhận đã thu đủ tiền.')
     } finally {
       setIsSubmittingPaymentEntry(false)
     }

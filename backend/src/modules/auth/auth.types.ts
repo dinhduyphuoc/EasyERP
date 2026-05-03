@@ -23,10 +23,20 @@ export type AuthenticatedUser = {
   }>;
 };
 
+export type AuthenticatedSessionUser = {
+  id: string;
+  tenant_id: string | null;
+  active_store_id: string | null;
+  full_name: string;
+  email: string;
+  status: string;
+  roles: string[];
+};
+
 export type AuthSessionContext = {
   session_id: string;
   session_expires_at: string;
-  user: AuthenticatedUser;
+  user: AuthenticatedSessionUser;
   permissions: string[];
 };
 

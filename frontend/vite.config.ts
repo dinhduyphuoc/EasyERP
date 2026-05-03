@@ -5,6 +5,10 @@ import babel from '@rolldown/plugin-babel'
 
 // https://vite.dev/config/
 export default defineConfig({
+  server: {
+    host: true,
+    allowedHosts: ['ddphuoc.site', '.ddphuoc.site', 'localhost'],
+  },
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),

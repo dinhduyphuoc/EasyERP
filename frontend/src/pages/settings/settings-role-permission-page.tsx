@@ -25,6 +25,7 @@ import { useAuth } from '@/modules/auth/use-auth'
 import { ListPageHeader } from '@/shared/ui/list/list-page-header'
 import { borderedCardSx } from '@/shared/ui/paper'
 import { appToast } from '@/shared/ui/toast/toast.helpers'
+import { showErrorToast } from '@/shared/ui/toast/toast-error'
 import { adminApi, type PermissionItem, type RoleItem } from './admin.api'
 
 type RoleFormState = {
@@ -66,7 +67,7 @@ export function SettingsRolePermissionPage(): ReactElement {
       setPermissions(permissionResponse.items)
     } catch (error) {
       console.error('Lỗi khi tải dữ liệu phân quyền:', error)
-      appToast.error('Không thể tải cấu hình vai trò và quyền.')
+      showErrorToast(error, 'Không thể tải cấu hình vai trò và quyền.')
     } finally {
       setIsLoading(false)
     }
@@ -153,21 +154,7 @@ export function SettingsRolePermissionPage(): ReactElement {
       appToast.success(editingRole ? 'Cập nhật vai trò thành công.' : 'Tạo vai trò thành công.')
     } catch (error) {
       console.error('Lỗi khi lưu vai trò:', error)
-      const message =
-        typeof error === 'object' &&
-        error !== null &&
-        'response' in error &&
-        typeof error.response === 'object' &&
-        error.response !== null &&
-        'data' in error.response &&
-        typeof error.response.data === 'object' &&
-        error.response.data !== null &&
-        'message' in error.response.data &&
-        typeof error.response.data.message === 'string'
-          ? error.response.data.message
-          : 'Không thể lưu vai trò.'
-
-      appToast.error(message)
+      showErrorToast(error, 'Không thể lưu vai trò.')
     } finally {
       setIsSavingRole(false)
     }
@@ -181,21 +168,7 @@ export function SettingsRolePermissionPage(): ReactElement {
       appToast.success('Đã xóa vai trò custom.')
     } catch (error) {
       console.error('Lỗi khi xóa vai trò:', error)
-      const message =
-        typeof error === 'object' &&
-        error !== null &&
-        'response' in error &&
-        typeof error.response === 'object' &&
-        error.response !== null &&
-        'data' in error.response &&
-        typeof error.response.data === 'object' &&
-        error.response.data !== null &&
-        'message' in error.response.data &&
-        typeof error.response.data.message === 'string'
-          ? error.response.data.message
-          : 'Không thể xóa vai trò.'
-
-      appToast.error(message)
+      showErrorToast(error, 'Không thể xóa vai trò.')
     } finally {
       setDeletingRoleId(null)
     }

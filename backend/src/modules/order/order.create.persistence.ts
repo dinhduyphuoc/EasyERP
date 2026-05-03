@@ -1,7 +1,6 @@
 import { Prisma } from "../../../generated/prisma/client";
 import { BadRequestError } from "@/common";
 import { InventoryOrderOrchestration } from "@/modules/inventory/inventory.service";
-import { prisma } from "@lib/prisma";
 import {
   generateNextOrderCode,
   isDuplicateGeneratedOrderCodeError,
@@ -9,6 +8,7 @@ import {
   resolveOrderAddressId,
 } from "./order.persistence";
 import type { AddressRequestInput } from "./order.types";
+import { OrderRepository } from "./order.repository";
 
 export const persistCreatedOrder = async ({
   storeId,
@@ -46,13 +46,14 @@ export const persistCreatedOrder = async ({
 }) => {
   for (let attempt = 0; attempt < 5; attempt += 1) {
     try {
-      const createdOrder = await prisma.$transaction(async (tx) => {
+      const createdOrder = await OrderRepository.withTransaction(async (tx) => {
         const resolvedOrderCode = orderCode ?? (await generateNextOrderCode(tx, storeId));
 
-        const existingOrder = await tx.order.findFirst({
-          where: { order_code: resolvedOrderCode, store_id: storeId },
-          select: { id: true },
-        });
+        const existingOrder = await OrderRepository.findOrderCodeConflictTx(
+          tx,
+          storeId,
+          resolvedOrderCode,
+        );
 
         if (existingOrder) {
           throw new BadRequestError(`Order code "${resolvedOrderCode}" already exists`);
@@ -64,7 +65,7 @@ export const persistCreatedOrder = async ({
           resolveOrderAddressId(tx, requestedReturnAddressId, returnAddressDetail, "return_address"),
         ]);
 
-        const order = await tx.order.create({
+        const order = await OrderRepository.createOrderTx(tx, {
           data: {
             ...orderData,
             store_id: storeId,

@@ -1,4 +1,3 @@
-import { prisma } from "@lib/prisma";
 import { BadRequestError, ConflictError, NotFoundError } from "@/common";
 import type {
   InventoryAdjustInput,
@@ -21,8 +20,11 @@ import type {
   InventoryTransactionType,
   Prisma,
 } from "../../../generated/prisma/client";
-
-type PrismaTransaction = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
+import {
+  InventoryRepository,
+  type InventoryDbClient,
+  type InventoryTransaction,
+} from "./inventory.repository";
 
 type StockSnapshot = Record<InventoryBucketField, number> & {
   id: number;
@@ -163,17 +165,28 @@ const parseNonNegativeInteger = (value: unknown, fieldName: string) => {
 };
 
 const ensureVariantExists = async (
-  tx: PrismaTransaction | typeof prisma,
+  tx: InventoryDbClient,
   productVariantId: string,
   storeId?: string,
 ) => {
-  const variant = await tx.productVariant.findUnique({
-    where: { sku: productVariantId },
-    select: {
-      sku: true,
-      store_id: true,
-    },
-  });
+  const variant = await InventoryRepository.findVariantBySkuBasic(tx, productVariantId);
+
+  if (!variant) {
+    throw new NotFoundError("Product variant not found");
+  }
+
+  if (storeId && variant.store_id !== storeId) {
+    throw new NotFoundError("Product variant not found");
+  }
+
+  return {
+    sku: variant.sku,
+    store_id: variant.store_id,
+  };
+};
+
+const ensureVariantExistsGlobal = async (productVariantId: string, storeId?: string) => {
+  const variant = await InventoryRepository.findVariantBySkuBasicGlobal(productVariantId);
 
   if (!variant) {
     throw new NotFoundError("Product variant not found");
@@ -190,17 +203,14 @@ const ensureVariantExists = async (
 };
 
 const getIdempotentTransaction = async (
-  tx: PrismaTransaction,
+  tx: InventoryTransaction,
   idempotencyKey: string | null | undefined,
 ) => {
   if (!idempotencyKey) {
     return null;
   }
 
-  return tx.inventoryTransaction.findUnique({
-    where: { idempotency_key: idempotencyKey },
-    include: { lines: true },
-  });
+  return InventoryRepository.findIdempotentTransaction(tx, idempotencyKey);
 };
 
 const createStockSnapshot = (source: Pick<StockSnapshot, keyof StockBuckets>): StockBuckets => ({
@@ -224,15 +234,10 @@ const validateBuckets = (buckets: StockBuckets) => {
 };
 
 const lockStock = async (
-  tx: PrismaTransaction,
+  tx: InventoryTransaction,
   productVariantId: string,
 ) => {
-  const rows = await tx.$queryRaw<StockSnapshot[]>`
-    SELECT id, product_variant_id, on_hand, available, committed, packing, incoming, version, created_at, updated_at
-    FROM "InventoryStock"
-    WHERE product_variant_id = ${productVariantId}
-    FOR UPDATE
-  `;
+  const rows = await InventoryRepository.lockStockByVariantId(tx, productVariantId);
 
   return rows[0] ?? null;
 };
@@ -304,18 +309,19 @@ const buildCommandMeta = (input: InventoryCommandMetaInput) => ({
 });
 
 const buildMutationResponse = async (
-  tx: PrismaTransaction,
+  tx: InventoryTransaction,
   transactionId: number,
   productVariantId: string,
 ) => {
-  const transaction = await tx.inventoryTransaction.findUniqueOrThrow({
-    where: { id: transactionId },
-    include: { lines: true },
-  });
+  const transaction = await InventoryRepository.findInventoryTransactionWithLinesByIdOrThrow(
+    tx,
+    transactionId,
+  );
 
-  const stock = await tx.inventoryStock.findUniqueOrThrow({
-    where: { product_variant_id: productVariantId },
-  });
+  const stock = await InventoryRepository.findInventoryStockByVariantIdOrThrow(
+    tx,
+    productVariantId,
+  );
 
   return {
     transaction: toHistoryItem(transaction),
@@ -365,30 +371,25 @@ const parseAuditDraftStatus = (value: unknown): InventoryAuditStatus => {
   throw new BadRequestError("status must be draft");
 };
 
-const buildAuditCode = async (tx: PrismaTransaction) => {
-  const latestAudit = await tx.inventoryAudit.findFirst({
-    orderBy: { id: "desc" },
-    select: { id: true },
-  });
+const buildAuditCode = async (tx: InventoryTransaction) => {
+  const latestAudit = await InventoryRepository.findLatestAuditId(tx);
 
   const nextNumber = (latestAudit?.id ?? 0) + 1;
   return `${AUDIT_CODE_PREFIX}-${String(nextNumber).padStart(6, "0")}`;
 };
 
 const ensureAuditCodeIsUnique = async (
-  tx: PrismaTransaction,
+  tx: InventoryTransaction,
   storeId: string,
   auditCode: string,
   ignoreAuditId?: number,
 ) => {
-  const existingAudit = await tx.inventoryAudit.findFirst({
-    where: {
-      store_id: storeId,
-      audit_code: auditCode,
-      ...(ignoreAuditId ? { id: { not: ignoreAuditId } } : {}),
-    },
-    select: { id: true },
-  });
+  const existingAudit = await InventoryRepository.findAuditCodeConflict(
+    tx,
+    storeId,
+    auditCode,
+    ignoreAuditId,
+  );
 
   if (existingAudit) {
     throw new ConflictError(`Inventory audit code "${auditCode}" already exists`);
@@ -540,7 +541,7 @@ const buildAuditListResponse = (audit: {
 };
 
 const applyInventoryMutation = async (params: {
-  tx: PrismaTransaction;
+  tx: InventoryTransaction;
   storeId?: string;
   productVariantId: string;
   transactionType: InventoryTransactionType;
@@ -558,9 +559,10 @@ const applyInventoryMutation = async (params: {
     return {
       transaction: toHistoryItem(existing),
       stock: buildStockResponse(
-        await params.tx.inventoryStock.findUniqueOrThrow({
-          where: { product_variant_id: params.productVariantId },
-        }),
+        await InventoryRepository.findInventoryStockByVariantIdOrThrow(
+          params.tx,
+          params.productVariantId,
+        ),
       ),
     };
   }
@@ -578,31 +580,25 @@ const applyInventoryMutation = async (params: {
 
   validateBuckets(next);
 
-  const transaction = await params.tx.inventoryTransaction.create({
-    data: {
-      store_id: effectiveStoreId,
-      product_variant_id: params.productVariantId,
-      transaction_type: params.transactionType,
-      reason_code: params.reasonCode,
-      ...buildCommandMeta(params.meta),
-      lines: {
-        create: createLinesPayload(deltas, next),
-      },
+  const transaction = await InventoryRepository.createInventoryTransaction(params.tx, {
+    store_id: effectiveStoreId,
+    product_variant_id: params.productVariantId,
+    transaction_type: params.transactionType,
+    reason_code: params.reasonCode,
+    ...buildCommandMeta(params.meta),
+    lines: {
+      create: createLinesPayload(deltas, next),
     },
   });
 
-  await params.tx.inventoryStock.update({
-    where: { product_variant_id: params.productVariantId },
-    data: {
+  await InventoryRepository.updateInventoryStockBuckets(params.tx, params.productVariantId, {
       store_id: effectiveStoreId,
       on_hand: next.on_hand,
       available: next.available,
       committed: next.committed,
       packing: next.packing,
       incoming: next.incoming,
-      version: { increment: 1 },
-    },
-  });
+    });
 
   if (params.skipResultHydration) {
     return null;
@@ -612,7 +608,7 @@ const applyInventoryMutation = async (params: {
 };
 
 const applyOrderInventoryMutation = async (params: {
-  tx: PrismaTransaction;
+  tx: InventoryTransaction;
   items: Array<{
     variant_sku: string | null;
     quantity: number;
@@ -899,7 +895,7 @@ const normalizeAuditPayload = (input: InventoryAuditUpsertInput) => {
 };
 
 const ensureVariantStocks = async (
-  tx: PrismaTransaction,
+  tx: InventoryTransaction,
   productVariantIds: string[],
   storeId?: string,
 ) => {
@@ -907,20 +903,7 @@ const ensureVariantStocks = async (
     return new Map<string, number>();
   }
 
-  const variants = await tx.productVariant.findMany({
-    where: {
-      sku: { in: productVariantIds },
-      ...(storeId ? { store_id: storeId } : {}),
-    },
-    select: {
-      sku: true,
-      inventory_stock: {
-        select: {
-          on_hand: true,
-        },
-      },
-    },
-  });
+  const variants = await InventoryRepository.findVariantStocks(tx, productVariantIds, storeId);
 
   if (variants.length !== productVariantIds.length) {
     const existingIds = new Set(variants.map((variant) => variant.sku));
@@ -934,7 +917,7 @@ const ensureVariantStocks = async (
 };
 
 const buildAuditLineCreateManyData = async (
-  tx: PrismaTransaction,
+  tx: InventoryTransaction,
   lines: ReturnType<typeof normalizeAuditPayload>["lines"],
   storeId?: string,
   existingSystemQtyByVariantId?: Map<string, number>,
@@ -960,90 +943,6 @@ const buildAuditLineCreateManyData = async (
     };
   });
 };
-
-const auditInclude = {
-  lines: {
-    orderBy: { id: "asc" },
-    include: {
-      product_variant: {
-        include: {
-          product: {
-            select: {
-              id: true,
-              product_name: true,
-              unit: true,
-              image_url: true,
-              status: true,
-            },
-          },
-          attribute_values: {
-            include: {
-              attribute_value: {
-                select: {
-                  value: true,
-                },
-              },
-            },
-          },
-        },
-      },
-    },
-  },
-} satisfies Prisma.InventoryAuditInclude;
-
-const auditListSelect = {
-  id: true,
-  audit_code: true,
-  status: true,
-  note: true,
-  account_id: true,
-  account_name: true,
-  counted_at: true,
-  completed_at: true,
-  created_at: true,
-  updated_at: true,
-  lines: {
-    select: {
-      counted_on_hand: true,
-      delta_qty: true,
-    },
-    orderBy: { id: "asc" },
-  },
-} satisfies Prisma.InventoryAuditSelect;
-
-const stockListSelect = {
-  sku: true,
-  selling_price: true,
-  cogs: true,
-  image_url: true,
-  product: {
-    select: {
-      id: true,
-      product_name: true,
-      unit: true,
-      image_url: true,
-      status: true,
-    },
-  },
-  attribute_values: {
-    select: {
-      attribute_value: {
-        select: {
-          value: true,
-        },
-      },
-    },
-  },
-  inventory_stock: {
-    select: {
-      on_hand: true,
-      available: true,
-      committed: true,
-      packing: true,
-      incoming: true,
-    },
-  },
-} satisfies Prisma.ProductVariantSelect;
 
 const buildStockListItem = (variant: {
   sku: string;
@@ -1129,49 +1028,7 @@ const parseCursor = (query: InventoryHistoryQuery) => {
 export const InventoryService = {
   getStockList: async (storeId: string, query: InventoryStockListQuery) => {
     const search = toOptionalTrimmedString(query.search);
-
-    const variants = await prisma.productVariant.findMany({
-      where: {
-        status: {
-          not: "deleted",
-        },
-        product: {
-          status: {
-            not: "deleted",
-          },
-        },
-        store_id: storeId,
-        ...(search
-          ? {
-              OR: [
-                { sku: { contains: search, mode: "insensitive" } },
-                {
-                  product: {
-                    product_name: {
-                      contains: search,
-                      mode: "insensitive",
-                    },
-                  },
-                },
-                {
-                  attribute_values: {
-                    some: {
-                      attribute_value: {
-                        value: {
-                          contains: search,
-                          mode: "insensitive",
-                        },
-                      },
-                    },
-                  },
-                },
-              ],
-            }
-          : {}),
-      },
-      select: stockListSelect,
-      orderBy: [{ product: { product_name: "asc" } }, { sku: "asc" }],
-    });
+    const variants = await InventoryRepository.findStockList(storeId, search);
 
     return variants.map((variant) => buildStockListItem(variant));
   },
@@ -1183,21 +1040,7 @@ export const InventoryService = {
       throw new BadRequestError("Invalid product variant id");
     }
 
-    const variant = await prisma.productVariant.findFirst({
-      where: {
-        sku: variantId,
-        store_id: storeId,
-        status: {
-          not: "deleted",
-        },
-        product: {
-          status: {
-            not: "deleted",
-          },
-        },
-      },
-      select: stockListSelect,
-    });
+    const variant = await InventoryRepository.findStockItem(storeId, variantId);
 
     if (!variant) {
       throw new NotFoundError("Product variant not found");
@@ -1219,45 +1062,13 @@ export const InventoryService = {
       throw new BadRequestError("Invalid audit status");
     }
 
-    const audits = await prisma.inventoryAudit.findMany({
-      where: {
-        store_id: storeId,
-        ...(status ? { status } : {}),
-        ...(search
-          ? {
-              OR: [
-                { audit_code: { contains: search, mode: "insensitive" } },
-                { note: { contains: search, mode: "insensitive" } },
-                { account_name: { contains: search, mode: "insensitive" } },
-                {
-                  lines: {
-                    some: {
-                      product_variant_id: {
-                        contains: search,
-                        mode: "insensitive",
-                      },
-                    },
-                  },
-                },
-              ],
-            }
-          : {}),
-      },
-      select: auditListSelect,
-      orderBy: [{ created_at: "desc" }, { id: "desc" }],
-    });
+    const audits = await InventoryRepository.findAuditList(storeId, search, status);
 
     return audits.map((audit) => buildAuditListResponse(audit));
   },
 
   getAuditById: async (storeId: string, id: number) => {
-    const audit = await prisma.inventoryAudit.findFirst({
-      where: {
-        id,
-        store_id: storeId,
-      },
-      include: auditInclude,
-    });
+    const audit = await InventoryRepository.findAuditById(storeId, id);
 
     if (!audit) {
       throw new NotFoundError("Inventory audit not found");
@@ -1269,23 +1080,20 @@ export const InventoryService = {
   createAudit: async (storeId: string, input: InventoryAuditUpsertInput) => {
     const payload = normalizeAuditPayload(input);
 
-    return prisma.$transaction(async (tx) => {
+    return InventoryRepository.withTransaction(async (tx) => {
       const auditCode = payload.audit_code ?? (await buildAuditCode(tx));
       await ensureAuditCodeIsUnique(tx, storeId, auditCode);
       const lineData = await buildAuditLineCreateManyData(tx, payload.lines, storeId);
 
-      const audit = await tx.inventoryAudit.create({
-        data: {
-          store_id: storeId,
-          audit_code: auditCode,
-          status: payload.status,
-          note: payload.note,
-          account_id: payload.account_id,
-          account_name: payload.account_name,
-          counted_at: payload.counted_at,
-          lines: lineData.length > 0 ? { createMany: { data: lineData } } : undefined,
-        },
-        include: auditInclude,
+      const audit = await InventoryRepository.createAudit(tx, {
+        store_id: storeId,
+        audit_code: auditCode,
+        status: payload.status,
+        note: payload.note,
+        account_id: payload.account_id,
+        account_name: payload.account_name,
+        counted_at: payload.counted_at,
+        lines: lineData.length > 0 ? { createMany: { data: lineData } } : undefined,
       });
 
       return buildAuditResponse(audit);
@@ -1295,18 +1103,8 @@ export const InventoryService = {
   updateAudit: async (storeId: string, id: number, input: InventoryAuditUpsertInput) => {
     const payload = normalizeAuditPayload(input);
 
-    return prisma.$transaction(async (tx) => {
-      const existingAudit = await tx.inventoryAudit.findFirst({
-        where: {
-          id,
-          store_id: storeId,
-        },
-        include: {
-          lines: {
-            orderBy: { id: "asc" },
-          },
-        },
-      });
+    return InventoryRepository.withTransaction(async (tx) => {
+      const existingAudit = await InventoryRepository.findAuditForUpdate(tx, storeId, id);
 
       if (!existingAudit) {
         throw new NotFoundError("Inventory audit not found");
@@ -1324,9 +1122,7 @@ export const InventoryService = {
         .filter((variantId) => !existingSystemQtyByVariantId.has(variantId));
       const currentSystemQtyByVariantId = await ensureVariantStocks(tx, newVariantIds, storeId);
 
-      await tx.inventoryAuditLine.deleteMany({
-        where: { audit_id: id },
-      });
+      await InventoryRepository.deleteAuditLinesByAuditId(tx, id);
 
       const mergedSystemQtyByVariantId = new Map(existingSystemQtyByVariantId);
       for (const [variantId, qty] of currentSystemQtyByVariantId.entries()) {
@@ -1342,18 +1138,14 @@ export const InventoryService = {
       const nextAuditCode = payload.audit_code ?? existingAudit.audit_code;
       await ensureAuditCodeIsUnique(tx, storeId, nextAuditCode, id);
 
-      const audit = await tx.inventoryAudit.update({
-        where: { id },
-        data: {
-          audit_code: nextAuditCode,
-          status: payload.status,
-          note: payload.note,
-          account_id: payload.account_id,
-          account_name: payload.account_name,
-          counted_at: payload.counted_at,
-          lines: lineData.length > 0 ? { createMany: { data: lineData } } : undefined,
-        },
-        include: auditInclude,
+      const audit = await InventoryRepository.updateAudit(tx, id, {
+        audit_code: nextAuditCode,
+        status: payload.status,
+        note: payload.note,
+        account_id: payload.account_id,
+        account_name: payload.account_name,
+        counted_at: payload.counted_at,
+        lines: lineData.length > 0 ? { createMany: { data: lineData } } : undefined,
       });
 
       return buildAuditResponse(audit);
@@ -1361,17 +1153,8 @@ export const InventoryService = {
   },
 
   deleteAudit: async (storeId: string, id: number) => {
-    return prisma.$transaction(async (tx) => {
-      const audit = await tx.inventoryAudit.findFirst({
-        where: {
-          id,
-          store_id: storeId,
-        },
-        select: {
-          id: true,
-          status: true,
-        },
-      });
+    return InventoryRepository.withTransaction(async (tx) => {
+      const audit = await InventoryRepository.findAuditStatusById(tx, storeId, id);
 
       if (!audit) {
         throw new NotFoundError("Inventory audit not found");
@@ -1381,25 +1164,13 @@ export const InventoryService = {
         throw new ConflictError("Only draft audit can be deleted");
       }
 
-      await tx.inventoryAudit.delete({
-        where: { id },
-      });
+      await InventoryRepository.deleteAuditById(tx, id);
     });
   },
 
   completeAudit: async (storeId: string, id: number, input: InventoryAuditFinalizeInput) => {
-    return prisma.$transaction(async (tx) => {
-      const audit = await tx.inventoryAudit.findFirst({
-        where: {
-          id,
-          store_id: storeId,
-        },
-        include: {
-          lines: {
-            orderBy: { id: "asc" },
-          },
-        },
-      });
+    return InventoryRepository.withTransaction(async (tx) => {
+      const audit = await InventoryRepository.findAuditWithLinesById(tx, storeId, id);
 
       if (!audit) {
         throw new NotFoundError("Inventory audit not found");
@@ -1468,17 +1239,13 @@ export const InventoryService = {
         });
       }
 
-      const updatedAudit = await tx.inventoryAudit.update({
-        where: { id },
-        data: {
-          status: "completed",
-          completed_at: new Date(),
-          counted_at: audit.counted_at ?? new Date(),
-          note: auditNote,
-          account_id: actorId,
-          account_name: actorName,
-        },
-        include: auditInclude,
+      const updatedAudit = await InventoryRepository.updateAudit(tx, id, {
+        status: "completed",
+        completed_at: new Date(),
+        counted_at: audit.counted_at ?? new Date(),
+        note: auditNote,
+        account_id: actorId,
+        account_name: actorName,
       });
 
       return buildAuditResponse(updatedAudit);
@@ -1495,11 +1262,9 @@ export const InventoryService = {
       throw new BadRequestError("Invalid product variant id");
     }
 
-    await ensureVariantExists(prisma, variantId, storeId);
+    await ensureVariantExistsGlobal(variantId, storeId);
 
-    const stock = await prisma.inventoryStock.findUnique({
-      where: { product_variant_id: variantId },
-    });
+    const stock = await InventoryRepository.findInventoryStockByVariantId(variantId);
 
     if (!stock) {
       return {
@@ -1525,25 +1290,17 @@ export const InventoryService = {
       throw new BadRequestError("Invalid product variant id");
     }
 
-    await ensureVariantExists(prisma, variantId, storeId);
+    await ensureVariantExistsGlobal(variantId, storeId);
 
     const limit = parseHistoryLimit(query);
     const cursor = parseCursor(query);
 
-    const items = await prisma.inventoryTransaction.findMany({
-      where: {
-        store_id: storeId,
-        product_variant_id: variantId,
-      },
-      include: {
-        lines: {
-          orderBy: { id: "asc" },
-        },
-      },
-      orderBy: { id: "desc" },
-      take: limit + 1,
-      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
-    });
+    const items = await InventoryRepository.findInventoryHistory(
+      storeId,
+      variantId,
+      limit,
+      cursor,
+    );
 
     const hasMore = items.length > limit;
     const pageItems = hasMore ? items.slice(0, limit) : items;
@@ -1565,16 +1322,14 @@ export const InventoryService = {
 
     const initialOnHand = parseNonNegativeInteger(input.initial_on_hand, "initial_on_hand");
 
-    return prisma.$transaction(async (tx) => {
+    return InventoryRepository.withTransaction(async (tx) => {
       const existing = await getIdempotentTransaction(tx, input.idempotency_key);
 
       if (existing) {
         return {
           transaction: toHistoryItem(existing),
           stock: buildStockResponse(
-            await tx.inventoryStock.findUniqueOrThrow({
-              where: { product_variant_id: productVariantId },
-            }),
+            await InventoryRepository.findInventoryStockByVariantIdOrThrow(tx, productVariantId),
           ),
         };
       }
@@ -1582,10 +1337,7 @@ export const InventoryService = {
       const variant = await ensureVariantExists(tx, productVariantId, storeId);
       const effectiveStoreId = storeId ?? variant.store_id;
 
-      const existingStock = await tx.inventoryStock.findUnique({
-        where: { product_variant_id: productVariantId },
-        select: { id: true },
-      });
+      const existingStock = await InventoryRepository.findInventoryStockExists(tx, productVariantId);
 
       if (existingStock) {
         throw new ConflictError("Inventory stock already initialized");
@@ -1601,34 +1353,30 @@ export const InventoryService = {
 
       validateBuckets(next);
 
-      await tx.inventoryStock.create({
-        data: {
-          store_id: effectiveStoreId,
-          product_variant_id: productVariantId,
-          ...next,
-          version: 1,
-        },
+      await InventoryRepository.createInventoryStock(tx, {
+        store_id: effectiveStoreId,
+        product_variant_id: productVariantId,
+        ...next,
+        version: 1,
       });
 
-      const transaction = await tx.inventoryTransaction.create({
-        data: {
-          store_id: effectiveStoreId,
-          product_variant_id: productVariantId,
-          transaction_type: "initialize",
-          reason_code: "initialize",
-          ...buildCommandMeta(input),
-          lines: {
-            create: createLinesPayload(
-              {
-                on_hand: initialOnHand,
-                available: initialOnHand,
-                committed: 0,
-                packing: 0,
-                incoming: 0,
-              },
-              next,
-            ),
-          },
+      const transaction = await InventoryRepository.createInventoryTransaction(tx, {
+        store_id: effectiveStoreId,
+        product_variant_id: productVariantId,
+        transaction_type: "initialize",
+        reason_code: "initialize",
+        ...buildCommandMeta(input),
+        lines: {
+          create: createLinesPayload(
+            {
+              on_hand: initialOnHand,
+              available: initialOnHand,
+              committed: 0,
+              packing: 0,
+              incoming: 0,
+            },
+            next,
+          ),
         },
       });
 
@@ -1645,7 +1393,7 @@ export const InventoryService = {
       throw new BadRequestError("product_variant_id is required");
     }
 
-    return prisma.$transaction((tx) =>
+    return InventoryRepository.withTransaction((tx) =>
       applyInventoryMutation({
         tx,
         storeId,
@@ -1675,7 +1423,7 @@ export const InventoryService = {
       throw new BadRequestError("product_variant_id is required");
     }
 
-    return prisma.$transaction((tx) =>
+    return InventoryRepository.withTransaction((tx) =>
       applyInventoryMutation({
         tx,
         storeId,
@@ -1717,7 +1465,7 @@ export const InventoryService = {
       throw new BadRequestError("product_variant_id is required");
     }
 
-    return prisma.$transaction((tx) =>
+    return InventoryRepository.withTransaction((tx) =>
       applyInventoryMutation({
         tx,
         storeId,
@@ -1761,7 +1509,7 @@ export const InventoryService = {
       throw new BadRequestError("product_variant_id is required");
     }
 
-    return prisma.$transaction((tx) =>
+    return InventoryRepository.withTransaction((tx) =>
       applyInventoryMutation({
         tx,
         storeId,
@@ -1805,7 +1553,7 @@ export const InventoryService = {
       throw new BadRequestError("product_variant_id is required");
     }
 
-    return prisma.$transaction((tx) =>
+    return InventoryRepository.withTransaction((tx) =>
       applyInventoryMutation({
         tx,
         storeId,
@@ -1849,7 +1597,7 @@ export const InventoryService = {
       throw new BadRequestError("product_variant_id is required");
     }
 
-    return prisma.$transaction((tx) =>
+    return InventoryRepository.withTransaction((tx) =>
       applyInventoryMutation({
         tx,
         storeId,
@@ -1893,7 +1641,7 @@ export const InventoryService = {
       throw new BadRequestError("product_variant_id is required");
     }
 
-    return prisma.$transaction((tx) =>
+    return InventoryRepository.withTransaction((tx) =>
       applyInventoryMutation({
         tx,
         storeId,
@@ -1931,7 +1679,7 @@ export const InventoryService = {
       throw new BadRequestError("product_variant_id is required");
     }
 
-    return prisma.$transaction((tx) =>
+    return InventoryRepository.withTransaction((tx) =>
       applyInventoryMutation({
         tx,
         storeId,
@@ -1969,7 +1717,7 @@ export const InventoryService = {
       throw new BadRequestError("product_variant_id is required");
     }
 
-    return prisma.$transaction((tx) =>
+    return InventoryRepository.withTransaction((tx) =>
       applyInventoryMutation({
         tx,
         storeId,

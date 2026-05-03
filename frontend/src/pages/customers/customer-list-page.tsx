@@ -6,6 +6,7 @@ import { Link as RouterLink, useNavigate } from 'react-router'
 import { CommonListLayout } from '@/shared/ui/list/common-list-layout'
 import { ListEmptyState } from '@/shared/ui/list/list-empty-state'
 import type { ListColumn, ListFilterConfig, ListTabConfig } from '@/shared/ui/list/common-list.types'
+import { showErrorToast } from '@/shared/ui/toast/toast-error'
 import { customerApi, type CustomerCategory, type CustomerListItem } from './customer.api'
 import { CustomerListTableSkeleton } from './customer-skeletons'
 import { appToast } from '@/shared/ui/toast/toast.helpers'
@@ -101,7 +102,7 @@ export function CustomerListPage() {
       setCategories(categoryData)
     } catch (error) {
       console.error('Lỗi khi tải danh sách khách hàng:', error)
-      appToast.error('Không thể tải danh sách khách hàng.')
+      showErrorToast(error, 'Không thể tải danh sách khách hàng.')
     } finally {
       setIsLoading(false)
       setHasResolvedInitialLoad(true)
@@ -194,12 +195,12 @@ export function CustomerListPage() {
       setSelectedCustomerIds([])
       appToast.success(
         result.deleted_ids.length > 0
-          ? `Đã xóa mềm ${result.deleted_ids.length} khách hàng.`
+          ? `Đã xóa ${result.deleted_ids.length} khách hàng.`
           : 'Đã xử lý khách hàng đã chọn.',
       )
     } catch (error) {
       console.error('Lỗi khi xóa khách hàng:', error)
-      appToast.error('Không thể xóa khách hàng. Vui lòng thử lại.')
+      showErrorToast(error, 'Không thể xóa khách hàng. Vui lòng thử lại.')
     } finally {
       setIsDeleting(false)
     }
@@ -304,8 +305,8 @@ export function CustomerListPage() {
         selectionLabel: `Đã chọn ${selectedCustomerIds.length} khách hàng`,
         description: isDeleting
           ? 'Đang xử lý khách hàng đã chọn...'
-          : 'Xóa mềm sẽ ẩn khách hàng khỏi danh sách hiện tại nhưng vẫn giữ dữ liệu để đối soát và nối với đơn hàng sau này.',
-        buttonLabel: isDeleting ? 'Đang xử lý...' : 'Xóa mềm khách hàng',
+          : 'Xóa sẽ ẩn khách hàng khỏi danh sách hiện tại nhưng vẫn giữ dữ liệu để đối soát và nối với đơn hàng sau này.',
+        buttonLabel: isDeleting ? 'Đang xử lý...' : 'Xóa khách hàng',
       }}
       columns={columns}
       rows={pagedRows}

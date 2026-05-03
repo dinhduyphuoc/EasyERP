@@ -63,6 +63,15 @@ export interface ProductCategoryRequestInput {
   category_name: string;
 }
 
+export interface ProductListQuery {
+  search?: string;
+  status?: ProductStatusInput;
+  category_id?: number;
+  include_deleted?: boolean;
+  page?: number;
+  page_size?: number;
+}
+
 export interface ProductListResponseItem {
   id: number;
   product_name: string;

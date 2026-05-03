@@ -17,23 +17,10 @@ import { SummaryPaperHeader } from '@/shared/ui/summary-paper-header'
 import { StackedDropdown } from '@/shared/ui/form/stacked-dropdown'
 import { StackedTextField } from '@/shared/ui/form/stacked-text-field'
 import { appToast } from '@/shared/ui/toast/toast.helpers'
+import { showErrorToast } from '@/shared/ui/toast/toast-error'
 import { MenuItem } from '@mui/material'
 
 const addressToText = (value: Record<string, unknown>) => String(value.address_line ?? '')
-
-const getErrorMessage = (error: unknown, fallback: string) =>
-  typeof error === 'object' &&
-  error !== null &&
-  'response' in error &&
-  typeof error.response === 'object' &&
-  error.response !== null &&
-  'data' in error.response &&
-  typeof error.response.data === 'object' &&
-  error.response.data !== null &&
-  'message' in error.response.data &&
-  typeof error.response.data.message === 'string'
-    ? error.response.data.message
-    : fallback
 
 const applyStoreForm = (
   store: Awaited<ReturnType<typeof storeApi.getStore>>,
@@ -99,7 +86,7 @@ export function StoreSettingsPage(): ReactElement {
         })
       } catch (error) {
         if (!cancelled) {
-          appToast.error(getErrorMessage(error, 'Could not load store settings.'))
+          showErrorToast(error, 'Could not load store settings.')
         }
       } finally {
         if (!cancelled) {
@@ -144,7 +131,7 @@ export function StoreSettingsPage(): ReactElement {
       await refreshStores()
       appToast.success('Store information and defaults were saved.')
     } catch (error) {
-      appToast.error(getErrorMessage(error, 'Could not save store settings.'))
+      showErrorToast(error, 'Could not save store settings.')
     } finally {
       setIsSaving(false)
     }
@@ -163,7 +150,7 @@ export function StoreSettingsPage(): ReactElement {
       appToast.success('Store deleted successfully.')
       navigate('/')
     } catch (error) {
-      appToast.error(getErrorMessage(error, 'Could not delete this store.'))
+      showErrorToast(error, 'Could not delete this store.')
     } finally {
       setIsDeleting(false)
     }

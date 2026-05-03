@@ -1,4 +1,3 @@
-import { prisma } from "@lib/prisma";
 import {
   BadRequestError,
   ConflictError,
@@ -7,6 +6,7 @@ import {
 } from "@/common";
 import { AuditLogService } from "@/common/services/audit-log.service";
 import { PasswordService } from "@/common/services/password.service";
+import { AdminRepository } from "./admin.repository";
 
 const normalizeEmail = (value: string) => value.trim().toLowerCase();
 
@@ -77,14 +77,7 @@ const getRolesBySlugs = async (roleSlugs: string[]) => {
     throw new BadRequestError("At least one role is required");
   }
 
-  const roles = await prisma.role.findMany({
-    where: {
-      slug: {
-        in: uniqueRoleSlugs,
-      },
-      tenant_id: null,
-    },
-  });
+  const roles = await AdminRepository.findRolesBySlugs(uniqueRoleSlugs);
 
   if (roles.length !== uniqueRoleSlugs.length) {
     throw new BadRequestError("One or more roles are invalid");
@@ -95,31 +88,7 @@ const getRolesBySlugs = async (roleSlugs: string[]) => {
 
 export const AdminService = {
   listUsers: async () => {
-    const users = await prisma.user.findMany({
-      include: {
-        roles: {
-          include: {
-            role: {
-              select: {
-                slug: true,
-                name: true,
-              },
-            },
-          },
-        },
-        scopes: {
-          select: {
-            scope_type: true,
-            scope_value: true,
-          },
-        },
-      },
-      orderBy: [
-        {
-          created_at: "desc",
-        },
-      ],
-    });
+    const users = await AdminRepository.findAllUsersWithSummary();
 
     return {
       items: users.map((user) => toUserSummary(user)),
@@ -141,10 +110,7 @@ export const AdminService = {
     const email = normalizeEmail(input.email);
     ensureActorCanAssignRoles(input.actor_roles, input.role_slugs);
 
-    const existingUser = await prisma.user.findUnique({
-      where: { email_normalized: email },
-      select: { id: true },
-    });
+    const existingUser = await AdminRepository.findUserIdByNormalizedEmail(email);
 
     if (existingUser) {
       throw new ConflictError("Email is already in use");
@@ -157,33 +123,13 @@ export const AdminService = {
     const roles = await getRolesBySlugs(input.role_slugs);
     const passwordHash = await PasswordService.hashPassword(input.password);
 
-    const user = await prisma.user.create({
-      data: {
-        tenant_id: input.tenant_id ?? null,
-        full_name: input.full_name.trim(),
-        email: email,
-        email_normalized: email,
-        password_hash: passwordHash,
-        status: "active",
-        roles: {
-          create: roles.map((role) => ({
-            role_id: role.id,
-            assigned_by: input.actor_user_id,
-          })),
-        },
-      },
-      include: {
-        roles: {
-          include: {
-            role: {
-              select: {
-                slug: true,
-                name: true,
-              },
-            },
-          },
-        },
-      },
+    const user = await AdminRepository.createUserWithRoles({
+      tenantId: input.tenant_id ?? null,
+      fullName: input.full_name.trim(),
+      email,
+      passwordHash,
+      actorUserId: input.actor_user_id,
+      roles,
     });
 
     await AuditLogService.write({
@@ -216,13 +162,7 @@ export const AdminService = {
   }) => {
     ensureActorCanAssignRoles(input.actor_roles, input.role_slugs);
 
-    const user = await prisma.user.findUnique({
-      where: { id: input.target_user_id },
-      select: {
-        id: true,
-        tenant_id: true,
-      },
-    });
+    const user = await AdminRepository.findUserTenantById(input.target_user_id);
 
     if (!user) {
       throw new NotFoundError("User not found");
@@ -230,20 +170,11 @@ export const AdminService = {
 
     const roles = await getRolesBySlugs(input.role_slugs);
 
-    await prisma.$transaction([
-      prisma.userRole.deleteMany({
-        where: {
-          user_id: user.id,
-        },
-      }),
-      prisma.userRole.createMany({
-        data: roles.map((role) => ({
-          user_id: user.id,
-          role_id: role.id,
-          assigned_by: input.actor_user_id,
-        })),
-      }),
-    ]);
+    await AdminRepository.replaceUserRoles({
+      userId: user.id,
+      actorUserId: input.actor_user_id,
+      roles,
+    });
 
     await AuditLogService.write({
       tenant_id: user.tenant_id,
@@ -261,27 +192,7 @@ export const AdminService = {
       },
     });
 
-    return prisma.user.findUniqueOrThrow({
-      where: { id: user.id },
-      include: {
-        roles: {
-          include: {
-            role: {
-              select: {
-                slug: true,
-                name: true,
-              },
-            },
-          },
-        },
-        scopes: {
-          select: {
-            scope_type: true,
-            scope_value: true,
-          },
-        },
-      },
-    }).then((updatedUser) => toUserSummary(updatedUser));
+    return AdminRepository.findUserSummaryByIdOrThrow(user.id).then((updatedUser) => toUserSummary(updatedUser));
   },
 
   updateStatus: async (input: {
@@ -292,55 +203,23 @@ export const AdminService = {
     ip_address?: string | null;
     user_agent?: string | null;
   }) => {
-    const user = await prisma.user.findUnique({
-      where: { id: input.target_user_id },
-      select: {
-        id: true,
-        tenant_id: true,
-      },
-    });
+    const user = await AdminRepository.findUserTenantById(input.target_user_id);
 
     if (!user) {
       throw new NotFoundError("User not found");
     }
 
-    const updatedUser = await prisma.user.update({
-      where: { id: user.id },
-      data: {
-        status: input.status,
-        locked_until: input.status === "blocked" ? new Date(Date.now() + 365 * 24 * 60 * 60 * 1000) : null,
-      },
-      include: {
-        roles: {
-          include: {
-            role: {
-              select: {
-                slug: true,
-                name: true,
-              },
-            },
-          },
-        },
-        scopes: {
-          select: {
-            scope_type: true,
-            scope_value: true,
-          },
-        },
-      },
+    const updatedUser = await AdminRepository.updateUserStatus({
+      userId: user.id,
+      status: input.status,
+      lockedUntil: input.status === "blocked" ? new Date(Date.now() + 365 * 24 * 60 * 60 * 1000) : null,
     });
 
     if (input.status !== "active") {
-      await prisma.session.updateMany({
-        where: {
-          user_id: user.id,
-          status: "active",
-        },
-        data: {
-          status: "revoked",
-          revoked_at: new Date(),
-          revoke_reason: `user_${input.status}`,
-        },
+      await AdminRepository.revokeActiveSessionsByUserId({
+        userId: user.id,
+        revokedAt: new Date(),
+        revokeReason: `user_${input.status}`,
       });
     }
 

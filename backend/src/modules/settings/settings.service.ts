@@ -1,6 +1,6 @@
 import { BadRequestError } from "@/common";
-import { prisma } from "@lib/prisma";
 import { VietQrService } from "@/lib/vietqr";
+import { SettingsRepository } from "./settings.repository";
 import type {
   GeneralSettingsResponse,
   UpdateGeneralSettingsInput,
@@ -117,15 +117,7 @@ export const SettingsService = {
       };
     }
 
-    const tenant = await prisma.tenant.findUnique({
-      where: { id: tenantId },
-      select: {
-        id: true,
-        default_shipping_address_json: true,
-        default_bank_account_json: true,
-        default_vat_json: true,
-      },
-    });
+    const tenant = await SettingsRepository.findTenantDefaultsById(tenantId);
 
     if (!tenant) {
       return {
@@ -141,16 +133,7 @@ export const SettingsService = {
     );
 
     if (isShippingAddressEmpty(defaults.shipping_address) && activeStoreId) {
-      const store = await prisma.store.findFirst({
-        where: {
-          id: activeStoreId,
-          tenant_id: tenantId,
-          deleted_at: null,
-        },
-        select: {
-          profile_json: true,
-        },
-      });
+      const store = await SettingsRepository.findActiveStoreProfile(tenantId, activeStoreId);
 
       if (store) {
         defaults.shipping_address = buildShippingAddressFromStoreProfile(store.profile_json);
@@ -210,49 +193,27 @@ export const SettingsService = {
       rate_percent: toNonNegativeNumber(nextVat.rate_percent, "defaults.vat.rate_percent"),
     };
 
-    const updated = await prisma.tenant.update({
-      where: { id: tenantId },
-      data: {
-        default_shipping_address_json: normalizedShippingAddress,
-        default_bank_account_json: normalizedBankAccount,
-        default_vat_json: normalizedVat,
-      },
-      select: {
-        id: true,
-        default_shipping_address_json: true,
-        default_bank_account_json: true,
-        default_vat_json: true,
-      },
+    const updated = await SettingsRepository.updateTenantDefaults({
+      tenantId,
+      shippingAddress: normalizedShippingAddress,
+      bankAccount: normalizedBankAccount,
+      vat: normalizedVat,
     });
 
     if (activeStoreId) {
-      const store = await prisma.store.findFirst({
-        where: {
-          id: activeStoreId,
-          tenant_id: tenantId,
-          deleted_at: null,
-        },
-        select: {
-          profile_json: true,
-        },
-      });
+      const store = await SettingsRepository.findActiveStoreProfile(tenantId, activeStoreId);
 
       if (store) {
         const profile = toRecord(store.profile_json);
 
-        await prisma.store.update({
-          where: { id: activeStoreId },
-          data: {
-            profile_json: {
-              ...profile,
-              contact_phone:
-                normalizedShippingAddress.phone || toTrimmedString(profile.contact_phone),
-              state_id: normalizedShippingAddress.state_id,
-              city_id: normalizedShippingAddress.city_id,
-              district_id: normalizedShippingAddress.district_id,
-              address_line: normalizedShippingAddress.address_line,
-            },
-          },
+        await SettingsRepository.updateStoreProfile(activeStoreId, {
+          ...profile,
+          contact_phone:
+            normalizedShippingAddress.phone || toTrimmedString(profile.contact_phone),
+          state_id: normalizedShippingAddress.state_id,
+          city_id: normalizedShippingAddress.city_id,
+          district_id: normalizedShippingAddress.district_id,
+          address_line: normalizedShippingAddress.address_line,
         });
       }
     }

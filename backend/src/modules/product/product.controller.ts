@@ -9,8 +9,10 @@ import type {
   ProductCategoryParams,
   ProductImageCropRequestInput,
   ProductCategoryRequestInput,
+  ProductListQuery,
   ProductParams,
   ProductRequestInput,
+  ProductStatusInput,
 } from "./product.types";
 
 const parseId = (value: string | undefined) => {
@@ -83,11 +85,79 @@ const parseIds = (body: unknown) => {
   return [...new Set(ids)];
 };
 
+const PRODUCT_STATUSES = new Set<ProductStatusInput>([
+  "active",
+  "inactive",
+  "draft",
+  "deleted",
+]);
+
+const parseBooleanFlag = (value: unknown) => {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (typeof value === "boolean") {
+    return value;
+  }
+
+  if (typeof value !== "string") {
+    throw new BadRequestError("Boolean query value is invalid");
+  }
+
+  const normalized = value.trim().toLowerCase();
+
+  if (normalized === "true") {
+    return true;
+  }
+
+  if (normalized === "false") {
+    return false;
+  }
+
+  throw new BadRequestError("Boolean query value must be true or false");
+};
+
+const parsePositiveInteger = (value: unknown, fieldName: string) => {
+  if (value === undefined || value === null || value === "") {
+    return undefined;
+  }
+
+  const parsed = Number(value);
+
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new BadRequestError(`${fieldName} must be a positive integer`);
+  }
+
+  return parsed;
+};
+
+const parseProductListQuery = (query: Record<string, unknown>): ProductListQuery => {
+  const search = typeof query.search === "string" && query.search.trim().length > 0
+    ? query.search.trim()
+    : undefined;
+  const status =
+    typeof query.status === "string" && query.status.trim().length > 0
+      ? query.status.trim()
+      : undefined;
+
+  if (status && !PRODUCT_STATUSES.has(status as ProductStatusInput)) {
+    throw new BadRequestError("status must be one of: active, inactive, draft, deleted");
+  }
+
+  return {
+    search,
+    status: status as ProductStatusInput | undefined,
+    category_id: parsePositiveInteger(query.category_id, "category_id"),
+    include_deleted: parseBooleanFlag(query.include_deleted),
+    page: parsePositiveInteger(query.page, "page"),
+    page_size: parsePositiveInteger(query.page_size, "page_size"),
+  };
+};
+
 const ALLOWED_IMAGE_MIME_TYPES = new Set([
   "image/jpeg",
   "image/png",
-  "image/webp",
-  "image/gif",
 ]);
 
 const parseUploadedImage = (req: Request) => {
@@ -104,7 +174,7 @@ const parseUploadedImage = (req: Request) => {
   const file = upload as UploadedFile;
 
   if (!ALLOWED_IMAGE_MIME_TYPES.has(file.mimetype)) {
-    throw new BadRequestError("Only JPG, PNG, WEBP or GIF images are allowed");
+    throw new BadRequestError("Chỉ hỗ trợ ảnh JPG và PNG");
   }
 
   return file;
@@ -164,11 +234,14 @@ export const ProductController = {
     return res.status(200).json(category);
   },
 
-  getProducts: async (_req: Request, res: Response) => {
-    if (!_req.store) {
+  getProducts: async (req: Request<{}, {}, {}, ProductListQuery>, res: Response) => {
+    if (!req.store) {
       throw new UnauthorizedError("Store context is required");
     }
-    const products = await ProductService.getProducts(_req.store.id);
+    const products = await ProductService.getProducts(
+      req.store.id,
+      parseProductListQuery(req.query as Record<string, unknown>),
+    );
     return res.status(200).json(products);
   },
 

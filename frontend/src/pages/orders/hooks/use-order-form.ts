@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react'
 import { customerApi, type CityItem, type DistrictItem, type LocationItem } from '@/pages/customers/customer.api'
 import { appToast } from '@/shared/ui/toast/toast.helpers'
+import { showErrorToast } from '@/shared/ui/toast/toast-error'
 import type { CustomerModalForm, CustomerModalMode } from '../components/customer/customer-modal'
 import type { CustomerAutocompleteOption } from '../components/customer/customer-section'
 import type { OrderDetailBase, OrderDetailItem, OrderOptionLookup, OrderProcessingStatus } from '../api/order.api'
-import { getErrorMessage } from '../lib/error-message'
 import { ORDER_TOAST_MESSAGES } from '../lib/toast-messages'
 import {
   buildPaymentNoteContent,
@@ -279,7 +279,7 @@ export function useOrderForm({
           )
         } catch (error) {
           console.error('Lỗi khi tải danh sách Huyện/Quận:', error)
-          appToast.error(getErrorMessage(error, 'Không thể tải danh sách Huyện/Quận.'))
+          showErrorToast(error, 'Không thể tải danh sách Huyện/Quận.')
         } finally {
           setIsCitiesLoading(false)
         }
@@ -306,7 +306,7 @@ export function useOrderForm({
           )
         } catch (error) {
           console.error('Lỗi khi tải danh sách Xa/Phường:', error)
-          appToast.error(getErrorMessage(error, 'Không thể tải danh sách Xa/Phường.'))
+          showErrorToast(error, 'Không thể tải danh sách Xa/Phường.')
         } finally {
           setIsDistrictsLoading(false)
         }
@@ -391,7 +391,7 @@ export function useOrderForm({
           )
         } catch (error) {
           console.error('Lỗi khi tải địa chỉ gửi - Huyện/Quận:', error)
-          appToast.error(getErrorMessage(error, 'Không thể tải Huyện/Quận của địa chỉ gửi.'))
+          showErrorToast(error, 'Không thể tải Huyện/Quận của địa chỉ gửi.')
         } finally {
           setIsFromCitiesLoading(false)
         }
@@ -421,7 +421,7 @@ export function useOrderForm({
           )
         } catch (error) {
           console.error('Lỗi khi tải địa chỉ gửi - Xã/Phường:', error)
-          appToast.error(getErrorMessage(error, 'Không thể tải Xã/Phường của địa chỉ gửi.'))
+          showErrorToast(error, 'Không thể tải Xã/Phường của địa chỉ gửi.')
         } finally {
           setIsFromDistrictsLoading(false)
         }
@@ -449,7 +449,7 @@ export function useOrderForm({
           )
         } catch (error) {
           console.error('Lỗi khi tải địa chỉ nhận - Huyện/Quận:', error)
-          appToast.error(getErrorMessage(error, 'Không thể tải Huyện/Quận của địa chỉ nhận.'))
+          showErrorToast(error, 'Không thể tải Huyện/Quận của địa chỉ nhận.')
         } finally {
           setIsToCitiesLoading(false)
         }
@@ -479,7 +479,7 @@ export function useOrderForm({
           )
         } catch (error) {
           console.error('Lỗi khi tải địa chỉ nhận - Xã/Phường:', error)
-          appToast.error(getErrorMessage(error, 'Không thể tải Xã/Phường của địa chỉ nhận.'))
+          showErrorToast(error, 'Không thể tải Xã/Phường của địa chỉ nhận.')
         } finally {
           setIsToDistrictsLoading(false)
         }
@@ -653,7 +653,7 @@ export function useOrderForm({
       setToAddressLine(address.address_line ?? '')
     } catch (error) {
       console.error('Lỗi khi đồng bộ địa chỉ nhận từ khách hàng:', error)
-      appToast.error(getErrorMessage(error, 'Không thể đồng bộ địa chỉ nhận từ khách hàng.'))
+      showErrorToast(error, 'Không thể đồng bộ địa chỉ nhận từ khách hàng.')
     }
   }
 
@@ -988,7 +988,7 @@ export function useOrderForm({
           await applyCustomerShippingAddress(updatedDefaultAddress?.address ?? null)
         } catch (error) {
           console.error('Lỗi khi cập nhật địa chỉ mặc định:', error)
-          appToast.error(getErrorMessage(error, 'Không thể cập nhật địa chỉ mặc định.'))
+          showErrorToast(error, 'Không thể cập nhật địa chỉ mặc định.')
           setIsCustomerModalSaving(false)
           return
         } finally {
@@ -1075,7 +1075,7 @@ export function useOrderForm({
       appToast.success(ORDER_TOAST_MESSAGES.customerCreated)
     } catch (error) {
       console.error('Lỗi khi tạo khách hàng:', error)
-      appToast.error(getErrorMessage(error, 'Không thể tạo khách hàng mới.'))
+      showErrorToast(error, 'Không thể tạo khách hàng mới.')
     } finally {
       setIsCustomerModalSaving(false)
     }

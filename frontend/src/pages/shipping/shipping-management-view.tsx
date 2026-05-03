@@ -22,10 +22,12 @@ import {
   Typography,
 } from '@mui/material'
 import { alpha } from '@mui/material/styles'
-import { ListPageHeader } from '@/shared/ui/list/list-page-header'
+import { getErrorMessage } from '@/shared/lib/errors'
 import { StackedTextField } from '@/shared/ui/form/stacked-text-field'
+import { ListPageHeader } from '@/shared/ui/list/list-page-header'
 import { borderedCardSx, defaultCardSx } from '@/shared/ui/paper'
 import { appToast } from '@/shared/ui/toast/toast.helpers'
+import { showErrorToast } from '@/shared/ui/toast/toast-error'
 import {
   shippingApi,
   type ShippingConnectionDetail,
@@ -136,7 +138,7 @@ export function ShippingManagementView({
       setProviders(data.items)
     } catch (error) {
       console.error('Lỗi khi tải danh sách đơn vị vận chuyển:', error)
-      appToast.error('Không thể tải danh sách đơn vị vận chuyển.')
+      showErrorToast(error, 'Không thể tải danh sách đơn vị vận chuyển.')
     } finally {
       setIsLoading(false)
       setIsRefreshing(false)
@@ -178,7 +180,7 @@ export function ShippingManagementView({
       initializeForm(data)
     } catch (error) {
       console.error('Lỗi khi tải cấu hình đơn vị vận chuyển:', error)
-      appToast.error('Không thể tải chi tiết cấu hình đơn vị vận chuyển.')
+      showErrorToast(error, 'Không thể tải chi tiết cấu hình đơn vị vận chuyển.')
     } finally {
       setIsDetailLoading(false)
     }
@@ -268,22 +270,9 @@ export function ShippingManagementView({
       }
     } catch (error) {
       console.error('Lỗi khi lưu cấu hình vận chuyển:', error)
-      const message =
-        typeof error === 'object' &&
-        error !== null &&
-        'response' in error &&
-        typeof error.response === 'object' &&
-        error.response !== null &&
-        'data' in error.response &&
-        typeof error.response.data === 'object' &&
-        error.response.data !== null &&
-        'message' in error.response.data &&
-        typeof error.response.data.message === 'string'
-          ? error.response.data.message
-          : 'Không thể lưu cấu hình vận chuyển.'
-
+      const message = getErrorMessage(error, 'Không thể lưu cấu hình vận chuyển.')
       setModalError(message)
-      appToast.error(message)
+      showErrorToast(error, message)
     } finally {
       setIsSaving(false)
     }
@@ -313,22 +302,9 @@ export function ShippingManagementView({
       appToast.success(`Hủy kết nối ${response.provider.display_name} thành công.`)
     } catch (error) {
       console.error('Lỗi khi hủy kết nối vận chuyển:', error)
-      const message =
-        typeof error === 'object' &&
-        error !== null &&
-        'response' in error &&
-        typeof error.response === 'object' &&
-        error.response !== null &&
-        'data' in error.response &&
-        typeof error.response.data === 'object' &&
-        error.response.data !== null &&
-        'message' in error.response.data &&
-        typeof error.response.data.message === 'string'
-          ? error.response.data.message
-          : 'Không thể hủy kết nối vận chuyển.'
-
+      const message = getErrorMessage(error, 'Không thể hủy kết nối vận chuyển.')
       setModalError(message)
-      appToast.error(message)
+      showErrorToast(error, message)
     } finally {
       setIsSaving(false)
     }
@@ -504,11 +480,7 @@ export function ShippingManagementView({
                       </Box>
                     </Stack>
                     {provider.status.code === 'connected' ? (
-                      <Chip
-                        label="Đã liên kết"
-                        variant="outlined"
-                        sx={{ fontWeight: 700, ...tone.chipSx }}
-                      />
+                      <Chip label="Đã liên kết" variant="outlined" sx={{ fontWeight: 700, ...tone.chipSx }} />
                     ) : null}
                   </Stack>
 

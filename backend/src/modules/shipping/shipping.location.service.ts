@@ -1,7 +1,7 @@
-import { prisma } from "@lib/prisma";
 import { BadRequestError } from "@/common";
 import type { GHNClient, GHNDistrictResponse, GHNProvinceResponse, GHNWardResponse } from "@/lib/ghn";
 import { Prisma } from "../../../generated/prisma/client";
+import { ShippingRepository } from "./shipping.repository";
 import type {
   ShippingCanonicalLocationInput,
   ShippingResolvedLocation,
@@ -204,16 +204,7 @@ const pickBestLocationCandidate = (
 };
 
 const touchConnectionLastSync = async (providerId: number, storeId: string) => {
-  await prisma.shippingConnection.updateMany({
-    where: {
-      provider_id: providerId,
-      store_id: storeId,
-      status: "connected",
-    },
-    data: {
-      last_sync_at: new Date(),
-    },
-  });
+  await ShippingRepository.touchConnectionLastSync(providerId, storeId);
 };
 
 const readCanonicalLocation = async (
@@ -226,35 +217,7 @@ const readCanonicalLocation = async (
   const addressId = parseOptionalPositiveInt(input.address_id, "location.address_id");
 
   if (addressId) {
-    const address = await prisma.address.findUnique({
-      where: { id: addressId },
-      include: {
-        state: {
-          select: {
-            id: true,
-            code: true,
-            name: true,
-            normalized_name: true,
-          },
-        },
-        city: {
-          select: {
-            id: true,
-            code: true,
-            name: true,
-            normalized_name: true,
-          },
-        },
-        district: {
-          select: {
-            id: true,
-            code: true,
-            name: true,
-            normalized_name: true,
-          },
-        },
-      },
-    });
+    const address = await ShippingRepository.findAddressWithLocationRefs(addressId);
 
     if (!address) {
       throw new BadRequestError("location.address_id is invalid");
@@ -280,39 +243,11 @@ const readCanonicalLocation = async (
     throw new BadRequestError("location.city_id is required");
   }
 
-  const [state, city, district] = await Promise.all([
-    prisma.state.findUnique({
-      where: { id: stateId },
-      select: {
-        id: true,
-        code: true,
-        name: true,
-        normalized_name: true,
-      },
-    }),
-    prisma.city.findUnique({
-      where: { id: cityId },
-      select: {
-        id: true,
-        state_id: true,
-        code: true,
-        name: true,
-        normalized_name: true,
-      },
-    }),
-    districtId
-      ? prisma.district.findUnique({
-          where: { id: districtId },
-          select: {
-            id: true,
-            city_id: true,
-            code: true,
-            name: true,
-            normalized_name: true,
-          },
-        })
-      : Promise.resolve(null),
-  ]);
+  const [state, city, district] = await ShippingRepository.findCanonicalLocationRefs(
+    stateId,
+    cityId,
+    districtId,
+  );
 
   if (!state) {
     throw new BadRequestError("location.state_id is invalid");
@@ -355,55 +290,27 @@ const syncGHNProvinces = async (context: SupportedProviderContext) => {
     const externalId = String(item.ProvinceID);
     activeExternalIds.push(externalId);
 
-    await prisma.shippingProviderProvince.upsert({
-      where: {
-        provider_id_external_id: {
-          provider_id: context.provider.id,
-          external_id: externalId,
-        },
-      },
-      update: {
-        code: item.Code?.trim() || null,
-        name: item.ProvinceName,
-        normalized_name: normalizeLocationText(item.ProvinceName),
-        raw_payload: toJsonObject(item as unknown as Record<string, unknown>),
-        is_active: item.Status === undefined ? true : item.Status !== 0,
-      },
-      create: {
-        provider_id: context.provider.id,
-        external_id: externalId,
-        code: item.Code?.trim() || null,
-        name: item.ProvinceName,
-        normalized_name: normalizeLocationText(item.ProvinceName),
-        raw_payload: toJsonObject(item as unknown as Record<string, unknown>),
-        is_active: item.Status === undefined ? true : item.Status !== 0,
-      },
+    await ShippingRepository.upsertProviderProvince({
+      providerId: context.provider.id,
+      externalId,
+      code: item.Code?.trim() || null,
+      name: item.ProvinceName,
+      normalizedName: normalizeLocationText(item.ProvinceName),
+      rawPayload: item as unknown as Record<string, unknown>,
+      isActive: item.Status === undefined ? true : item.Status !== 0,
     });
   }
 
   if (activeExternalIds.length > 0) {
-    await prisma.shippingProviderProvince.updateMany({
-      where: {
-        provider_id: context.provider.id,
-        external_id: {
-          notIn: activeExternalIds,
-        },
-      },
-      data: {
-        is_active: false,
-      },
-    });
+    await ShippingRepository.deactivateMissingProviderProvinces(
+      context.provider.id,
+      activeExternalIds,
+    );
   }
 
   await touchConnectionLastSync(context.provider.id, context.store_id);
 
-  return prisma.shippingProviderProvince.findMany({
-    where: {
-      provider_id: context.provider.id,
-      is_active: true,
-    },
-    orderBy: [{ name: "asc" }],
-  });
+  return ShippingRepository.findActiveProviderProvinces(context.provider.id);
 };
 
 const syncGHNDistricts = async (
@@ -426,59 +333,29 @@ const syncGHNDistricts = async (
     const externalId = String(item.DistrictID);
     activeExternalIds.push(externalId);
 
-    await prisma.shippingProviderDistrict.upsert({
-      where: {
-        provider_id_external_id: {
-          provider_id: context.provider.id,
-          external_id: externalId,
-        },
-      },
-      update: {
-        province_id: province.id,
-        code: item.Code?.trim() || null,
-        name: item.DistrictName,
-        normalized_name: normalizeLocationText(item.DistrictName),
-        raw_payload: toJsonObject(item as unknown as Record<string, unknown>),
-        is_active: item.Status === undefined ? true : item.Status !== 0,
-      },
-      create: {
-        provider_id: context.provider.id,
-        province_id: province.id,
-        external_id: externalId,
-        code: item.Code?.trim() || null,
-        name: item.DistrictName,
-        normalized_name: normalizeLocationText(item.DistrictName),
-        raw_payload: toJsonObject(item as unknown as Record<string, unknown>),
-        is_active: item.Status === undefined ? true : item.Status !== 0,
-      },
+    await ShippingRepository.upsertProviderDistrict({
+      providerId: context.provider.id,
+      provinceId: province.id,
+      externalId,
+      code: item.Code?.trim() || null,
+      name: item.DistrictName,
+      normalizedName: normalizeLocationText(item.DistrictName),
+      rawPayload: item as unknown as Record<string, unknown>,
+      isActive: item.Status === undefined ? true : item.Status !== 0,
     });
   }
 
   if (activeExternalIds.length > 0) {
-    await prisma.shippingProviderDistrict.updateMany({
-      where: {
-        provider_id: context.provider.id,
-        province_id: province.id,
-        external_id: {
-          notIn: activeExternalIds,
-        },
-      },
-      data: {
-        is_active: false,
-      },
-    });
+    await ShippingRepository.deactivateMissingProviderDistricts(
+      context.provider.id,
+      province.id,
+      activeExternalIds,
+    );
   }
 
   await touchConnectionLastSync(context.provider.id, context.store_id);
 
-  return prisma.shippingProviderDistrict.findMany({
-    where: {
-      provider_id: context.provider.id,
-      province_id: province.id,
-      is_active: true,
-    },
-    orderBy: [{ name: "asc" }],
-  });
+  return ShippingRepository.findActiveProviderDistricts(context.provider.id, province.id);
 };
 
 const syncGHNWards = async (
@@ -501,69 +378,33 @@ const syncGHNWards = async (
     const externalId = String(item.WardCode);
     activeExternalIds.push(externalId);
 
-    await prisma.shippingProviderWard.upsert({
-      where: {
-        provider_id_external_id: {
-          provider_id: context.provider.id,
-          external_id: externalId,
-        },
-      },
-      update: {
-        provider_district_id: providerDistrict.id,
-        code: item.WardCode?.trim() || null,
-        name: item.WardName,
-        normalized_name: normalizeLocationText(item.WardName),
-        raw_payload: toJsonObject(item as unknown as Record<string, unknown>),
-        is_active: item.Status === undefined ? true : item.Status !== 0,
-      },
-      create: {
-        provider_id: context.provider.id,
-        provider_district_id: providerDistrict.id,
-        external_id: externalId,
-        code: item.WardCode?.trim() || null,
-        name: item.WardName,
-        normalized_name: normalizeLocationText(item.WardName),
-        raw_payload: toJsonObject(item as unknown as Record<string, unknown>),
-        is_active: item.Status === undefined ? true : item.Status !== 0,
-      },
+    await ShippingRepository.upsertProviderWard({
+      providerId: context.provider.id,
+      providerDistrictId: providerDistrict.id,
+      externalId,
+      code: item.WardCode?.trim() || null,
+      name: item.WardName,
+      normalizedName: normalizeLocationText(item.WardName),
+      rawPayload: item as unknown as Record<string, unknown>,
+      isActive: item.Status === undefined ? true : item.Status !== 0,
     });
   }
 
   if (activeExternalIds.length > 0) {
-    await prisma.shippingProviderWard.updateMany({
-      where: {
-        provider_id: context.provider.id,
-        provider_district_id: providerDistrict.id,
-        external_id: {
-          notIn: activeExternalIds,
-        },
-      },
-      data: {
-        is_active: false,
-      },
-    });
+    await ShippingRepository.deactivateMissingProviderWards(
+      context.provider.id,
+      providerDistrict.id,
+      activeExternalIds,
+    );
   }
 
   await touchConnectionLastSync(context.provider.id, context.store_id);
 
-  return prisma.shippingProviderWard.findMany({
-    where: {
-      provider_id: context.provider.id,
-      provider_district_id: providerDistrict.id,
-      is_active: true,
-    },
-    orderBy: [{ name: "asc" }],
-  });
+  return ShippingRepository.findActiveProviderWards(context.provider.id, providerDistrict.id);
 };
 
 const ensureProviderProvinces = async (context: SupportedProviderContext) => {
-  const existing = await prisma.shippingProviderProvince.findMany({
-    where: {
-      provider_id: context.provider.id,
-      is_active: true,
-    },
-    orderBy: [{ name: "asc" }],
-  });
+  const existing = await ShippingRepository.findActiveProviderProvinces(context.provider.id);
 
   if (existing.length > 0) {
     return existing;
@@ -579,14 +420,10 @@ const ensureProviderDistricts = async (
     external_id: string;
   },
 ) => {
-  const existing = await prisma.shippingProviderDistrict.findMany({
-    where: {
-      provider_id: context.provider.id,
-      province_id: province.id,
-      is_active: true,
-    },
-    orderBy: [{ name: "asc" }],
-  });
+  const existing = await ShippingRepository.findActiveProviderDistricts(
+    context.provider.id,
+    province.id,
+  );
 
   if (existing.length > 0) {
     return existing;
@@ -602,14 +439,10 @@ const ensureProviderWards = async (
     external_id: string;
   },
 ) => {
-  const existing = await prisma.shippingProviderWard.findMany({
-    where: {
-      provider_id: context.provider.id,
-      provider_district_id: providerDistrict.id,
-      is_active: true,
-    },
-    orderBy: [{ name: "asc" }],
-  });
+  const existing = await ShippingRepository.findActiveProviderWards(
+    context.provider.id,
+    providerDistrict.id,
+  );
 
   if (existing.length > 0) {
     return existing;
@@ -622,17 +455,7 @@ const ensureStateMapping = async (
   context: SupportedProviderContext,
   state: InternalLocationRecord["state"],
 ) => {
-  const existing = await prisma.shippingProviderStateMapping.findUnique({
-    where: {
-      provider_id_state_id: {
-        provider_id: context.provider.id,
-        state_id: state.id,
-      },
-    },
-    include: {
-      provider_province: true,
-    },
-  });
+  const existing = await ShippingRepository.findStateMapping(context.provider.id, state.id);
 
   if (existing) {
     return existing;
@@ -647,28 +470,12 @@ const ensureStateMapping = async (
     );
   }
 
-  return prisma.shippingProviderStateMapping.upsert({
-    where: {
-      provider_id_state_id: {
-        provider_id: context.provider.id,
-        state_id: state.id,
-      },
-    },
-    update: {
-      provider_province_id: match.candidate.id,
-      source: "auto",
-      confidence_score: match.score,
-    },
-    create: {
-      provider_id: context.provider.id,
-      state_id: state.id,
-      provider_province_id: match.candidate.id,
-      source: "auto",
-      confidence_score: match.score,
-    },
-    include: {
-      provider_province: true,
-    },
+  return ShippingRepository.upsertStateMapping({
+    providerId: context.provider.id,
+    stateId: state.id,
+    providerProvinceId: match.candidate.id,
+    source: "auto",
+    confidenceScore: match.score,
   });
 };
 
@@ -682,17 +489,7 @@ const ensureCityMapping = async (
     };
   },
 ) => {
-  const existing = await prisma.shippingProviderCityMapping.findUnique({
-    where: {
-      provider_id_city_id: {
-        provider_id: context.provider.id,
-        city_id: city.id,
-      },
-    },
-    include: {
-      provider_district: true,
-    },
-  });
+  const existing = await ShippingRepository.findCityMapping(context.provider.id, city.id);
 
   if (existing) {
     return existing;
@@ -710,28 +507,12 @@ const ensureCityMapping = async (
     );
   }
 
-  return prisma.shippingProviderCityMapping.upsert({
-    where: {
-      provider_id_city_id: {
-        provider_id: context.provider.id,
-        city_id: city.id,
-      },
-    },
-    update: {
-      provider_district_id: match.candidate.id,
-      source: "auto",
-      confidence_score: match.score,
-    },
-    create: {
-      provider_id: context.provider.id,
-      city_id: city.id,
-      provider_district_id: match.candidate.id,
-      source: "auto",
-      confidence_score: match.score,
-    },
-    include: {
-      provider_district: true,
-    },
+  return ShippingRepository.upsertCityMapping({
+    providerId: context.provider.id,
+    cityId: city.id,
+    providerDistrictId: match.candidate.id,
+    source: "auto",
+    confidenceScore: match.score,
   });
 };
 
@@ -745,17 +526,7 @@ const ensureDistrictMapping = async (
     };
   },
 ) => {
-  const existing = await prisma.shippingProviderDistrictMapping.findUnique({
-    where: {
-      provider_id_district_id: {
-        provider_id: context.provider.id,
-        district_id: district.id,
-      },
-    },
-    include: {
-      provider_ward: true,
-    },
-  });
+  const existing = await ShippingRepository.findDistrictMapping(context.provider.id, district.id);
 
   if (existing) {
     return existing;
@@ -770,28 +541,12 @@ const ensureDistrictMapping = async (
     );
   }
 
-  return prisma.shippingProviderDistrictMapping.upsert({
-    where: {
-      provider_id_district_id: {
-        provider_id: context.provider.id,
-        district_id: district.id,
-      },
-    },
-    update: {
-      provider_ward_id: match.candidate.id,
-      source: "auto",
-      confidence_score: match.score,
-    },
-    create: {
-      provider_id: context.provider.id,
-      district_id: district.id,
-      provider_ward_id: match.candidate.id,
-      source: "auto",
-      confidence_score: match.score,
-    },
-    include: {
-      provider_ward: true,
-    },
+  return ShippingRepository.upsertDistrictMapping({
+    providerId: context.provider.id,
+    districtId: district.id,
+    providerWardId: match.candidate.id,
+    source: "auto",
+    confidenceScore: match.score,
   });
 };
 

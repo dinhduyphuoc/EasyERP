@@ -14,9 +14,22 @@ import { settingsRouter } from "@/modules/settings/settings.routes";
 import { storeRouter } from "@/modules/store/store.routes";
 
 const app = express();
+const corsOrigin = process.env.CORS_ORIGIN?.trim();
+const defaultAllowedOrigins = ["http://localhost:5173", "https://app.ddphuoc.site"];
+const allowedOrigins = corsOrigin
+  ? corsOrigin.split(",").map((origin) => origin.trim()).filter(Boolean)
+  : defaultAllowedOrigins;
 
 app.use(cors({
-  origin: "http://localhost:5173",
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+      return;
+    }
+
+    callback(new Error(`CORS blocked for origin: ${origin}`));
+  },
+  credentials: true,
 }));
 
 app.use(fileUpload({

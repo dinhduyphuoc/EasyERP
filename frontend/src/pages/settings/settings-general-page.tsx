@@ -1,13 +1,12 @@
+import { useEffect, useMemo, useState, type ReactElement } from 'react'
 import ChevronRightRoundedIcon from '@mui/icons-material/ChevronRightRounded'
 import CreditCardOutlinedIcon from '@mui/icons-material/CreditCardOutlined'
-import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined'
 import EmailOutlinedIcon from '@mui/icons-material/EmailOutlined'
 import FmdGoodOutlinedIcon from '@mui/icons-material/FmdGoodOutlined'
 import PhoneOutlinedIcon from '@mui/icons-material/PhoneOutlined'
 import StorefrontOutlinedIcon from '@mui/icons-material/StorefrontOutlined'
 import {
   Box,
-  Button,
   CircularProgress,
   Divider,
   InputAdornment,
@@ -17,8 +16,6 @@ import {
   TextField,
   Typography,
 } from '@mui/material'
-import { useEffect, useMemo, useState, type ReactElement } from 'react'
-import { useBlocker, useNavigate } from 'react-router'
 import { customerApi, type CityItem, type DistrictItem, type LocationItem } from '@/pages/customers/customer.api'
 import { useAuth } from '@/modules/auth/use-auth'
 import { storeApi } from '@/modules/store/store.api'
@@ -26,21 +23,9 @@ import { useStore } from '@/modules/store/use-store'
 import { borderedCardSx } from '@/shared/ui/paper'
 import { SummaryPaperHeader } from '@/shared/ui/summary-paper-header'
 import { appToast } from '@/shared/ui/toast/toast.helpers'
+import { showErrorToast } from '@/shared/ui/toast/toast-error'
 import { generalSettingsApi } from './general-settings.api'
-
-const getErrorMessage = (error: unknown, fallback: string) =>
-  typeof error === 'object' &&
-  error !== null &&
-  'response' in error &&
-  typeof error.response === 'object' &&
-  error.response !== null &&
-  'data' in error.response &&
-  typeof error.response.data === 'object' &&
-  error.response.data !== null &&
-  'message' in error.response.data &&
-  typeof error.response.data.message === 'string'
-    ? error.response.data.message
-    : fallback
+import { useSettingsUnsavedRegistration } from './settings-unsaved-context'
 
 function SummaryRow({
   icon,
@@ -79,12 +64,6 @@ function SummaryRow({
               transform: 'translateY(-1px)',
             }
           : undefined,
-        '&:focus-visible': onClick
-          ? {
-              outline: '2px solid #155eef',
-              outlineOffset: 2,
-            }
-          : undefined,
       }}
     >
       <Stack direction="row" spacing={1.25} sx={{ alignItems: 'center', minWidth: 0 }}>
@@ -116,7 +95,6 @@ function SummaryRow({
 }
 
 export function SettingsGeneralPage(): ReactElement {
-  const navigate = useNavigate()
   const { user } = useAuth()
   const { activeStore } = useStore()
   const [isLoading, setIsLoading] = useState(true)
@@ -139,7 +117,6 @@ export function SettingsGeneralPage(): ReactElement {
   const [isSavingVat, setIsSavingVat] = useState(false)
   const [initialVatEnabled, setInitialVatEnabled] = useState(false)
   const [initialVatRatePercent, setInitialVatRatePercent] = useState('0')
-  const [shakeBannerTick, setShakeBannerTick] = useState(0)
 
   useEffect(() => {
     if (!activeStore) {
@@ -180,7 +157,7 @@ export function SettingsGeneralPage(): ReactElement {
         setInitialVatRatePercent(String(settings.defaults.vat.rate_percent))
       } catch (error) {
         if (!cancelled) {
-          appToast.error(getErrorMessage(error, 'Không thể tải cấu hình cửa hàng.'))
+          showErrorToast(error, 'Không thể tải cấu hình cửa hàng.')
         }
       } finally {
         if (!cancelled) {
@@ -207,10 +184,9 @@ export function SettingsGeneralPage(): ReactElement {
 
     const loadCities = async () => {
       try {
-        const nextCities = await customerApi.getCities({ state_id: stateId, is_active: true })
-        setCities(nextCities)
+        setCities(await customerApi.getCities({ state_id: stateId, is_active: true }))
       } catch (error) {
-        appToast.error(getErrorMessage(error, 'Không thể tải quận huyện.'))
+        showErrorToast(error, 'Không thể tải quận huyện.')
       }
     }
 
@@ -226,10 +202,9 @@ export function SettingsGeneralPage(): ReactElement {
 
     const loadDistricts = async () => {
       try {
-        const nextDistricts = await customerApi.getDistricts({ city_id: cityId, is_active: true })
-        setDistricts(nextDistricts)
+        setDistricts(await customerApi.getDistricts({ city_id: cityId, is_active: true }))
       } catch (error) {
-        appToast.error(getErrorMessage(error, 'Không thể tải phường xã.'))
+        showErrorToast(error, 'Không thể tải phường xã.')
       }
     }
 
@@ -248,40 +223,6 @@ export function SettingsGeneralPage(): ReactElement {
     () => vatEnabled !== initialVatEnabled || String(vatRatePercent) !== String(initialVatRatePercent),
     [initialVatEnabled, initialVatRatePercent, vatEnabled, vatRatePercent],
   )
-
-  const blocker = useBlocker(hasUnsavedVatChanges)
-
-  useEffect(() => {
-    if (blocker.state !== 'blocked') {
-      return
-    }
-
-    setShakeBannerTick((current) => current + 1)
-    blocker.reset()
-  }, [blocker])
-
-  useEffect(() => {
-    const beforeUnload = (event: BeforeUnloadEvent) => {
-      if (!hasUnsavedVatChanges) {
-        return
-      }
-
-      event.preventDefault()
-      event.returnValue = ''
-    }
-
-    window.addEventListener('beforeunload', beforeUnload)
-    return () => window.removeEventListener('beforeunload', beforeUnload)
-  }, [hasUnsavedVatChanges])
-
-  const handleAttemptNavigate = (to: string) => {
-    if (hasUnsavedVatChanges) {
-      setShakeBannerTick((current) => current + 1)
-      return
-    }
-
-    navigate(to, { state: { overlayFrom: '/' } })
-  }
 
   const handleDiscardVatChanges = () => {
     setVatEnabled(initialVatEnabled)
@@ -309,11 +250,23 @@ export function SettingsGeneralPage(): ReactElement {
       setInitialVatRatePercent(String(updated.defaults.vat.rate_percent))
       appToast.success('Đã lưu cấu hình thuế VAT.')
     } catch (error) {
-      appToast.error(getErrorMessage(error, 'Không thể lưu cấu hình thuế VAT.'))
+      showErrorToast(error, 'Không thể lưu cấu hình thuế VAT.')
     } finally {
       setIsSavingVat(false)
     }
   }
+
+  const { attemptNavigate } = useSettingsUnsavedRegistration(
+    useMemo(
+      () => ({
+        isDirty: hasUnsavedVatChanges,
+        isSaving: isSavingVat,
+        onSave: () => void handleSaveVatSettings(),
+        onDiscard: handleDiscardVatChanges,
+      }),
+      [hasUnsavedVatChanges, isSavingVat],
+    ),
+  )
 
   return (
     <Stack spacing={2.5} sx={{ pb: 8 }}>
@@ -327,17 +280,19 @@ export function SettingsGeneralPage(): ReactElement {
         <Stack spacing={2.5}>
           <Stack spacing={0.75}>
             <SummaryPaperHeader title="Thông tin cửa hàng" />
-            <Typography sx={{ color: '#667085' }}>Identity, contact details, legal profile, and business defaults.</Typography>
+            <Typography sx={{ color: '#667085' }}>
+              Thông tin nhận diện, liên hệ, pháp lý và thiết lập kinh doanh mặc định.
+            </Typography>
           </Stack>
 
           {isLoading ? <CircularProgress size={24} /> : null}
 
-            <SummaryRow
-              icon={<StorefrontOutlinedIcon fontSize="small" />}
-              label={storeName || 'Chưa có tên cửa hàng'}
-              value={`${contactEmail || 'No email'} • ${contactPhone || 'Chưa có số điện thoại'}`}
-              onClick={() => handleAttemptNavigate('/settings/general/store-details')}
-            />
+          <SummaryRow
+            icon={<StorefrontOutlinedIcon fontSize="small" />}
+            label={storeName || 'Chưa có tên cửa hàng'}
+            value={`${contactEmail || 'Chưa có email'} • ${contactPhone || 'Chưa có số điện thoại'}`}
+            onClick={() => attemptNavigate('/settings/general/store-details')}
+          />
         </Stack>
       </Paper>
 
@@ -345,7 +300,9 @@ export function SettingsGeneralPage(): ReactElement {
         <Stack spacing={2.5}>
           <Stack spacing={0.75}>
             <SummaryPaperHeader title="Quản lý thanh toán" />
-            <Typography sx={{ color: '#667085' }}>Thông tin hiển thị nhanh để kiểm tra trước khi mở trang edit.</Typography>
+            <Typography sx={{ color: '#667085' }}>
+              Thông tin hiển thị nhanh để kiểm tra trước khi mở trang chỉnh sửa.
+            </Typography>
           </Stack>
 
           <Stack spacing={1.25}>
@@ -357,7 +314,7 @@ export function SettingsGeneralPage(): ReactElement {
                   ? `${accountHolder || 'Chưa có chủ tài khoản'} - ${accountNumber || 'Chưa có số tài khoản'}`
                   : 'Thêm thông tin tài khoản ngân hàng mặc định'
               }
-              onClick={() => handleAttemptNavigate('/settings/general/payment-methods')}
+              onClick={() => attemptNavigate('/settings/general/payment-methods')}
             />
           </Stack>
 
@@ -366,7 +323,7 @@ export function SettingsGeneralPage(): ReactElement {
           <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5}>
             <Stack direction="row" spacing={1} sx={{ alignItems: 'center', color: '#475467' }}>
               <EmailOutlinedIcon fontSize="small" />
-              <Typography>{contactEmail || 'No store email'}</Typography>
+              <Typography>{contactEmail || 'Chưa có email cửa hàng'}</Typography>
             </Stack>
             <Stack direction="row" spacing={1} sx={{ alignItems: 'center', color: '#475467' }}>
               <PhoneOutlinedIcon fontSize="small" />
@@ -382,9 +339,9 @@ export function SettingsGeneralPage(): ReactElement {
 
       <Paper sx={borderedCardSx}>
         <Stack spacing={0.75}>
-          <SummaryPaperHeader title="Store defaults" />
+          <SummaryPaperHeader title="Thiết lập mặc định của cửa hàng" />
           <Typography sx={{ color: '#667085' }}>
-            Current defaults: {currency} • {timezone}
+            Thiết lập hiện tại: {currency} • {timezone}
           </Typography>
         </Stack>
       </Paper>
@@ -394,7 +351,7 @@ export function SettingsGeneralPage(): ReactElement {
           <Stack spacing={0.75}>
             <SummaryPaperHeader title="Thuế VAT" />
             <Typography sx={{ color: '#667085' }}>
-              Áp dụng VAT mặc định ở cấp cửa hàng cho payment details của đơn hàng.
+              Áp dụng VAT mặc định ở cấp cửa hàng cho phần thanh toán của đơn hàng.
             </Typography>
           </Stack>
 
@@ -406,7 +363,7 @@ export function SettingsGeneralPage(): ReactElement {
             <Stack spacing={0.35}>
               <Typography sx={{ fontWeight: 700, color: '#101828' }}>Bật thuế VAT</Typography>
               <Typography variant="body2" sx={{ color: '#667085' }}>
-                Khi bật, hệ thống sẽ tự tính VAT từ tạm tính theo tỷ lệ cấu hình.
+                Khi bật, hệ thống sẽ tự động tính VAT từ tạm tính theo tỷ lệ cấu hình.
               </Typography>
             </Stack>
             <Switch
@@ -438,75 +395,12 @@ export function SettingsGeneralPage(): ReactElement {
               />
             ) : (
               <Typography variant="body2" sx={{ color: '#667085' }}>
-                Tắt VAT thì hệ thống sẽ không render dòng thuế ở payment details.
+                Tắt VAT thì hệ thống sẽ không hiển thị dòng thuế ở phần thanh toán.
               </Typography>
             )}
           </Stack>
         </Stack>
       </Paper>
-
-      {hasUnsavedVatChanges ? (
-        <Box
-          sx={{
-            position: 'sticky',
-            bottom: 20,
-            zIndex: 20,
-            display: 'flex',
-            justifyContent: 'center',
-            px: { xs: 0.5, md: 0 },
-            '@keyframes settingsUnsavedShake': {
-              '0%': { transform: 'translateX(0)' },
-              '20%': { transform: 'translateX(-8px)' },
-              '40%': { transform: 'translateX(8px)' },
-              '60%': { transform: 'translateX(-6px)' },
-              '80%': { transform: 'translateX(6px)' },
-              '100%': { transform: 'translateX(0)' },
-            },
-          }}
-        >
-          <Paper
-            elevation={8}
-            key={shakeBannerTick}
-            sx={{
-              width: 'min(100%, 780px)',
-              borderRadius: 999,
-              border: '1px solid #d0d5dd',
-              bgcolor: '#ffffff',
-              color: '#101828',
-              px: 1.5,
-              py: 1.25,
-              animation: shakeBannerTick > 0 ? 'settingsUnsavedShake 420ms ease' : 'none',
-            }}
-          >
-            <Stack
-              direction={{ xs: 'column', md: 'row' }}
-              spacing={1.25}
-              sx={{ alignItems: { md: 'center' }, justifyContent: 'space-between' }}
-            >
-              <Stack direction="row" spacing={1} sx={{ alignItems: 'center', minWidth: 0 }}>
-                <InfoOutlinedIcon fontSize="small" />
-                <Typography sx={{ fontWeight: 600 }}>
-                  Bạn có thay đổi chưa lưu. Hãy lưu hoặc hoàn tác trước khi rời khỏi trang này.
-                </Typography>
-              </Stack>
-
-              <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexShrink: 0 }}>
-                <Button
-                  variant="text"
-                  onClick={handleDiscardVatChanges}
-                  disabled={isSavingVat}
-                  sx={{ color: '#344054' }}
-                >
-                  Discard
-                </Button>
-                <Button variant="contained" onClick={() => void handleSaveVatSettings()} disabled={isSavingVat}>
-                  {isSavingVat ? 'Đang lưu...' : 'Save'}
-                </Button>
-              </Stack>
-            </Stack>
-          </Paper>
-        </Box>
-      ) : null}
     </Stack>
   )
 }

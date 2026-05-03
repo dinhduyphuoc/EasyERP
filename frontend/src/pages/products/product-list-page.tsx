@@ -9,6 +9,7 @@ import { useStore } from '@/modules/store/use-store'
 import { productApi, type ProductCategory } from '@/pages/products/product.api'
 import { ProductListTableSkeleton } from '@/pages/products/product-skeletons'
 import { appToast } from '@/shared/ui/toast/toast.helpers'
+import { showErrorToast } from '@/shared/ui/toast/toast-error'
 import { formatCurrency as sharedFormatCurrency } from '@/shared/utils/currency'
 
 type ProductStatus = 'active' | 'inactive' | 'draft' | 'deleted'
@@ -319,21 +320,7 @@ export function ProductListPage() {
       )
     } catch (error) {
       console.error('Lỗi khi xóa sản phẩm:', error)
-      const message =
-        typeof error === 'object' &&
-        error !== null &&
-        'response' in error &&
-        typeof error.response === 'object' &&
-        error.response !== null &&
-        'data' in error.response &&
-        typeof error.response.data === 'object' &&
-        error.response.data !== null &&
-        'message' in error.response.data &&
-        typeof error.response.data.message === 'string'
-          ? error.response.data.message
-          : 'Không thể xóa sản phẩm. Vui lòng thử lại!'
-
-      appToast.error(message)
+      showErrorToast(error, 'Không thể xóa sản phẩm. Vui lòng thử lại!')
     } finally {
       setIsDeleting(false)
     }
@@ -374,7 +361,7 @@ export function ProductListPage() {
       },
       {
         key: 'sku',
-        title: 'SKU mặc định',
+        title: 'Mã sản phẩm',
         render: (row) => row.default_variant_sku ?? row.primary_variant?.sku ?? '-',
       },
       {
@@ -384,7 +371,7 @@ export function ProductListPage() {
       },
       {
         key: 'variants',
-        title: 'Biến thể',
+        title: 'SL Phiên bản',
         align: 'right',
         render: (row) => row.variant_count,
       },
@@ -470,7 +457,7 @@ export function ProductListPage() {
           ? 'Đang xử lý sản phẩm đã chọn...'
           : 'Xóa sản phẩm sẽ chuyển trạng thái sang đã xóa. Toàn bộ attributes, variants và dữ liệu lịch sử vẫn được giữ lại.',
         selectionLabel: `Đã chọn ${selectedProductIds.length} sản phẩm`,
-        buttonLabel: isDeleting ? 'Đang xử lý...' : 'Xóa mềm sản phẩm',
+        buttonLabel: isDeleting ? 'Đang xử lý...' : 'Xóa',
       }}
       columns={columns}
       rows={pagedRows}

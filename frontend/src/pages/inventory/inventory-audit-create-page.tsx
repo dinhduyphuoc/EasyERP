@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useState, type ReactElement } from 'react'
 import { useNavigate, useParams } from 'react-router'
-import ArrowBackIcon from '@mui/icons-material/ArrowBack'
+import DeleteOutlineOutlinedIcon from '@mui/icons-material/DeleteOutlineOutlined'
 import SaveOutlinedIcon from '@mui/icons-material/SaveOutlined'
 import TaskAltOutlinedIcon from '@mui/icons-material/TaskAltOutlined'
-import DeleteOutlineOutlinedIcon from '@mui/icons-material/DeleteOutlineOutlined'
 import {
   Alert,
   Autocomplete,
@@ -22,11 +21,19 @@ import {
   TextField,
   Typography,
 } from '@mui/material'
-import { inventoryApi, type InventoryAuditItem, type InventoryAuditPayload, type InventoryStockListItem } from './inventory.api'
+import {
+  inventoryApi,
+  type InventoryAuditItem,
+  type InventoryAuditPayload,
+  type InventoryStockListItem,
+} from './inventory.api'
+import { InventoryAuditPageSkeleton } from './inventory-skeletons'
+import { CreateEditPageHeader } from '@/shared/ui/page'
 import { defaultCardSx } from '@/shared/ui/paper'
 import { appToast } from '@/shared/ui/toast/toast.helpers'
+import { showErrorToast } from '@/shared/ui/toast/toast-error'
+import { UnsavedChangesBanner, useUnsavedChangesPrompt } from '@/shared/ui/unsaved-changes'
 import { formatCurrency as sharedFormatCurrency } from '@/shared/utils/currency'
-import { InventoryAuditPageSkeleton } from './inventory-skeletons'
 
 type AuditLineDraft = {
   product_variant_id: string
@@ -73,7 +80,6 @@ function sanitizeActualQtyInput(value: string) {
 
 function formatCurrency(value: number) {
   return sharedFormatCurrency(value)
-  return `${value.toLocaleString('vi-VN')} đ`
 }
 
 function getAuditCode() {
@@ -115,6 +121,7 @@ export function InventoryAuditCreatePage(): ReactElement {
   const [searchResults, setSearchResults] = useState<InventoryStockListItem[]>([])
   const [isSearching, setIsSearching] = useState(false)
   const isCompletedAudit = audit?.status === 'completed'
+  const [initialSnapshot, setInitialSnapshot] = useState('')
 
   useEffect(() => {
     const fetchPageData = async () => {
@@ -123,43 +130,45 @@ export function InventoryAuditCreatePage(): ReactElement {
       try {
         if (isEditMode && id) {
           const auditDetail = await inventoryApi.getAuditById(id)
+          const mappedRows = auditDetail.lines.map((line) => ({
+            product_variant_id: line.product_variant_id,
+            product_id: line.product_id ?? 0,
+            product_name: line.product_name ?? '',
+            product_status: line.product_status,
+            display_name: line.display_name,
+            sku: line.sku,
+            unit: line.unit,
+            image_url: line.image_url,
+            on_hand: line.system_on_hand,
+            available: line.system_on_hand,
+            committed: 0,
+            packing: 0,
+            incoming: 0,
+            selling_price: line.selling_price ?? '0',
+            cogs: line.cogs ?? '0',
+          }))
+          const mappedLines = Object.fromEntries(
+            auditDetail.lines.map((line) => [
+              line.product_variant_id,
+              {
+                product_variant_id: line.product_variant_id,
+                actualQty: line.counted_on_hand === null ? '' : String(line.counted_on_hand),
+              },
+            ]),
+          )
+
           setAudit(auditDetail)
           setAuditCode(auditDetail.audit_code)
-          setRows(
-            auditDetail.lines.map((line) => ({
-              product_variant_id: line.product_variant_id,
-              product_id: line.product_id ?? 0,
-              product_name: line.product_name ?? '',
-              product_status: line.product_status,
-              display_name: line.display_name,
-              sku: line.sku,
-              unit: line.unit,
-              image_url: line.image_url,
-              on_hand: line.system_on_hand,
-              available: line.system_on_hand,
-              committed: 0,
-              packing: 0,
-              incoming: 0,
-              selling_price: line.selling_price ?? '0',
-              cogs: line.cogs ?? '0',
-            })),
-          )
-          setLines(
-            Object.fromEntries(
-              auditDetail.lines.map((line) => [
-                line.product_variant_id,
-                {
-                  product_variant_id: line.product_variant_id,
-                  actualQty: line.counted_on_hand === null ? '' : String(line.counted_on_hand),
-                },
-              ]),
-            ),
-          )
+          setRows(mappedRows)
+          setLines(mappedLines)
+          setInitialSnapshot(JSON.stringify({ rows: mappedRows, lines: mappedLines }))
           return
         }
+
+        setInitialSnapshot(JSON.stringify({ rows: [], lines: {} }))
       } catch (error) {
         console.error('Lỗi khi tải dữ liệu phiếu kiểm kho:', error)
-        appToast.error('Không thể tải dữ liệu phiếu kiểm kho.')
+        showErrorToast(error, 'Không thể tải dữ liệu phiếu kiểm kho.')
       } finally {
         setIsLoading(false)
       }
@@ -169,7 +178,7 @@ export function InventoryAuditCreatePage(): ReactElement {
   }, [id, isEditMode])
 
   useEffect(() => {
-    if (isEditMode === false && searchKeyword.trim().length === 0) {
+    if (!isEditMode && searchKeyword.trim().length === 0) {
       setSearchResults([])
       setIsSearching(false)
       return
@@ -213,10 +222,7 @@ export function InventoryAuditCreatePage(): ReactElement {
       return []
     }
 
-    const productGroups = new Map<
-      number,
-      { product_name: string; unit: string | null; variantIds: string[] }
-    >()
+    const productGroups = new Map<number, { product_name: string; unit: string | null; variantIds: string[] }>()
 
     for (const item of searchResults) {
       const existingGroup = productGroups.get(item.product_id)
@@ -274,6 +280,24 @@ export function InventoryAuditCreatePage(): ReactElement {
 
   const hasInvalidQty = tableRows.some((row) => row.hasInvalidActualQty)
   const hasBlankQty = tableRows.some((row) => row.isActualQtyBlank)
+  const currentSnapshot = useMemo(() => JSON.stringify({ rows, lines }), [lines, rows])
+  const isDirty = !isLoading && !isCompletedAudit && currentSnapshot !== initialSnapshot
+
+  const handleDiscard = () => {
+    if (!initialSnapshot) {
+      return
+    }
+
+    const snapshot = JSON.parse(initialSnapshot) as {
+      rows: InventoryStockListItem[]
+      lines: Record<string, AuditLineDraft>
+    }
+
+    setRows(snapshot.rows)
+    setLines(snapshot.lines)
+    setSearchKeyword('')
+    setSearchResults([])
+  }
 
   const handleActualQtyChange = (productVariantId: string, value: string) => {
     setLines((current) => ({
@@ -288,9 +312,9 @@ export function InventoryAuditCreatePage(): ReactElement {
   const handleRemoveRow = (productVariantId: string) => {
     setRows((current) => current.filter((row) => row.product_variant_id !== productVariantId))
     setLines((current) => {
-      const newLines = { ...current }
-      delete newLines[productVariantId]
-      return newLines
+      const nextLines = { ...current }
+      delete nextLines[productVariantId]
+      return nextLines
     })
   }
 
@@ -300,16 +324,11 @@ export function InventoryAuditCreatePage(): ReactElement {
     }
 
     if (option.type === 'product') {
-      const variantsToAdd = searchResults.filter((item) =>
-        option.variantIds.includes(item.product_variant_id),
-      )
+      const variantsToAdd = searchResults.filter((item) => option.variantIds.includes(item.product_variant_id))
 
       setRows((current) => {
         const selectedVariantIds = new Set(current.map((row) => row.product_variant_id))
-        const nextVariants = variantsToAdd.filter(
-          (item) => !selectedVariantIds.has(item.product_variant_id),
-        )
-
+        const nextVariants = variantsToAdd.filter((item) => !selectedVariantIds.has(item.product_variant_id))
         return nextVariants.length > 0 ? [...current, ...nextVariants] : current
       })
 
@@ -331,7 +350,7 @@ export function InventoryAuditCreatePage(): ReactElement {
       return
     }
 
-    const item = option.item
+    const { item } = option
 
     setRows((current) => {
       if (current.some((row) => row.product_variant_id === item.product_variant_id)) {
@@ -383,25 +402,21 @@ export function InventoryAuditCreatePage(): ReactElement {
 
       const savedAudit =
         isEditMode && id
-          ? await inventoryApi.updateAudit(id, payload)
-          : await inventoryApi.createAudit(payload)
+            ? await inventoryApi.updateAudit(id, payload)
+            : await inventoryApi.createAudit(payload)
 
-      const finalAudit =
-        mode === 'complete'
-          ? await inventoryApi.completeAudit(savedAudit.id)
-          : savedAudit
+      const finalAudit = mode === 'complete' ? await inventoryApi.completeAudit(savedAudit.id) : savedAudit
 
       setAudit(finalAudit)
       setAuditCode(finalAudit.audit_code)
+      setInitialSnapshot(JSON.stringify({ rows, lines }))
 
       appToast.success(
         mode === 'draft'
           ? isEditMode
             ? 'Cập nhật phiếu kiểm hàng thành công.'
             : 'Đã lưu nháp phiếu kiểm hàng.'
-          : isEditMode
-            ? 'Cập nhật phiếu kiểm hàng thành công.'
-            : 'Cập nhật phiếu kiểm hàng thành công.',
+          : 'Cập nhật phiếu kiểm hàng thành công.',
       )
 
       navigate('/inventory/audit')
@@ -413,27 +428,24 @@ export function InventoryAuditCreatePage(): ReactElement {
     }
   }
 
+  const { bannerProps, attemptNavigate } = useUnsavedChangesPrompt({
+    isDirty,
+    isSaving,
+    onDiscard: handleDiscard,
+    onSave: () => void handleSave('draft'),
+    saveLabel: 'Lưu nháp',
+  })
+
   if (isLoading) {
     return <InventoryAuditPageSkeleton />
   }
 
   return (
     <Stack spacing={3}>
-      <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
-        <IconButton
-          onClick={() => navigate('/inventory/audit')}
-          sx={{
-            border: '1px solid #d0d5dd',
-            borderRadius: '4px',
-            color: '#344054',
-          }}
-        >
-          <ArrowBackIcon />
-        </IconButton>
-        <Typography variant="h5" component="h1" sx={{ fontWeight: 700, color: '#101828' }}>
-          {isEditMode ? 'Chỉnh sửa phiếu kiểm kho' : 'Tạo phiếu kiểm kho'}
-        </Typography>
-      </Stack>
+      <CreateEditPageHeader
+        title={isEditMode ? 'Chỉnh sửa phiếu kiểm kho' : 'Tạo phiếu kiểm kho'}
+        onBack={() => attemptNavigate('/inventory/audit')}
+      />
 
       <Paper sx={defaultCardSx}>
         <Stack direction={{ xs: 'column', lg: 'row' }} spacing={3} sx={{ justifyContent: 'space-between' }}>
@@ -455,89 +467,93 @@ export function InventoryAuditCreatePage(): ReactElement {
             </Typography>
           </Box>
 
-          {isCompletedAudit ? null : <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
-            <Button
-              variant="outlined"
-              startIcon={isSaving ? <CircularProgress size={16} color="inherit" /> : <SaveOutlinedIcon />}
-              disabled={isLoading || isSaving}
-              onClick={() => void handleSave('draft')}
-            >
-              Lưu nháp
-            </Button>
-            <Button
-              variant="contained"
-              color="secondary"
-              startIcon={isSaving ? <CircularProgress size={16} color="inherit" /> : <TaskAltOutlinedIcon />}
-              disabled={isLoading || isSaving}
-              onClick={() => void handleSave('complete')}
-            >
-              Lưu
-            </Button>
-          </Stack>}
+          {isCompletedAudit ? null : (
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
+              <Button
+                variant="outlined"
+                startIcon={isSaving ? <CircularProgress size={16} color="inherit" /> : <SaveOutlinedIcon />}
+                disabled={isLoading || isSaving}
+                onClick={() => void handleSave('draft')}
+              >
+                Lưu nháp
+              </Button>
+              <Button
+                variant="contained"
+                color="secondary"
+                startIcon={isSaving ? <CircularProgress size={16} color="inherit" /> : <TaskAltOutlinedIcon />}
+                disabled={isLoading || isSaving}
+                onClick={() => void handleSave('complete')}
+              >
+                Lưu
+              </Button>
+            </Stack>
+          )}
         </Stack>
       </Paper>
 
       <Paper sx={defaultCardSx}>
         <Stack spacing={2}>
-          <Typography variant="h6" sx={{ fontWeight: 700, color: '#101828' }}>
+            <Typography variant="h6" sx={{ fontWeight: 700, color: '#101828' }}>
             Bảng kiểm kho
           </Typography>
 
-          {isCompletedAudit ? null : <Autocomplete
-            options={autocompleteOptions}
-            filterOptions={(options) => options}
-            loading={isSearching}
-            open={searchKeyword.trim().length > 0}
-            value={null}
-            onChange={(_, value) => handleAddProduct(value)}
-            getOptionLabel={(option) =>
-              option.type === 'product'
-                ? option.product_name
-                : `${option.item.sku} - ${option.item.display_name}`
-            }
-            inputValue={searchKeyword}
-            onInputChange={(_, value) => setSearchKeyword(value)}
-            loadingText="Đang tìm sản phẩm..."
-            noOptionsText={
-              searchKeyword.trim()
-                ? isSearching
-                  ? 'Đang tìm kiếm...'
-                  : 'Không tìm thấy sản phẩm'
-                : 'Nhập SKU hoặc tên sản phẩm'
-            }
-            renderOption={(props, option) => (
-              <Box component="li" {...props}>
-                <Stack spacing={0.5} sx={{ py: 0.5 }}>
-                  {option.type === 'product' ? (
-                    <>
-                      <Typography sx={{ fontWeight: 700, color: '#101828' }}>
-                        {option.product_name}
-                      </Typography>
-                      <Typography variant="body2" color="text.secondary">
-                        {option.variantCount} phiên bản
-                      </Typography>
-                    </>
-                  ) : (
-                    <>
-                      <Typography sx={{ fontWeight: 700, color: '#101828' }}>
-                        {option.item.sku}
-                      </Typography>
-                      <Typography variant="body2" color="text.secondary">
-                        {option.item.display_name}
-                      </Typography>
-                    </>
-                  )}
-                </Stack>
-              </Box>
-            )}
-            renderInput={(params) => (
-              <TextField
-                {...params}
-                label="Tìm sản phẩm theo tên, SKU..."
-                placeholder="Tìm sản phẩm theo tên, SKU..."
-              />
-            )}
-          />}
+          {isCompletedAudit ? null : (
+            <Autocomplete
+              options={autocompleteOptions}
+              filterOptions={(options) => options}
+              loading={isSearching}
+              open={searchKeyword.trim().length > 0}
+              value={null}
+              onChange={(_, value) => handleAddProduct(value)}
+              getOptionLabel={(option) =>
+                option.type === 'product'
+                  ? option.product_name
+                  : `${option.item.sku} - ${option.item.display_name}`
+              }
+              inputValue={searchKeyword}
+              onInputChange={(_, value) => setSearchKeyword(value)}
+              loadingText="Đang tìm sản phẩm..."
+              noOptionsText={
+                searchKeyword.trim()
+                  ? isSearching
+                    ? 'Đang tìm kiếm...'
+                    : 'Không tìm thấy sản phẩm'
+                  : 'Nhập SKU hoặc tên sản phẩm'
+              }
+              renderOption={(props, option) => (
+                <Box component="li" {...props}>
+                  <Stack spacing={0.5} sx={{ py: 0.5 }}>
+                    {option.type === 'product' ? (
+                      <>
+                        <Typography sx={{ fontWeight: 700, color: '#101828' }}>
+                          {option.product_name}
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary">
+                          {option.variantCount} phiên bản
+                        </Typography>
+                      </>
+                    ) : (
+                      <>
+                        <Typography sx={{ fontWeight: 700, color: '#101828' }}>
+                          {option.item.sku}
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary">
+                          {option.item.display_name}
+                        </Typography>
+                      </>
+                    )}
+                  </Stack>
+                </Box>
+              )}
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  label="Tìm sản phẩm theo tên, SKU..."
+                  placeholder="Tìm sản phẩm theo tên, SKU..."
+                />
+              )}
+            />
+          )}
 
           {!isCompletedAudit && isSearching ? <LinearProgress sx={{ borderRadius: '999px' }} /> : null}
 
@@ -621,7 +637,7 @@ export function InventoryAuditCreatePage(): ReactElement {
                       </TableCell>
                       <TableCell align="right">
                         {isCompletedAudit ? null : (
-                          <IconButton color="error" onClick={() => { handleRemoveRow(row.product_variant_id) }}>
+                          <IconButton color="error" onClick={() => handleRemoveRow(row.product_variant_id)}>
                             <DeleteOutlineOutlinedIcon />
                           </IconButton>
                         )}
@@ -634,6 +650,8 @@ export function InventoryAuditCreatePage(): ReactElement {
           )}
         </Stack>
       </Paper>
+
+      <UnsavedChangesBanner {...bannerProps} />
     </Stack>
   )
 }

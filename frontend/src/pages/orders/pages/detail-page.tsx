@@ -33,6 +33,7 @@ import {
 } from '@mui/material'
 import { InfoField } from '@/shared/ui/info-field'
 import { appToast } from '@/shared/ui/toast/toast.helpers'
+import { showErrorToast } from '@/shared/ui/toast/toast-error'
 import { borderedCardSx } from '@/shared/ui/paper'
 import { useStore } from '@/modules/store/use-store'
 import { useAuth } from '@/modules/auth/use-auth'
@@ -491,7 +492,7 @@ export function OrdersDetailPage(): ReactElement {
           }
         }
 
-        appToast.error(getErrorMessage(error, 'Không thể cập nhật đơn hàng.'))
+        showErrorToast(error, 'Không thể cập nhật đơn hàng.')
       } finally {
         setIsActing(false)
       }
@@ -625,7 +626,7 @@ export function OrdersDetailPage(): ReactElement {
         navigate(`/orders/${duplicatedOrder.id}/edit`)
       } catch (error) {
         console.error('Lỗi khi nhân bản đơn hàng:', error)
-        appToast.error(getErrorMessage(error, 'Không thể nhân bản đơn hàng.'))
+        showErrorToast(error, 'Không thể nhân bản đơn hàng.')
       } finally {
         setIsActing(false)
       }
@@ -795,7 +796,7 @@ export function OrdersDetailPage(): ReactElement {
       setIsQrDialogOpen(true)
     } catch (error) {
       console.error('Lỗi khi tạo QR thanh toán:', error)
-      appToast.error(getErrorMessage(error, 'Không thể tạo QR thanh toán.'))
+      showErrorToast(error, 'Không thể tạo QR thanh toán.')
     } finally {
       setIsGeneratingQr(false)
     }
@@ -837,7 +838,7 @@ export function OrdersDetailPage(): ReactElement {
       appToast.success(ORDER_TOAST_MESSAGES.shippingMeasurementsUpdated)
     } catch (error) {
       console.error('Lỗi khi cập nhật khối lượng và kích thước:', error)
-      appToast.error(getErrorMessage(error, 'Không thể cập nhật khối lượng và kích thước.'))
+      showErrorToast(error, 'Không thể cập nhật khối lượng và kích thước.')
     } finally {
       setIsSavingShippingMeasurements(false)
     }

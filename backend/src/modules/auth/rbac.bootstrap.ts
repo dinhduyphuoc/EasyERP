@@ -1,4 +1,4 @@
-import { prisma } from "@lib/prisma";
+import { RbacRepository } from "@/modules/rbac/rbac.repository";
 
 const SYSTEM_PERMISSIONS = [
   "orders.create",
@@ -140,79 +140,40 @@ const SYSTEM_ROLE_NAMES: Record<string, string> = {
 };
 
 export const bootstrapRbac = async () => {
-  await prisma.$transaction(async (tx) => {
-    await tx.permission.createMany({
-      data: SYSTEM_PERMISSIONS.map((permissionCode) => ({
-        code: permissionCode,
-      })),
-      skipDuplicates: true,
-    });
+  await RbacRepository.withTransaction(async (tx) => {
+    await RbacRepository.createPermissionsIfMissingTx(tx, SYSTEM_PERMISSIONS);
 
-    const allPermissions = await tx.permission.findMany({
-      where: {
-        code: {
-          in: [...SYSTEM_PERMISSIONS],
-        },
-      },
-      select: {
-        id: true,
-        code: true,
-      },
-    });
+    const allPermissions = await RbacRepository.findPermissionsByCodesTx(tx, SYSTEM_PERMISSIONS);
     const permissionByCode = new Map(
       allPermissions.map((permission) => [permission.code, permission.id]),
     );
 
     for (const [roleSlug, permissionCodes] of Object.entries(SYSTEM_ROLE_PERMISSIONS)) {
-      const existingRole = await tx.role.findFirst({
-        where: {
-          tenant_id: null,
-          slug: roleSlug,
-        },
-        select: {
-          id: true,
-        },
-      });
+      const existingRole = await RbacRepository.findSystemRoleBySlugTx(tx, roleSlug);
 
       const role = existingRole
-        ? await tx.role.update({
-            where: {
-              id: existingRole.id,
-            },
-            data: {
-              name: SYSTEM_ROLE_NAMES[roleSlug] ?? roleSlug,
-              is_system: true,
-            },
-          })
-        : await tx.role.create({
-            data: {
-              tenant_id: null,
-              slug: roleSlug,
-              name: SYSTEM_ROLE_NAMES[roleSlug] ?? roleSlug,
-              is_system: true,
-            },
+        ? await RbacRepository.updateSystemRoleTx(
+            tx,
+            existingRole.id,
+            SYSTEM_ROLE_NAMES[roleSlug] ?? roleSlug,
+          )
+        : await RbacRepository.createSystemRoleTx(
+            tx,
+            roleSlug,
+            SYSTEM_ROLE_NAMES[roleSlug] ?? roleSlug,
+          );
+
+      const permissionIds = permissionCodes.map((permissionCode) => {
+        const permissionId = permissionByCode.get(permissionCode);
+
+        if (!permissionId) {
+          throw new Error(`Missing permission during RBAC bootstrap: ${permissionCode}`);
+        }
+
+        return permissionId;
       });
 
-      await tx.rolePermission.deleteMany({
-        where: {
-          role_id: role.id,
-        },
-      });
-
-      await tx.rolePermission.createMany({
-        data: permissionCodes.map((permissionCode) => {
-          const permissionId = permissionByCode.get(permissionCode);
-
-          if (!permissionId) {
-            throw new Error(`Missing permission during RBAC bootstrap: ${permissionCode}`);
-          }
-
-          return {
-            role_id: role.id,
-            permission_id: permissionId,
-          };
-        }),
-      });
+      await RbacRepository.replaceRolePermissionsTx(tx, role.id, permissionIds);
     }
   }, {
     maxWait: 15_000,

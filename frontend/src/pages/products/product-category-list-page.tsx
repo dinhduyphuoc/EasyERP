@@ -7,6 +7,7 @@ import type { ListColumn } from '@/shared/ui/list/common-list.types'
 import { productApi, type ProductCategory } from '@/pages/products/product.api'
 import { ProductCategoryListTableSkeleton } from '@/pages/products/product-skeletons'
 import { appToast } from '@/shared/ui/toast/toast.helpers'
+import { showErrorToast } from '@/shared/ui/toast/toast-error'
 
 type ProductCategoryListPageCache = {
   searchValue: string
@@ -91,21 +92,7 @@ export function ProductCategoryListPage() {
       appToast.success(`Đã xóa ${idsToDelete.length} danh mục.`)
     } catch (error) {
       console.error('Lỗi khi xóa danh mục:', error)
-      const message =
-        typeof error === 'object' &&
-        error !== null &&
-        'response' in error &&
-        typeof error.response === 'object' &&
-        error.response !== null &&
-        'data' in error.response &&
-        typeof error.response.data === 'object' &&
-        error.response.data !== null &&
-        'message' in error.response.data &&
-        typeof error.response.data.message === 'string'
-          ? error.response.data.message
-          : 'Không thể xóa danh mục. Vui lòng thử lại!'
-
-      appToast.error(message)
+      showErrorToast(error, 'Không thể xóa danh mục. Vui lòng thử lại!')
     } finally {
       setIsDeleting(false)
     }

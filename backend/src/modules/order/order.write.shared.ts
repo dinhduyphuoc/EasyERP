@@ -1,4 +1,3 @@
-import { prisma } from "@lib/prisma";
 import { Prisma } from "../../../generated/prisma/client";
 import { BadRequestError } from "@/common";
 import type {
@@ -9,6 +8,7 @@ import type {
   UpdateOrderRequestInput,
 } from "./order.types";
 import type { OrderForMutation } from "./order.persistence";
+import { OrderRepository } from "./order.repository";
 import {
   normalizeShippingServiceName,
   parseDecimal,
@@ -76,7 +76,7 @@ export const loadOrderCustomer = async (storeId: string, customerId: number | nu
     return null;
   }
 
-  const customer = await prisma.customer.findFirst({
+  const customer = await OrderRepository.findCustomerFirst({
     where: { id: customerId, store_id: storeId },
     select: {
       id: true,

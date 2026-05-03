@@ -1,4 +1,3 @@
-import { prisma } from "@lib/prisma";
 import { Prisma } from "../../../generated/prisma/client";
 import { NotFoundError } from "@/common";
 import type { OrderListQuery, OrderOptionSearchQuery, OrderOverviewQuery, OrderOverviewResponse } from "./order.types";
@@ -13,6 +12,7 @@ import {
   defaultPaymentStatusDescriptions,
   processingStatusPresentation,
 } from "./order.helpers";
+import { OrderRepository } from "./order.repository";
 
 const orderListSelect = {
   id: true,
@@ -49,31 +49,36 @@ const orderListSelect = {
 const resolveOverviewPeriodRange = (period: OrderOverviewQuery["period"]) => {
   const now = new Date();
 
-  if (period === "all_time") {
-    return undefined;
-  }
-
   const start = new Date(now);
   const end = new Date(now);
+  end.setHours(23, 59, 59, 999);
 
   if (period === "today") {
     start.setHours(0, 0, 0, 0);
-    end.setHours(23, 59, 59, 999);
     return { gte: start, lte: end };
   }
 
   if (period === "this_month") {
-    start.setDate(1);
+    start.setFullYear(now.getFullYear(), now.getMonth(), 1);
     start.setHours(0, 0, 0, 0);
-    end.setHours(23, 59, 59, 999);
     return { gte: start, lte: end };
   }
 
-  const day = start.getDay();
-  const diffToMonday = day === 0 ? -6 : 1 - day;
-  start.setDate(start.getDate() + diffToMonday);
+  if (period === "this_quarter") {
+    const quarterStartMonth = Math.floor(now.getMonth() / 3) * 3;
+    start.setFullYear(now.getFullYear(), quarterStartMonth, 1);
+    start.setHours(0, 0, 0, 0);
+    return { gte: start, lte: end };
+  }
+
+  if (period === "last_6_months") {
+    start.setFullYear(now.getFullYear(), now.getMonth() - 5, 1);
+    start.setHours(0, 0, 0, 0);
+    return { gte: start, lte: end };
+  }
+
+  start.setFullYear(now.getFullYear(), 0, 1);
   start.setHours(0, 0, 0, 0);
-  end.setHours(23, 59, 59, 999);
   return { gte: start, lte: end };
 };
 
@@ -103,9 +108,14 @@ const buildOverviewSummary = (input: {
   deliveringOrders: number;
   cancelledOrders: number;
   netRevenue: number;
+  totalCost: number;
   soldQuantity: number;
 }) => ({
   net_revenue: input.netRevenue.toFixed(0),
+  total_cost: input.totalCost.toFixed(0),
+  gross_profit: (input.netRevenue - input.totalCost).toFixed(0),
+  gross_margin_percent:
+    (input.totalCost > 0 ? ((input.netRevenue - input.totalCost) / input.totalCost) * 100 : 0).toFixed(2),
   total_orders: input.totalOrders,
   unpaid_orders: input.unpaidOrders,
   average_order_value: (input.totalOrders > 0 ? input.netRevenue / input.totalOrders : 0).toFixed(0),
@@ -117,13 +127,13 @@ const buildOverviewSummary = (input: {
 
 export const getOrderOptions = async (storeId: string) => {
   const [historicalShippingServices, connectedShippingProviders, salesChannels] = await Promise.all([
-    prisma.order.findMany({
+    OrderRepository.findOrders({
       where: { store_id: storeId, shipping_service: { not: null } },
       distinct: ["shipping_service"],
       select: { shipping_service: true },
       orderBy: [{ shipping_service: "asc" }],
     }),
-    prisma.shippingConnection.findMany({
+    OrderRepository.findShippingConnections({
       where: { status: "connected", store_id: storeId },
       distinct: ["provider_id"],
       select: {
@@ -135,7 +145,7 @@ export const getOrderOptions = async (storeId: string) => {
       },
       orderBy: [{ provider_id: "asc" }],
     }),
-    prisma.order.findMany({
+    OrderRepository.findOrders({
       where: { store_id: storeId, sales_channel: { not: null } },
       distinct: ["sales_channel"],
       select: { sales_channel: true },
@@ -178,9 +188,9 @@ export const getOrderOverview = async (
 ): Promise<OrderOverviewResponse> => {
   const source = (query.source ?? "").trim();
   const period =
-    query.period && ["today", "this_week", "this_month", "all_time"].includes(query.period)
+    query.period && ["today", "this_month", "this_quarter", "last_6_months", "this_year"].includes(query.period)
       ? query.period
-      : "this_week";
+      : "today";
   const orderDate = resolveOverviewPeriodRange(period);
   const previousOrderDate = resolvePreviousOverviewPeriodRange(period);
   const sourceFilter = source && source.toLowerCase() !== "all" ? source : null;
@@ -214,9 +224,10 @@ export const getOrderOverview = async (
       cancelledOrders,
       revenueAggregate,
       soldQuantityAggregate,
+      costItems,
     ] = await Promise.all([
-      prisma.order.count({ where }),
-      prisma.order.count({
+      OrderRepository.countOrders({ where }),
+      OrderRepository.countOrders({
         where: {
           ...where,
           payment_status: "unpaid",
@@ -225,25 +236,25 @@ export const getOrderOverview = async (
           },
         },
       }),
-      prisma.order.count({
+      OrderRepository.countOrders({
         where: {
           ...where,
           processing_status: "placed",
         },
       }),
-      prisma.order.count({
+      OrderRepository.countOrders({
         where: {
           ...where,
           processing_status: "delivering",
         },
       }),
-      prisma.order.count({
+      OrderRepository.countOrders({
         where: {
           ...where,
           processing_status: "cancelled",
         },
       }),
-      prisma.order.aggregate({
+      OrderRepository.aggregateOrders({
         where: {
           ...where,
           processing_status: {
@@ -254,7 +265,7 @@ export const getOrderOverview = async (
           total_amount: true,
         },
       }),
-      prisma.orderItem.aggregate({
+      OrderRepository.aggregateOrderItems({
         where: {
           order: {
             ...where,
@@ -267,7 +278,30 @@ export const getOrderOverview = async (
           quantity: true,
         },
       }),
+      OrderRepository.findOrderItems({
+        where: {
+          order: {
+            ...where,
+            processing_status: {
+              in: successfulStatuses,
+            },
+          },
+        },
+        select: {
+          quantity: true,
+          variant: {
+            select: {
+              cogs: true,
+            },
+          },
+        },
+      }),
     ]);
+
+    const totalCost = costItems.reduce((sum, item) => {
+      const cogs = Number(item.variant?.cogs ?? 0);
+      return sum + cogs * item.quantity;
+    }, 0);
 
     return buildOverviewSummary({
       totalOrders,
@@ -276,6 +310,7 @@ export const getOrderOverview = async (
       deliveringOrders,
       cancelledOrders,
       netRevenue: Number(revenueAggregate._sum.total_amount ?? 0),
+      totalCost,
       soldQuantity: soldQuantityAggregate._sum.quantity ?? 0,
     });
   };
@@ -283,7 +318,7 @@ export const getOrderOverview = async (
   const [summary, previousSummary, sourceOptions] = await Promise.all([
     queryOverviewSummary(baseWhere),
     previousWhere ? queryOverviewSummary(previousWhere) : Promise.resolve(null),
-    prisma.order.findMany({
+    OrderRepository.findOrders({
       where: {
         store_id: storeId,
         order_type: "sale",
@@ -333,7 +368,7 @@ export const searchOrderCustomers = async (storeId: string, query: OrderOptionSe
   const keyword = (query.search ?? "").trim();
   const ids = resolveIds(query.ids);
   const limit = resolveSearchLimit(query.limit);
-  const customers = await prisma.customer.findMany({
+  const customers = await OrderRepository.findCustomers({
     where: {
       store_id: storeId,
       status: "active",
@@ -417,7 +452,7 @@ export const searchOrderProducts = async (storeId: string, query: OrderOptionSea
   const keyword = (query.search ?? "").trim();
   const skus = resolveSkus(query.skus);
   const limit = resolveSearchLimit(query.limit);
-  const variants = await prisma.productVariant.findMany({
+  const variants = await OrderRepository.findProductVariants({
     where: {
       status: "active",
       store_id: storeId,
@@ -479,8 +514,8 @@ export const getOrders = async (storeId: string, query: OrderListQuery) => {
       : 10;
   const where = buildWhereClause(storeId, query);
   const [total, orders] = await Promise.all([
-    prisma.order.count({ where }),
-    prisma.order.findMany({
+    OrderRepository.countOrders({ where }),
+    OrderRepository.findOrders({
       where,
       select: orderListSelect,
       orderBy: [{ order_date: "desc" }, { id: "desc" }],
@@ -498,7 +533,7 @@ export const getOrders = async (storeId: string, query: OrderListQuery) => {
 };
 
 export const getOrderById = async (storeId: string, id: number) => {
-  const order = await prisma.order.findFirst({
+  const order = await OrderRepository.findOrderFirst({
     where: { id, store_id: storeId },
     include: orderEditInclude,
   });
@@ -511,7 +546,7 @@ export const getOrderById = async (storeId: string, id: number) => {
 };
 
 export const getOrderForEdit = async (storeId: string, id: number) => {
-  const order = await prisma.order.findFirst({
+  const order = await OrderRepository.findOrderFirst({
     where: { id, store_id: storeId },
     include: orderEditInclude,
   });
@@ -524,7 +559,7 @@ export const getOrderForEdit = async (storeId: string, id: number) => {
 };
 
 export const getOrderHistory = async (storeId: string, id: number) => {
-  const order = await prisma.order.findFirst({
+  const order = await OrderRepository.findOrderFirst({
     where: { id, store_id: storeId },
     select: { id: true },
   });
@@ -533,7 +568,7 @@ export const getOrderHistory = async (storeId: string, id: number) => {
     throw new NotFoundError("Order not found");
   }
 
-  const history = await prisma.orderHistory.findMany({
+  const history = await OrderRepository.findOrderHistory({
     where: { order_id: id },
     orderBy: [{ created_at: "asc" }, { id: "asc" }],
   });

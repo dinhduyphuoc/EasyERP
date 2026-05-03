@@ -1,4 +1,3 @@
-import { prisma } from "@lib/prisma";
 import {
   BadRequestError,
   ForbiddenError,
@@ -8,7 +7,9 @@ import {
 import { AuditLogService } from "@/common/services/audit-log.service";
 import { PasswordService } from "@/common/services/password.service";
 import { SessionTokenService } from "@/common/services/session-token.service";
+import { AuthRepository } from "./auth.repository";
 import type {
+  AuthenticatedSessionUser,
   ForgotPasswordInput,
   LoginInput,
   ResetPasswordInput,
@@ -102,48 +103,35 @@ const toUserAuthPayload = (user: {
   };
 };
 
+const toSessionAuthUser = (user: {
+  id: string;
+  tenant_id: string | null;
+  active_store_id: string | null;
+  full_name: string;
+  email: string;
+  status: string;
+  roles: Array<{
+    role: {
+      slug: string;
+      permissions: Array<{
+        permission: {
+          code: string;
+        };
+      }>;
+    };
+  }>;
+}): AuthenticatedSessionUser => ({
+  id: user.id,
+  tenant_id: user.tenant_id,
+  active_store_id: user.active_store_id,
+  full_name: user.full_name,
+  email: user.email,
+  status: user.status,
+  roles: sanitizeRoleSlugs(user.roles.map((item) => item.role.slug)),
+});
+
 const getUserAuthContext = async (userId: string) => {
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    include: {
-      roles: {
-        include: {
-          role: {
-            include: {
-              permissions: {
-                include: {
-                  permission: {
-                    select: {
-                      code: true,
-                    },
-                  },
-                },
-              },
-            },
-          },
-        },
-      },
-      scopes: {
-        select: {
-          scope_type: true,
-          scope_value: true,
-        },
-      },
-      stores: {
-        include: {
-          store: {
-            select: {
-              id: true,
-              name: true,
-              slug: true,
-              default_currency: true,
-              default_timezone: true,
-            },
-          },
-        },
-      },
-    },
-  });
+  const user = await AuthRepository.findUserAuthContextById(userId);
 
   if (!user) {
     throw new UnauthorizedError();
@@ -172,13 +160,11 @@ const updateFailedLogin = async (
     ? new Date(now.getTime() + LOGIN_FAILURE_LOCK_MS)
     : null;
 
-  return prisma.user.update({
-    where: { id: userId },
-    data: {
-      failed_login_attempts: failureCount,
-      last_failed_login_at: now,
-      locked_until: lockedUntil,
-    },
+  return AuthRepository.updateFailedLogin({
+    userId,
+    failureCount,
+    lastFailedLoginAt: now,
+    lockedUntil,
   });
 };
 
@@ -193,18 +179,15 @@ const createSessionForUser = async (
   const now = new Date();
   const expiresAt = new Date(now.getTime() + SESSION_TTL_MS);
 
-  const session = await prisma.session.create({
-    data: {
-      user_id: userId,
-      tenant_id: tenantId,
-      session_token_hash: hashedToken,
-      status: "active",
-      ip_address: ipAddress ?? null,
-      user_agent: userAgent ?? null,
-      expires_at: expiresAt,
-      idle_expires_at: new Date(now.getTime() + ACCESS_TOKEN_TTL_MS),
-      last_used_at: now,
-    },
+  const session = await AuthRepository.createSession({
+    userId,
+    tenantId,
+    sessionTokenHash: hashedToken,
+    ipAddress,
+    userAgent,
+    expiresAt,
+    idleExpiresAt: new Date(now.getTime() + ACCESS_TOKEN_TTL_MS),
+    lastUsedAt: now,
   });
 
   return {
@@ -218,9 +201,7 @@ export const AuthService = {
     const email = normalizeEmail(input.email);
     validatePasswordInput(input.password);
 
-    const user = await prisma.user.findUnique({
-      where: { email_normalized: email },
-    });
+    const user = await AuthRepository.findUserByNormalizedEmail(email);
 
     if (!user) {
       await AuditLogService.write({
@@ -297,53 +278,10 @@ export const AuthService = {
       throw new UnauthorizedError("Email hoặc mật khẩu không đúng", "AUTH_INVALID_CREDENTIALS");
     }
 
-    const authUser = await prisma.user.update({
-      where: { id: user.id },
-      data: {
-        failed_login_attempts: 0,
-        last_failed_login_at: null,
-        locked_until: null,
-        last_login_at: new Date(),
-        active_store_id: user.active_store_id,
-      },
-      include: {
-        roles: {
-          include: {
-            role: {
-              include: {
-                permissions: {
-                  include: {
-                    permission: {
-                      select: {
-                        code: true,
-                      },
-                    },
-                  },
-                },
-              },
-            },
-          },
-        },
-        scopes: {
-          select: {
-            scope_type: true,
-            scope_value: true,
-          },
-        },
-        stores: {
-          include: {
-            store: {
-              select: {
-                id: true,
-                name: true,
-                slug: true,
-                default_currency: true,
-                default_timezone: true,
-              },
-            },
-          },
-        },
-      },
+    const authUser = await AuthRepository.updateUserAfterSuccessfulLogin({
+      userId: user.id,
+      activeStoreId: user.active_store_id,
+      lastLoginAt: new Date(),
     });
 
     const { raw_token, session } = await createSessionForUser(
@@ -379,63 +317,14 @@ export const AuthService = {
 
   authenticateSession: async (token: string) => {
     const hashedToken = SessionTokenService.hashToken(token);
-    const session = await prisma.session.findUnique({
-      where: { session_token_hash: hashedToken },
-      include: {
-        user: {
-          include: {
-            roles: {
-              include: {
-                role: {
-                  include: {
-                    permissions: {
-                      include: {
-                        permission: {
-                          select: {
-                            code: true,
-                          },
-                        },
-                      },
-                    },
-                  },
-                },
-              },
-            },
-            scopes: {
-              select: {
-                scope_type: true,
-                scope_value: true,
-              },
-            },
-            stores: {
-              include: {
-                store: {
-                  select: {
-                    id: true,
-                    name: true,
-                    slug: true,
-                    default_currency: true,
-                    default_timezone: true,
-                  },
-                },
-              },
-            },
-          },
-        },
-      },
-    });
+    const session = await AuthRepository.findSessionWithAuthUserByTokenHash(hashedToken);
 
     if (!session || session.status !== "active" || session.revoked_at) {
       throw new UnauthorizedError();
     }
 
     if (session.expires_at <= new Date()) {
-      await prisma.session.update({
-        where: { id: session.id },
-        data: {
-          status: "expired",
-        },
-      });
+      await AuthRepository.expireSession(session.id);
 
       throw new UnauthorizedError("Session has expired", "AUTH_SESSION_EXPIRED");
     }
@@ -444,20 +333,20 @@ export const AuthService = {
       throw new ForbiddenError("Tài khoản không hoạt động");
     }
 
-    await prisma.session.update({
-      where: { id: session.id },
-      data: {
-        last_used_at: new Date(),
-      },
-    });
+    await AuthRepository.touchSession(session.id, new Date());
 
-    const authUser = toUserAuthPayload(session.user);
+    const authUser = toSessionAuthUser(session.user);
+    const permissions = sanitizePermissionCodes(
+      session.user.roles.flatMap((item) =>
+        item.role.permissions.map((permissionItem) => permissionItem.permission.code),
+      ),
+    );
 
     return {
       session_id: session.id,
       session_expires_at: session.expires_at.toISOString(),
       user: authUser,
-      permissions: authUser.permissions,
+      permissions,
     };
   },
 
@@ -471,29 +360,16 @@ export const AuthService = {
     },
   ) => {
     const hashedToken = SessionTokenService.hashToken(token);
-    const session = await prisma.session.findUnique({
-      where: { session_token_hash: hashedToken },
-      include: {
-        user: {
-          select: {
-            id: true,
-            tenant_id: true,
-          },
-        },
-      },
-    });
+    const session = await AuthRepository.findSessionForLogoutByTokenHash(hashedToken);
 
     if (!session) {
       return { revoked: false };
     }
 
-    await prisma.session.update({
-      where: { id: session.id },
-      data: {
-        status: "revoked",
-        revoked_at: new Date(),
-        revoke_reason: "logout",
-      },
+    await AuthRepository.revokeSession({
+      sessionId: session.id,
+      revokedAt: new Date(),
+      revokeReason: "logout",
     });
 
     await AuditLogService.write({
@@ -514,15 +390,7 @@ export const AuthService = {
 
   forgotPassword: async (input: ForgotPasswordInput) => {
     const email = normalizeEmail(input.email);
-    const user = await prisma.user.findUnique({
-      where: { email_normalized: email },
-      select: {
-        id: true,
-        tenant_id: true,
-        email: true,
-        status: true,
-      },
-    });
+    const user = await AuthRepository.findActiveUserByNormalizedEmailForPasswordReset(email);
 
     if (!user || user.status !== "active") {
       return {
@@ -534,13 +402,10 @@ export const AuthService = {
     const tokenHash = SessionTokenService.hashToken(rawToken);
     const expiresAt = new Date(Date.now() + PASSWORD_RESET_TTL_MS);
 
-    await prisma.userToken.create({
-      data: {
-        user_id: user.id,
-        token_type: "password_reset",
-        token_hash: tokenHash,
-        expires_at: expiresAt,
-      },
+    await AuthRepository.createPasswordResetToken({
+      userId: user.id,
+      tokenHash,
+      expiresAt,
     });
 
     await AuditLogService.write({
@@ -571,25 +436,7 @@ export const AuthService = {
     validatePasswordInput(input.new_password);
     const tokenHash = SessionTokenService.hashToken(input.token);
 
-    const tokenRecord = await prisma.userToken.findFirst({
-      where: {
-        token_hash: tokenHash,
-        token_type: "password_reset",
-        consumed_at: null,
-        expires_at: {
-          gt: new Date(),
-        },
-      },
-      include: {
-        user: {
-          select: {
-            id: true,
-            tenant_id: true,
-            status: true,
-          },
-        },
-      },
-    });
+    const tokenRecord = await AuthRepository.findValidPasswordResetToken(tokenHash, new Date());
 
     if (!tokenRecord || tokenRecord.user.status !== "active") {
       throw new UnauthorizedError("Reset token is invalid or has expired", "AUTH_RESET_INVALID");
@@ -597,34 +444,13 @@ export const AuthService = {
 
     const passwordHash = await PasswordService.hashPassword(input.new_password);
 
-    await prisma.$transaction([
-      prisma.user.update({
-        where: { id: tokenRecord.user.id },
-        data: {
-          password_hash: passwordHash,
-          token_version: {
-            increment: 1,
-          },
-        },
-      }),
-      prisma.userToken.update({
-        where: { id: tokenRecord.id },
-        data: {
-          consumed_at: new Date(),
-        },
-      }),
-      prisma.session.updateMany({
-        where: {
-          user_id: tokenRecord.user.id,
-          status: "active",
-        },
-        data: {
-          status: "revoked",
-          revoked_at: new Date(),
-          revoke_reason: "password_reset",
-        },
-      }),
-    ]);
+    await AuthRepository.resetPasswordAndRevokeSessions({
+      userId: tokenRecord.user.id,
+      tokenRecordId: tokenRecord.id,
+      passwordHash,
+      consumedAt: new Date(),
+      revokedAt: new Date(),
+    });
 
     await AuditLogService.write({
       tenant_id: tokenRecord.user.tenant_id,

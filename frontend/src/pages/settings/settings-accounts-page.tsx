@@ -27,6 +27,7 @@ import { ListPageHeader } from '@/shared/ui/list/list-page-header'
 import { borderedCardSx } from '@/shared/ui/paper'
 import { TableCardSkeleton } from '@/shared/ui/skeleton/loading-skeletons'
 import { appToast } from '@/shared/ui/toast/toast.helpers'
+import { showErrorToast } from '@/shared/ui/toast/toast-error'
 import { adminApi, type AdminUserItem, type RoleItem } from './admin.api'
 
 type UserStatus = 'active' | 'inactive' | 'blocked'
@@ -82,7 +83,7 @@ export function SettingsAccountsPage(): ReactElement {
       setRoles(roleResponse.items)
     } catch (error) {
       console.error('Lỗi khi tải dữ liệu tài khoản:', error)
-      appToast.error('Không thể tải danh sách tài khoản hoặc vai trò.')
+      showErrorToast(error, 'Không thể tải danh sách tài khoản hoặc vai trò.')
     } finally {
       setIsLoading(false)
     }
@@ -131,21 +132,7 @@ export function SettingsAccountsPage(): ReactElement {
       appToast.success('Tạo tài khoản thành công.')
     } catch (error) {
       console.error('Lỗi khi tạo tài khoản:', error)
-      const message =
-        typeof error === 'object' &&
-        error !== null &&
-        'response' in error &&
-        typeof error.response === 'object' &&
-        error.response !== null &&
-        'data' in error.response &&
-        typeof error.response.data === 'object' &&
-        error.response.data !== null &&
-        'message' in error.response.data &&
-        typeof error.response.data.message === 'string'
-          ? error.response.data.message
-          : 'Không thể tạo tài khoản.'
-
-      appToast.error(message)
+      showErrorToast(error, 'Không thể tạo tài khoản.')
     } finally {
       setIsCreating(false)
     }
@@ -175,21 +162,7 @@ export function SettingsAccountsPage(): ReactElement {
       appToast.success('Cập nhật vai trò thành công.')
     } catch (error) {
       console.error('Lỗi khi cập nhật vai trò:', error)
-      const message =
-        typeof error === 'object' &&
-        error !== null &&
-        'response' in error &&
-        typeof error.response === 'object' &&
-        error.response !== null &&
-        'data' in error.response &&
-        typeof error.response.data === 'object' &&
-        error.response.data !== null &&
-        'message' in error.response.data &&
-        typeof error.response.data.message === 'string'
-          ? error.response.data.message
-          : 'Không thể cập nhật vai trò.'
-
-      appToast.error(message)
+      showErrorToast(error, 'Không thể cập nhật vai trò.')
     } finally {
       setIsSavingRoles(false)
     }
@@ -204,21 +177,7 @@ export function SettingsAccountsPage(): ReactElement {
       appToast.success('Đã cập nhật trạng thái tài khoản.')
     } catch (error) {
       console.error('Lỗi khi cập nhật trạng thái tài khoản:', error)
-      const message =
-        typeof error === 'object' &&
-        error !== null &&
-        'response' in error &&
-        typeof error.response === 'object' &&
-        error.response !== null &&
-        'data' in error.response &&
-        typeof error.response.data === 'object' &&
-        error.response.data !== null &&
-        'message' in error.response.data &&
-        typeof error.response.data.message === 'string'
-          ? error.response.data.message
-          : 'Không thể cập nhật trạng thái tài khoản.'
-
-      appToast.error(message)
+      showErrorToast(error, 'Không thể cập nhật trạng thái tài khoản.')
     } finally {
       setSavingStatusByUserId((current) => ({ ...current, [userId]: false }))
     }

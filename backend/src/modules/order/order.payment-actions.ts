@@ -1,10 +1,10 @@
-import { prisma } from "@lib/prisma";
 import { Prisma } from "../../../generated/prisma/client";
 import { BadRequestError, NotFoundError } from "@/common";
 import { mapOrder } from "./order.mapper";
 import { orderInclude } from "./order.persistence";
 import type { OrderActionRequestInput } from "./order.types";
 import type { MutableOrder, OrderActionPlan } from "./order.actions.shared";
+import { OrderRepository } from "./order.repository";
 import {
   parseDecimal,
   parsePaymentCollectionMethod,
@@ -125,7 +125,7 @@ export const buildConfirmFullPaymentPlan = async ({
   input: OrderActionRequestInput;
 }): Promise<{ immediateResult?: ReturnType<typeof mapOrder>; plan?: OrderActionPlan }> => {
   if (existingOrder.payment_status === "paid" && existingOrder.outstanding_amount.lte(0)) {
-    const currentOrder = await prisma.order.findFirst({
+    const currentOrder = await OrderRepository.findOrderFirst({
       where: { id, store_id: storeId },
       include: orderInclude,
     });

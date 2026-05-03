@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { appToast } from '@/shared/ui/toast/toast.helpers'
+import { showErrorToast } from '@/shared/ui/toast/toast-error'
 import { shippingApi } from '@/pages/shipping/shipping.api'
 import { orderApi, type OrderActionName, type OrderDetailItem } from '../api'
 import { ORDER_TOAST_MESSAGES } from '../lib/toast-messages'
@@ -341,7 +342,7 @@ export function useOrderShipping({
         appToast.success(ORDER_TOAST_MESSAGES.shippingServiceUpdated)
       } catch (error) {
         console.error('Lỗi khi cập nhật dịch vụ vận chuyển:', error)
-        appToast.error(getErrorMessage(error, 'Không thể cập nhật dịch vụ vận chuyển.'))
+        showErrorToast(error, 'Không thể cập nhật dịch vụ vận chuyển.')
       } finally {
         setIsSavingShippingOption(false)
       }

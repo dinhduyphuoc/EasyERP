@@ -12,6 +12,7 @@ import {
 } from '@mui/material'
 import { customerApi, type LocationItem } from '@/pages/customers/customer.api'
 import { appToast } from '@/shared/ui/toast/toast.helpers'
+import { showErrorToast } from '@/shared/ui/toast/toast-error'
 import { borderedCardSx } from '@/shared/ui/paper'
 import { useAuth } from '@/modules/auth/use-auth'
 import { orderApi, type OrderCreatePayload, type OrderDetailItem, type OrderEditItem, type OrderOptionLookup } from '../api'
@@ -25,7 +26,6 @@ import { useOrderItems, type ItemForm, useOrderForm } from '../hooks'
 import {
   buildDuplicateVariantMessage,
   buildOrderSavedMessage,
-  getErrorMessage,
   ORDER_TOAST_MESSAGES,
   PaymentInformationCard,
   PAYMENT_METHOD_TYPE_IDS,
@@ -397,7 +397,7 @@ export function OrdersCreatePage(): ReactElement {
       } catch (error) {
         if (!isCancelled) {
           console.error('Lỗi khi tải dữ liệu đơn hàng:', error)
-          appToast.error(getErrorMessage(error, 'Không thể tải dữ liệu đơn hàng.'))
+          showErrorToast(error, 'Không thể tải dữ liệu đơn hàng.')
         }
       } finally {
         if (!isCancelled) {
@@ -691,11 +691,9 @@ export function OrdersCreatePage(): ReactElement {
       navigate(`/orders/${order.id}`)
     } catch (error) {
       console.error('Lỗi khi tạo đơn hàng:', error)
-      appToast.error(
-        getErrorMessage(
-          error,
-          isEditMode ? 'Không thể cập nhật đơn hàng. Vui lòng thử lại.' : 'Không thể tạo đơn hàng. Vui lòng thử lại.',
-        ),
+      showErrorToast(
+        error,
+        isEditMode ? 'Không thể cập nhật đơn hàng. Vui lòng thử lại.' : 'Không thể tạo đơn hàng. Vui lòng thử lại.',
       )
     } finally {
       setIsSaving(false)

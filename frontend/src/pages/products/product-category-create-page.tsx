@@ -5,10 +5,6 @@ import {
   Box,
   Button,
   CircularProgress,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
   Paper,
   Stack,
   Typography,
@@ -16,21 +12,23 @@ import {
 import { productApi } from '@/pages/products/product.api'
 import { defaultCardSx } from '@/shared/ui/paper'
 import { appToast } from '@/shared/ui/toast/toast.helpers'
+import { showErrorToast } from '@/shared/ui/toast/toast-error'
 import { StackedTextField } from '@/shared/ui/form/stacked-text-field'
 import { ProductCategoryPageSkeleton } from '@/pages/products/product-skeletons'
+import { UnsavedChangesBanner, useUnsavedChangesPrompt } from '@/shared/ui/unsaved-changes'
+import { CreateEditPageHeader } from '@/shared/ui/page'
 
 export function ProductCategoryCreatePage(): ReactElement {
   const { id } = useParams()
   const navigate = useNavigate()
   const [categoryName, setCategoryName] = useState('')
+  const [initialCategoryName, setInitialCategoryName] = useState('')
   const [isSaving, setIsSaving] = useState(false)
   const [isLoading, setIsLoading] = useState(Boolean(id))
   const [dirty, setDirty] = useState(false)
   const [hasAttemptedSave, setHasAttemptedSave] = useState(false)
-  const [showExitDialog, setShowExitDialog] = useState(false)
 
   const isEditMode = Boolean(id)
-
   useEffect(() => {
     if (!id) {
       return
@@ -41,32 +39,18 @@ export function ProductCategoryCreatePage(): ReactElement {
       try {
         const category = await productApi.getCategoryById(id)
         setCategoryName(category.category_name)
+        setInitialCategoryName(category.category_name)
         setDirty(false)
         setHasAttemptedSave(false)
       } catch (error) {
-        console.error('Lỗi khi lấy thông tin danh mục:', error)
-        appToast.error('Không thể tải thông tin danh mục. Vui lòng thử lại!')
+        showErrorToast(error, 'Không thể tải thông tin danh mục. Vui lòng thử lại!')
       } finally {
         setIsLoading(false)
       }
     }
 
-    fetchCategory()
+    void fetchCategory()
   }, [id])
-
-  useEffect(() => {
-    const beforeUnload = (event: BeforeUnloadEvent) => {
-      if (!dirty) {
-        return
-      }
-
-      event.preventDefault()
-      event.returnValue = ''
-    }
-
-    window.addEventListener('beforeunload', beforeUnload)
-    return () => window.removeEventListener('beforeunload', beforeUnload)
-  }, [dirty])
 
   const errors = useMemo(() => {
     const nextErrors: Record<string, string> = {}
@@ -109,49 +93,46 @@ export function ProductCategoryCreatePage(): ReactElement {
 
       setDirty(false)
       setHasAttemptedSave(false)
+      setInitialCategoryName(categoryName.trim())
       window.setTimeout(() => navigate('/products/categories'), 1000)
     } catch (error) {
-      console.error('Lỗi khi lưu danh mục:', error)
-      const message =
-        typeof error === 'object' &&
-        error !== null &&
-        'response' in error &&
-        typeof error.response === 'object' &&
-        error.response !== null &&
-        'data' in error.response &&
-        typeof error.response.data === 'object' &&
-        error.response.data !== null &&
-        'message' in error.response.data &&
-        typeof error.response.data.message === 'string'
-          ? error.response.data.message
-          : 'Có lỗi xảy ra khi lưu danh mục. Vui lòng thử lại!'
-
-      appToast.error(message)
+      showErrorToast(error, 'Có lỗi xảy ra khi lưu danh mục. Vui lòng thử lại!')
     } finally {
       setIsSaving(false)
     }
   }
 
+  const handleDiscard = () => {
+    setCategoryName(initialCategoryName)
+    setDirty(false)
+    setHasAttemptedSave(false)
+  }
+  const { bannerProps, attemptNavigate } = useUnsavedChangesPrompt({
+    isDirty: dirty,
+    isSaving,
+    onDiscard: handleDiscard,
+    onSave: handleSave,
+  })
+
   return (
     <Box sx={{ px: { xs: 2, md: 3, xl: 4 }, pb: 8 }}>
       <Paper sx={{ ...defaultCardSx, mb: 2 }}>
-        <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} sx={{ justifyContent: 'space-between', alignItems: { md: 'center' } }}>
-          <Box>
-            <Typography variant="h5" sx={{ fontWeight: 700, color: '#101828' }}>
-              {isEditMode ? 'Chỉnh sửa danh mục' : 'Thêm danh mục'}
-            </Typography>
-            <Typography sx={{ color: '#667085', mt: 0.5 }}>
-              {isEditMode
-                ? 'Cập nhật tên danh mục để áp dụng cho toàn bộ sản phẩm liên quan.'
-                : 'Tạo danh mục mới để dùng khi thêm hoặc chỉnh sửa sản phẩm.'}
-            </Typography>
-          </Box>
-          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
-            <Button variant="contained" color="secondary" startIcon={isSaving ? <CircularProgress size={16} color="inherit" /> : <SaveOutlinedIcon />} onClick={handleSave} disabled={!canSave}>
-              {isSaving ? 'Đang lưu...' : isEditMode ? 'Cập nhật' : 'Lưu'}
-            </Button>
-          </Stack>
-        </Stack>
+        <CreateEditPageHeader
+          title={isEditMode ? 'Chỉnh sửa danh mục' : 'Thêm danh mục'}
+          subtitle={
+            isEditMode
+              ? 'Cập nhật tên danh mục để áp dụng cho toàn bộ sản phẩm liên quan.'
+              : 'Tạo danh mục mới để dùng khi thêm hoặc chỉnh sửa sản phẩm.'
+          }
+          onBack={() => attemptNavigate('/products/categories')}
+          actions={(
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
+              <Button variant="contained" color="secondary" startIcon={isSaving ? <CircularProgress size={16} color="inherit" /> : <SaveOutlinedIcon />} onClick={handleSave} disabled={!canSave}>
+                {isSaving ? 'Đang lưu...' : isEditMode ? 'Cập nhật' : 'Lưu'}
+              </Button>
+            </Stack>
+          )}
+        />
       </Paper>
 
       <Paper sx={defaultCardSx}>
@@ -181,20 +162,7 @@ export function ProductCategoryCreatePage(): ReactElement {
         </Stack>
       </Paper>
 
-      <Dialog open={showExitDialog} onClose={() => setShowExitDialog(false)}>
-        <DialogTitle>Rời trang khi chưa lưu?</DialogTitle>
-        <DialogContent>
-          <Typography color="text.secondary">
-            Bạn đang có thay đổi chưa lưu. Nếu quay lại bây giờ, dữ liệu hiện tại sẽ bị mất.
-          </Typography>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setShowExitDialog(false)}>Ở lại</Button>
-          <Button color="error" onClick={() => navigate('/products/categories')}>
-            Rời trang
-          </Button>
-        </DialogActions>
-      </Dialog>
+      <UnsavedChangesBanner {...bannerProps} />
     </Box>
   )
 }

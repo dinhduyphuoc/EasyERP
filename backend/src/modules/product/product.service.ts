@@ -1,40 +1,50 @@
-import { prisma } from "@lib/prisma";
 import { Prisma } from "../../../generated/prisma/client";
+import { cache } from "@lib/cache";
 import { deleteManagedProductImageFromS3 } from "@lib/s3";
 import { BadRequestError, ConflictError, NotFoundError } from "@/common";
+import {
+  ProductRepository,
+  type ProductDetailRecord,
+  type ProductListRecord,
+  type ProductTransaction,
+} from "./product.repository";
 import type {
   ProductCategoryItem,
   ProductListResponseItem,
   ProductCategoryRequestInput,
   ProductInput,
+  ProductListQuery,
   ProductRequestInput,
   ProductStatusInput,
-  ProductVariantKindInput,
 } from "./product.types";
 
-type PrismaTransaction = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
-
-const CATEGORY_CACHE_TTL_MS = 5 * 60 * 1000;
+const CATEGORY_CACHE_TTL_SECONDS = 5 * 60;
+const PRODUCT_LIST_CACHE_TTL_SECONDS = 60;
+const PRODUCT_DETAIL_CACHE_TTL_SECONDS = 60;
 const PRISMA_INTERACTIVE_TRANSACTION_OPTIONS = {
   maxWait: 10_000,
   timeout: 20_000,
 } as const;
 
-const categoryCache = new Map<
-  string,
-  {
-    data: ProductCategoryItem[];
-    expiresAt: number;
-  }
->();
+const productCacheKeys = {
+  categories: (storeId: string) => `products:${storeId}:categories`,
+  detail: (storeId: string, productId: number) => `products:${storeId}:detail:${productId}`,
+  listPrefix: (storeId: string) => `products:${storeId}:list:`,
+  list: (storeId: string, query: ProductListQuery) =>
+    `products:${storeId}:list:${JSON.stringify(normalizeProductListQuery(query))}`,
+};
 
-const clearCategoryCache = (storeId?: string) => {
-  if (storeId) {
-    categoryCache.delete(storeId);
-    return;
-  }
+const invalidateCategoryReadModels = async (storeId: string) => {
+  await cache.delete(productCacheKeys.categories(storeId));
+  await cache.deleteByPrefix(productCacheKeys.listPrefix(storeId));
+};
 
-  categoryCache.clear();
+const invalidateProductReadModels = async (storeId: string, productIds: number[] = []) => {
+  await cache.deleteByPrefix(productCacheKeys.listPrefix(storeId));
+
+  await Promise.all(
+    productIds.map((productId) => cache.delete(productCacheKeys.detail(storeId, productId))),
+  );
 };
 
 const getUniqueIds = (ids: number[]) => [...new Set(ids)];
@@ -50,63 +60,22 @@ const normalizeCategoryName = (value: unknown) => {
 };
 
 const ensureCategoryNameIsUnique = async (
-  tx: PrismaTransaction | typeof prisma,
+  tx: ProductTransaction,
   storeId: string,
   categoryName: string,
   ignoreCategoryId?: number,
 ) => {
-  const existingCategory = await tx.category.findFirst({
-    where: {
-      store_id: storeId,
-      category_name: categoryName,
-      ...(ignoreCategoryId ? { id: { not: ignoreCategoryId } } : {}),
-    },
-    select: {
-      id: true,
-    },
-  });
+  const existingCategory = await ProductRepository.findCategoryNameConflict(
+    tx,
+    storeId,
+    categoryName,
+    ignoreCategoryId,
+  );
 
   if (existingCategory) {
     throw new ConflictError(`Category "${categoryName}" already exists`);
   }
 };
-
-const productInclude = {
-  attributes: { include: { values: true } },
-  variants: {
-    where: {
-      status: "active",
-    },
-    include: {
-      attribute_values: {
-        include: {
-          attribute_value: true,
-        },
-      },
-    },
-  },
-} as const;
-
-const productListSelect = {
-  id: true,
-  product_name: true,
-  default_variant_sku: true,
-  image_url: true,
-  status: true,
-  category_id: true,
-  variants: {
-    where: {
-      status: "active",
-    },
-    select: {
-      sku: true,
-      kind: true,
-      selling_price: true,
-      image_url: true,
-    },
-    orderBy: [{ sku: "asc" as const }],
-  },
-} satisfies Prisma.ProductSelect;
 
 const toOptionalTrimmedString = (value: unknown) => {
   if (typeof value !== "string") {
@@ -167,20 +136,7 @@ const toOptionalNumber = (value: unknown) => {
 const decimalToString = (value: { toString(): string } | null | undefined) =>
   value ? value.toString() : null;
 
-const mapProductListItem = (product: {
-  id: number;
-  product_name: string;
-  default_variant_sku: string | null;
-  image_url: string | null;
-  status: ProductStatusInput;
-  category_id: number | null;
-  variants: Array<{
-    sku: string;
-    kind: ProductVariantKindInput;
-    selling_price: { toString(): string };
-    image_url: string | null;
-  }>;
-}): ProductListResponseItem => {
+const mapProductListItem = (product: ProductListRecord): ProductListResponseItem => {
   const numericPrices = product.variants
     .map((variant) => Number(variant.selling_price.toString()))
     .filter((value) => Number.isFinite(value))
@@ -215,6 +171,68 @@ const mapProductListItem = (product: {
 };
 
 const PRODUCT_STATUSES: ProductStatusInput[] = ["active", "inactive", "draft", "deleted"];
+
+const normalizeProductListQuery = (query: ProductListQuery = {}): ProductListQuery => ({
+  search: toOptionalTrimmedString(query.search),
+  status: query.status,
+  category_id: query.category_id,
+  include_deleted: query.include_deleted === true,
+  page: query.page,
+  page_size: query.page_size,
+});
+
+const buildProductListWhere = (
+  storeId: string,
+  query: ProductListQuery,
+): Prisma.ProductWhereInput => {
+  const normalizedQuery = normalizeProductListQuery(query);
+  const search = normalizedQuery.search;
+  const variantSearchWhere =
+    normalizedQuery.include_deleted || normalizedQuery.status === "deleted"
+      ? {
+          sku: { contains: search, mode: "insensitive" as const },
+        }
+      : {
+          sku: { contains: search, mode: "insensitive" as const },
+          status: "active" as const,
+        };
+
+  return {
+    store_id: storeId,
+    ...(normalizedQuery.status
+      ? { status: normalizedQuery.status }
+      : normalizedQuery.include_deleted
+        ? {}
+        : { status: { not: "deleted" } }),
+    ...(normalizedQuery.category_id ? { category_id: normalizedQuery.category_id } : {}),
+    ...(search
+      ? {
+          OR: [
+            { product_name: { contains: search, mode: "insensitive" } },
+            { default_variant_sku: { contains: search, mode: "insensitive" } },
+            {
+              variants: {
+                some: variantSearchWhere,
+              },
+            },
+          ],
+        }
+      : {}),
+  };
+};
+
+const getProductListPagination = (query: ProductListQuery) => {
+  if (!query.page || !query.page_size) {
+    return {};
+  }
+
+  const pageSize = Math.min(query.page_size, 100);
+
+  return {
+    skip: (query.page - 1) * pageSize,
+    take: pageSize,
+  };
+};
 
 const normalizeProductStatus = (value: unknown): ProductStatusInput => {
   if (value === undefined || value === null || value === "") {
@@ -263,7 +281,7 @@ const ensureUniqueValues = (values: string[], fieldName: string) => {
   const unique = new Set(values);
 
   if (unique.size !== values.length) {
-    throw new BadRequestError(`${fieldName} contains duplicated values`);
+    throw new BadRequestError(`${fieldName} đã tồn tại`);
   }
 };
 
@@ -341,7 +359,7 @@ const createVariantAttributeValues = (attributeValueIds: number[]) =>
     : undefined;
 
 const ensureNoCrossProductSkuConflict = async (
-  tx: PrismaTransaction,
+  tx: ProductTransaction,
   storeId: string,
   productId: number,
   variantSkus: string[],
@@ -350,115 +368,67 @@ const ensureNoCrossProductSkuConflict = async (
     return;
   }
 
-  const conflictingVariant = await tx.productVariant.findFirst({
-    where: {
-      sku: { in: variantSkus },
-      product_id: { not: productId },
-      store_id: storeId,
-    },
-  });
+  const conflictingVariant = await ProductRepository.findVariantSkuConflict(
+    tx,
+    storeId,
+    productId,
+    variantSkus,
+  );
 
   if (conflictingVariant) {
-    throw new ConflictError(`SKU "${conflictingVariant.sku}" already belongs to another product`);
+    throw new ConflictError(`Phiên bản "${conflictingVariant.sku}" đã được tạo`);
   }
 };
 
 const ensureInventoryStockExists = async (
-  tx: PrismaTransaction,
+  tx: ProductTransaction,
   productVariantId: string,
 ) => {
-  const variant = await tx.productVariant.findUnique({
-    where: { sku: productVariantId },
-    select: {
-      store_id: true,
-    },
-  });
+  const variant = await ProductRepository.findVariantStoreBySku(tx, productVariantId);
 
   if (!variant) {
-    throw new NotFoundError(`Product variant "${productVariantId}" not found`);
+    throw new NotFoundError(`Không tìm thấy phiên bản sản phẩm "${productVariantId}"`);
   }
 
-  await tx.inventoryStock.upsert({
-    where: { product_variant_id: productVariantId },
-    update: {
-      store_id: variant.store_id,
-    },
-    create: {
-      store_id: variant.store_id,
-      product_variant_id: productVariantId,
-      on_hand: 0,
-      available: 0,
-      committed: 0,
-      packing: 0,
-      incoming: 0,
-      version: 0,
-    },
-  });
+  await ProductRepository.upsertInventoryStock(tx, productVariantId, variant.store_id);
 };
 
 const resetInventoryStocks = async (
-  tx: PrismaTransaction,
+  tx: ProductTransaction,
   variantSkus: string[],
 ) => {
   if (variantSkus.length === 0) {
     return;
   }
 
-  await tx.inventoryStock.updateMany({
-    where: {
-      product_variant_id: { in: variantSkus },
-    },
-    data: {
-      on_hand: 0,
-      available: 0,
-      committed: 0,
-      packing: 0,
-      incoming: 0,
-      version: {
-        increment: 1,
-      },
-    },
-  });
+  await ProductRepository.resetInventoryStocks(tx, variantSkus);
 };
 
-const getProductVariantSkus = async (tx: PrismaTransaction, productId: number) => {
-  const variants = await tx.productVariant.findMany({
-    where: { product_id: productId },
-    select: { sku: true },
-  });
+const getProductVariantSkus = async (tx: ProductTransaction, productId: number) => {
+  const variants = await ProductRepository.findProductVariantSkus(tx, productId);
 
   return variants.map((variant) => variant.sku);
 };
 
 const deleteVariantAttributeLinks = async (
-  tx: PrismaTransaction,
+  tx: ProductTransaction,
   variantSkus: string[],
 ) => {
   if (variantSkus.length === 0) {
     return;
   }
 
-  await tx.variantAttributeValue.deleteMany({
-    where: {
-      variant_sku: { in: variantSkus },
-    },
-  });
+  await ProductRepository.deleteVariantAttributeLinks(tx, variantSkus);
 };
 
 const syncVariants = async (
-  tx: PrismaTransaction,
+  tx: ProductTransaction,
   storeId: string,
   productId: number,
   variants: ProductInput["variants"],
   attributeValueMap: Map<string, number>,
 ) => {
-  const existingVariants = await tx.productVariant.findMany({
-    where: { product_id: productId },
-    select: {
-      sku: true,
-      kind: true,
-    },
-  });
+  const existingVariants = await ProductRepository.findExistingVariants(tx, productId);
   const existingSkuSet = new Set(existingVariants.map((variant) => variant.sku));
   const nextSkuSet = new Set(variants.map((variant) => variant.sku));
   const hasGeneratedVariants = variants.some((variant) => variant.combinations.length > 0);
@@ -477,18 +447,12 @@ const syncVariants = async (
     );
 
   if (disabledDefaultVariantSkus.length > 0) {
-    await tx.productVariant.updateMany({
-      where: { sku: { in: disabledDefaultVariantSkus } },
-      data: { status: "inactive" },
-    });
+    await ProductRepository.deactivateVariants(tx, disabledDefaultVariantSkus);
   }
 
   if (removedSkus.length > 0) {
     await resetInventoryStocks(tx, removedSkus);
-    await tx.productVariant.updateMany({
-      where: { sku: { in: removedSkus } },
-      data: { status: "deleted" },
-    });
+    await ProductRepository.markVariantsDeleted(tx, removedSkus);
   }
 
   for (const variant of variants) {
@@ -498,29 +462,7 @@ const syncVariants = async (
     );
 
     if (existingSkuSet.has(variant.sku)) {
-      await tx.productVariant.update({
-        where: { sku: variant.sku },
-        data: {
-          store_id: storeId,
-          product_id: productId,
-          selling_price: variant.selling_price,
-          cogs: variant.cogs,
-          image_url: variant.image_url,
-          kind: variant.kind,
-          status: "active",
-          attribute_values: {
-            deleteMany: {},
-            ...(createVariantAttributeValues(attributeValueIds) ?? {}),
-          },
-        },
-      });
-      await ensureInventoryStockExists(tx, variant.sku);
-      continue;
-    }
-
-    await tx.productVariant.create({
-      data: {
-        sku: variant.sku,
+      await ProductRepository.updateVariant(tx, variant.sku, {
         store_id: storeId,
         product_id: productId,
         selling_price: variant.selling_price,
@@ -528,15 +470,32 @@ const syncVariants = async (
         image_url: variant.image_url,
         kind: variant.kind,
         status: "active",
-        attribute_values: createVariantAttributeValues(attributeValueIds),
-      },
+        attribute_values: {
+          deleteMany: {},
+          ...(createVariantAttributeValues(attributeValueIds) ?? {}),
+        },
+      });
+      await ensureInventoryStockExists(tx, variant.sku);
+      continue;
+    }
+
+    await ProductRepository.createVariant(tx, {
+      sku: variant.sku,
+      store_id: storeId,
+      product_id: productId,
+      selling_price: variant.selling_price,
+      cogs: variant.cogs,
+      image_url: variant.image_url,
+      kind: variant.kind,
+      status: "active",
+      attribute_values: createVariantAttributeValues(attributeValueIds),
     });
     await ensureInventoryStockExists(tx, variant.sku);
   }
 };
 
 const resolveCategoryId = async (
-  tx: PrismaTransaction,
+  tx: ProductTransaction,
   storeId: string,
   payload: ProductRequestInput,
 ) => {
@@ -545,10 +504,11 @@ const resolveCategoryId = async (
       return null;
     }
 
-    const category = await tx.category.findFirst({
-      where: { id: payload.category_id, store_id: storeId },
-      select: { id: true },
-    });
+    const category = await ProductRepository.findCategoryByStoreAndId(
+      tx,
+      storeId,
+      payload.category_id,
+    );
 
     if (!category) {
       throw new BadRequestError("category_id is invalid");
@@ -563,10 +523,7 @@ const resolveCategoryId = async (
     return null;
   }
 
-  const category = await tx.category.findFirst({
-    where: { category_name: categoryName, store_id: storeId },
-    select: { id: true },
-  });
+  const category = await ProductRepository.findCategoryIdByStoreAndName(tx, storeId, categoryName);
 
   if (!category) {
     throw new BadRequestError(`Category "${categoryName}" does not exist`);
@@ -576,7 +533,7 @@ const resolveCategoryId = async (
 };
 
 const normalizeProductInput = async (
-  tx: PrismaTransaction,
+  tx: ProductTransaction,
   storeId: string,
   payload: ProductRequestInput,
 ) => {
@@ -681,10 +638,7 @@ const normalizeProductInput = async (
 };
 
 const getProductOrThrow = async (storeId: string, id: number) => {
-  const product = await prisma.product.findFirst({
-    where: { id, store_id: storeId },
-    include: productInclude,
-  });
+  const product = await ProductRepository.findProductDetailOrThrow(storeId, id);
 
   if (!product) {
     throw new NotFoundError("Product not found");
@@ -693,43 +647,61 @@ const getProductOrThrow = async (storeId: string, id: number) => {
   return product;
 };
 
+const getCachedCategories = async (storeId: string) => {
+  const cacheKey = productCacheKeys.categories(storeId);
+  const cached = await cache.getJson<ProductCategoryItem[]>(cacheKey);
+
+  if (cached) {
+    return cached;
+  }
+
+  const categories = await ProductRepository.findCategories(storeId);
+
+  await cache.setJson(cacheKey, categories, CATEGORY_CACHE_TTL_SECONDS);
+  return categories;
+};
+
+const getCachedProductList = async (storeId: string, query: ProductListQuery = {}) => {
+  const normalizedQuery = normalizeProductListQuery(query);
+  const cacheKey = productCacheKeys.list(storeId, normalizedQuery);
+  const cached = await cache.getJson<ProductListResponseItem[]>(cacheKey);
+
+  if (cached) {
+    return cached;
+  }
+
+  const pagination = getProductListPagination(normalizedQuery);
+  const products: ProductListRecord[] = await ProductRepository.findProductsForList({
+    storeId,
+    where: buildProductListWhere(storeId, normalizedQuery),
+    ...("skip" in pagination ? { skip: pagination.skip, take: pagination.take } : {}),
+  });
+  const items = products.map((product) => mapProductListItem(product));
+
+  await cache.setJson(cacheKey, items, PRODUCT_LIST_CACHE_TTL_SECONDS);
+  return items;
+};
+
+const getCachedProductDetail = async (storeId: string, productId: number) => {
+  const cacheKey = productCacheKeys.detail(storeId, productId);
+  const cached = await cache.getJson<ProductDetailRecord>(cacheKey);
+
+  if (cached) {
+    return cached;
+  }
+
+  const product = await getProductOrThrow(storeId, productId);
+  await cache.setJson(cacheKey, product, PRODUCT_DETAIL_CACHE_TTL_SECONDS);
+  return product;
+};
+
 export const ProductService = {
   getCategories: async (storeId: string) => {
-    const cached = categoryCache.get(storeId);
-
-    if (cached && cached.expiresAt > Date.now()) {
-      return cached.data;
-    }
-
-    const categories = await prisma.category.findMany({
-      select: {
-        id: true,
-        category_name: true,
-      },
-      where: {
-        store_id: storeId,
-      },
-      orderBy: {
-        category_name: "asc",
-      },
-    });
-
-    categoryCache.set(storeId, {
-      data: categories,
-      expiresAt: Date.now() + CATEGORY_CACHE_TTL_MS,
-    });
-
-    return categories;
+    return getCachedCategories(storeId);
   },
 
   getCategoryById: async (storeId: string, id: number) => {
-    const category = await prisma.category.findFirst({
-      where: { id, store_id: storeId },
-      select: {
-        id: true,
-        category_name: true,
-      },
-    });
+    const category = await ProductRepository.findCategoryById(storeId, id);
 
     if (!category) {
       throw new NotFoundError("Category not found");
@@ -741,40 +713,28 @@ export const ProductService = {
   createCategory: async (storeId: string, payload: ProductCategoryRequestInput) => {
     const categoryName = normalizeCategoryName(payload.category_name);
 
-    return prisma.$transaction(async (tx) => {
+    const category = await ProductRepository.withTransaction(async (tx) => {
       await ensureCategoryNameIsUnique(tx, storeId, categoryName);
 
-      const category = await tx.category.create({
-        data: {
-          category_name: categoryName,
-          store_id: storeId,
-        },
-        select: {
-          id: true,
-          category_name: true,
-        },
-      });
-
-      clearCategoryCache(storeId);
-      return category;
+      return ProductRepository.createCategory(tx, storeId, categoryName);
     }, PRISMA_INTERACTIVE_TRANSACTION_OPTIONS);
+
+    await invalidateCategoryReadModels(storeId);
+    return category;
   },
 
   createProduct: async (storeId: string, payload: ProductRequestInput) => {
-    const { product, oldImageUrlToDelete } = await prisma.$transaction(async (tx) => {
+    const { product, oldImageUrlToDelete } = await ProductRepository.withTransaction(async (tx) => {
       const data = await normalizeProductInput(tx, storeId, payload);
 
       // Restore soft-deleted product when the default simple-variant SKU matches.
       let existingProduct = null;
       if (data.default_variant_sku) {
-        existingProduct = await tx.product.findFirst({
-          where: {
-            default_variant_sku: data.default_variant_sku,
-            status: "deleted",
-            store_id: storeId,
-          },
-          include: productInclude,
-        });
+        existingProduct = await ProductRepository.findSoftDeletedProductByDefaultSku(
+          tx,
+          storeId,
+          data.default_variant_sku,
+        );
       }
 
       if (existingProduct) {
@@ -786,51 +746,36 @@ export const ProductService = {
             : null;
         const existingVariantSkus = await getProductVariantSkus(tx, existingProduct.id);
 
-        await tx.product.update({
-          where: { id: existingProduct.id },
-          data: {
-            ...toProductData(data),
-            status: "active",
-            store_id: storeId,
-          },
+        await ProductRepository.updateProductRecord(tx, existingProduct.id, {
+          ...toProductData(data),
+          status: "active",
+          store_id: storeId,
         });
 
         await deleteVariantAttributeLinks(tx, existingVariantSkus);
-        await tx.attributeValue.deleteMany({
-          where: { attribute: { product_id: existingProduct.id } },
-        });
-        await tx.attribute.deleteMany({
-          where: { product_id: existingProduct.id },
-        });
+        await ProductRepository.deleteAttributeValueLinksByProductId(tx, existingProduct.id);
+        await ProductRepository.deleteAttributesByProductId(tx, existingProduct.id);
 
         // Add new attributes
         for (const attr of data.attributes) {
-          await tx.attribute.create({
-            data: {
-              name: attr.name,
-              product_id: existingProduct.id,
-              values: {
-                create: attr.values.map((value) => ({ value })),
-              },
-            },
-          });
+          await ProductRepository.createAttribute(tx, existingProduct.id, attr);
         }
 
 
         // Re-fetch attributes to get IDs
-        const updatedAttributes = await tx.attribute.findMany({
-          where: { product_id: existingProduct.id },
-          include: { values: true },
-        });
+        const updatedAttributes = await ProductRepository.findAttributesWithValuesByProductId(
+          tx,
+          existingProduct.id,
+        );
 
         const updatedAttributeValueMap = buildAttributeValueMap(updatedAttributes);
 
         await syncVariants(tx, storeId, existingProduct.id, data.variants, updatedAttributeValueMap);
 
-        const product = await tx.product.findUniqueOrThrow({
-          where: { id: existingProduct.id },
-          include: productInclude,
-        });
+        const product = await ProductRepository.findProductDetailByIdOrThrowInTx(
+          tx,
+          existingProduct.id,
+        );
 
         return {
           product,
@@ -845,23 +790,17 @@ export const ProductService = {
         data.variants.map((variant) => variant.sku),
       );
 
-      const createdProduct = await tx.product.create({
-        data: {
-          ...toProductData(data),
-          store_id: storeId,
-          attributes: toAttributeCreateData(data.attributes),
-        },
-        include: { attributes: { include: { values: true } } },
+      const createdProduct = await ProductRepository.createProductWithAttributes(tx, {
+        ...toProductData(data),
+        store_id: storeId,
+        attributes: toAttributeCreateData(data.attributes),
       });
 
       const attributeValueMap = buildAttributeValueMap(createdProduct.attributes);
 
       await syncVariants(tx, storeId, createdProduct.id, data.variants, attributeValueMap);
 
-      const product = await tx.product.findUniqueOrThrow({
-        where: { id: createdProduct.id },
-        include: productInclude,
-      });
+      const product = await ProductRepository.findProductDetailByIdOrThrowInTx(tx, createdProduct.id);
       return {
         product,
         oldImageUrlToDelete: null,
@@ -869,33 +808,21 @@ export const ProductService = {
     }, PRISMA_INTERACTIVE_TRANSACTION_OPTIONS);
 
     await deleteManagedProductImageFromS3(oldImageUrlToDelete);
+    await invalidateProductReadModels(storeId, [product.id]);
     return product;
   },
 
-  getProducts: async (storeId: string) => {
-    const products = await prisma.product.findMany({
-      where: {
-        store_id: storeId,
-        status: {
-          not: "deleted",
-        },
-      },
-      select: productListSelect,
-    });
-
-    return products.map((product) => mapProductListItem(product));
+  getProducts: async (storeId: string, query: ProductListQuery = {}) => {
+    return getCachedProductList(storeId, query);
   },
 
-  getProductById: async (storeId: string, id: number) => getProductOrThrow(storeId, id),
+  getProductById: async (storeId: string, id: number) => getCachedProductDetail(storeId, id),
 
   editCategory: async (storeId: string, id: number, payload: ProductCategoryRequestInput) => {
     const categoryName = normalizeCategoryName(payload.category_name);
 
-    return prisma.$transaction(async (tx) => {
-      const existingCategory = await tx.category.findFirst({
-        where: { id, store_id: storeId },
-        select: { id: true },
-      });
+    const category = await ProductRepository.withTransaction(async (tx) => {
+      const existingCategory = await ProductRepository.findCategoryByStoreAndId(tx, storeId, id);
 
       if (!existingCategory) {
         throw new NotFoundError("Category not found");
@@ -903,40 +830,28 @@ export const ProductService = {
 
       await ensureCategoryNameIsUnique(tx, storeId, categoryName, id);
 
-      const category = await tx.category.update({
-        where: { id },
-        data: {
-          category_name: categoryName,
-        },
-        select: {
-          id: true,
-          category_name: true,
-        },
-      });
-
-      clearCategoryCache(storeId);
-      return category;
+      return ProductRepository.updateCategory(tx, id, categoryName);
     }, PRISMA_INTERACTIVE_TRANSACTION_OPTIONS);
+
+    await invalidateCategoryReadModels(storeId);
+    return category;
   },
 
   deleteCategories: async (storeId: string, ids: number[]) => {
     const uniqueIds = getUniqueIds(ids);
 
-    return prisma.$transaction(async (tx) => {
-      const existingCategories = await tx.category.findMany({
-        where: { id: { in: uniqueIds }, store_id: storeId },
-        select: { id: true, category_name: true },
-      });
+    await ProductRepository.withTransaction(async (tx) => {
+      const existingCategories = await ProductRepository.findCategoriesByIds(tx, storeId, uniqueIds);
 
       if (existingCategories.length !== uniqueIds.length) {
         throw new NotFoundError("One or more categories were not found");
       }
 
-      const linkedProducts = await tx.product.findMany({
-        where: { category_id: { in: uniqueIds }, store_id: storeId },
-        select: { product_name: true, category_id: true },
-        take: 5,
-      });
+      const linkedProducts = await ProductRepository.findLinkedProductsByCategoryIds(
+        tx,
+        storeId,
+        uniqueIds,
+      );
 
       if (linkedProducts.length > 0) {
         const categoryNameById = new Map(
@@ -955,24 +870,15 @@ export const ProductService = {
         );
       }
 
-      await tx.category.deleteMany({
-        where: { id: { in: uniqueIds }, store_id: storeId },
-      });
-
-      clearCategoryCache(storeId);
+      await ProductRepository.deleteCategories(tx, storeId, uniqueIds);
     }, PRISMA_INTERACTIVE_TRANSACTION_OPTIONS);
+
+    await invalidateCategoryReadModels(storeId);
   },
 
   editProduct: async (storeId: string, id: number, payload: ProductRequestInput) => {
-    const { product, oldImageUrlToDelete } = await prisma.$transaction(async (tx) => {
-      const existingProduct = await tx.product.findFirst({
-        where: { id, store_id: storeId },
-        include: {
-          variants: {
-            select: { sku: true },
-          },
-        },
-      });
+    const { product, oldImageUrlToDelete } = await ProductRepository.withTransaction(async (tx) => {
+      const existingProduct = await ProductRepository.findProductForEdit(tx, storeId, id);
 
       if (!existingProduct) {
         throw new NotFoundError("Product not found");
@@ -996,33 +902,19 @@ export const ProductService = {
 
       await deleteVariantAttributeLinks(tx, existingSkus);
 
-      await tx.attributeValue.deleteMany({
-        where: {
-          attribute: { product_id: id },
-        },
-      });
+      await ProductRepository.deleteAttributeValueLinksByProductId(tx, id);
+      await ProductRepository.deleteAttributesByProductId(tx, id);
 
-      await tx.attribute.deleteMany({
-        where: { product_id: id },
-      });
-
-      const updatedProduct = await tx.product.update({
-        where: { id },
-        data: {
-          ...toProductData(data),
-          attributes: toAttributeCreateData(data.attributes),
-        },
-        include: { attributes: { include: { values: true } } },
+      const updatedProduct = await ProductRepository.updateProductWithAttributes(tx, id, {
+        ...toProductData(data),
+        attributes: toAttributeCreateData(data.attributes),
       });
 
       const attributeValueMap = buildAttributeValueMap(updatedProduct.attributes);
 
       await syncVariants(tx, storeId, id, data.variants, attributeValueMap);
 
-      const product = await tx.product.findUniqueOrThrow({
-        where: { id },
-        include: productInclude,
-      });
+      const product = await ProductRepository.findProductDetailByIdOrThrowInTx(tx, id);
       return {
         product,
         oldImageUrlToDelete,
@@ -1030,46 +922,38 @@ export const ProductService = {
     }, PRISMA_INTERACTIVE_TRANSACTION_OPTIONS);
 
     await deleteManagedProductImageFromS3(oldImageUrlToDelete);
+    await invalidateProductReadModels(storeId, [id]);
     return product;
   },
 
   deleteProducts: async (storeId: string, ids: number[]) => {
     const uniqueIds = getUniqueIds(ids);
 
-    return prisma.$transaction(async (tx) => {
-      const existingProducts = await tx.product.findMany({
-        where: { id: { in: uniqueIds }, store_id: storeId },
-        select: {
-          id: true,
-          status: true,
-        },
-      });
+    const result = await ProductRepository.withTransaction(async (tx) => {
+      const existingProducts = await ProductRepository.findProductsByIds(tx, storeId, uniqueIds);
 
       if (existingProducts.length !== uniqueIds.length) {
         throw new NotFoundError("One or more products were not found");
       }
 
       const productIdsToDelete = existingProducts.map((product) => product.id);
-      const variantSkusToDelete = await tx.productVariant.findMany({
-        where: { store_id: storeId, product_id: { in: productIdsToDelete } },
-        select: { sku: true },
-      });
+      const variantSkusToDelete = await ProductRepository.findVariantSkusByProductIds(
+        tx,
+        storeId,
+        productIdsToDelete,
+      );
       const variantSkuList = variantSkusToDelete.map((variant) => variant.sku);
 
       await resetInventoryStocks(tx, variantSkuList);
-      await tx.productVariant.updateMany({
-        where: { store_id: storeId, product_id: { in: productIdsToDelete } },
-        data: { status: "deleted" },
-      });
-
-      await tx.product.updateMany({
-        where: { id: { in: productIdsToDelete }, store_id: storeId },
-        data: { status: "deleted" },
-      });
+      await ProductRepository.markProductVariantsDeletedByProductIds(tx, storeId, productIdsToDelete);
+      await ProductRepository.markProductsDeleted(tx, storeId, productIdsToDelete);
 
       return {
         deleted_ids: productIdsToDelete,
       };
     }, PRISMA_INTERACTIVE_TRANSACTION_OPTIONS);
+
+    await invalidateProductReadModels(storeId, result.deleted_ids);
+    return result;
   },
 };

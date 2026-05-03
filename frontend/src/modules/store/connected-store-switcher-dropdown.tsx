@@ -2,7 +2,7 @@ import type { ReactElement } from 'react'
 import { useAuth } from '@/modules/auth/use-auth'
 import { StoreSwitcherDropdown } from '@/modules/store/store-switcher-dropdown'
 import { useStore } from '@/modules/store/use-store'
-import { appToast } from '@/shared/ui/toast/toast.helpers'
+import { showErrorToast } from '@/shared/ui/toast/toast-error'
 
 type ConnectedStoreSwitcherDropdownProps = {
   onCreateStore: () => void
@@ -38,7 +38,7 @@ export function ConnectedStoreSwitcherDropdown({
           await switchStore(storeId)
         } catch (error) {
           console.error('Failed to switch store:', error)
-          appToast.error('Unable to switch store. Please try again.')
+          showErrorToast(error, 'Unable to switch store. Please try again.')
           throw error
         }
       }}

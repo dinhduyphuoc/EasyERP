@@ -201,12 +201,15 @@ export type PaginatedOrderList = {
   page_size: number
 }
 
-export type OrderOverviewPeriod = 'today' | 'this_week' | 'this_month' | 'all_time'
+export type OrderOverviewPeriod = 'today' | 'this_month' | 'this_quarter' | 'last_6_months' | 'this_year'
 
 export type OrderOverviewResponse = {
   source_options: string[]
   summary: {
     net_revenue: string
+    total_cost: string
+    gross_profit: string
+    gross_margin_percent: string
     total_orders: number
     unpaid_orders: number
     average_order_value: string
@@ -217,6 +220,9 @@ export type OrderOverviewResponse = {
   }
   previous_summary: {
     net_revenue: string
+    total_cost: string
+    gross_profit: string
+    gross_margin_percent: string
     total_orders: number
     unpaid_orders: number
     average_order_value: string

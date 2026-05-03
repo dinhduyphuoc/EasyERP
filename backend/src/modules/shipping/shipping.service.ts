@@ -1,7 +1,7 @@
-import { prisma } from "@lib/prisma";
 import { BadRequestError, NotFoundError } from "@/common";
 import { createGHNClient } from "@/lib/ghn";
 import { Prisma, type ShippingConnectionStatus } from "../../../generated/prisma/client";
+import { ShippingRepository } from "./shipping.repository";
 import {
   resolveProviderLocationFromCanonical,
 } from "./shipping.location.service";
@@ -123,27 +123,16 @@ const getConnectedProviderClient = async (
   providerCode: string,
   storeId: string,
 ) => {
-  const provider = await prisma.shippingProvider.findUnique({
-    where: { code: providerCode.toLowerCase() },
-    select: { id: true, code: true, display_name: true },
-  });
+  const provider = await ShippingRepository.findProviderByCodeBasic(providerCode);
 
   if (!provider) {
     throw new NotFoundError("Shipping provider not found");
   }
 
-  const connection = await prisma.shippingConnection.findUnique({
-    where: {
-      provider_id_store_id: {
-        provider_id: provider.id,
-        store_id: storeId,
-      },
-    },
-    select: {
-      status: true,
-      credentials_json: true,
-    },
-  });
+  const connection = await ShippingRepository.findConnectionByProviderAndStoreBasic(
+    provider.id,
+    storeId,
+  );
 
   if (!connection || connection.status !== "connected") {
     throw new BadRequestError(
@@ -275,16 +264,7 @@ const mergeMetadata = (
 };
 
 const resolveGHNWebhookOrder = async (trackingCode: string, shopIdInput?: number | null) => {
-  const candidateOrders = await prisma.order.findMany({
-    where: { tracking_code: trackingCode },
-    select: {
-      id: true,
-      store_id: true,
-      order_code: true,
-      tracking_code: true,
-      processing_status: true,
-    },
-  });
+  const candidateOrders = await ShippingRepository.findOrdersByTrackingCode(trackingCode);
 
   if (candidateOrders.length === 0) {
     return null;
@@ -294,26 +274,16 @@ const resolveGHNWebhookOrder = async (trackingCode: string, shopIdInput?: number
     return candidateOrders[0];
   }
 
-  const ghnProvider = await prisma.shippingProvider.findUnique({
-    where: { code: "ghn" },
-    select: { id: true },
-  });
+  const ghnProvider = await ShippingRepository.findProviderIdByCode("ghn");
 
   if (!ghnProvider) {
     return null;
   }
 
-  const connections = await prisma.shippingConnection.findMany({
-    where: {
-      provider_id: ghnProvider.id,
-      store_id: { in: candidateOrders.map((order) => order.store_id) },
-      status: "connected",
-    },
-    select: {
-      store_id: true,
-      credentials_json: true,
-    },
-  });
+  const connections = await ShippingRepository.findConnectedStoreConnectionsByProviderAndStores(
+    ghnProvider.id,
+    candidateOrders.map((order) => order.store_id),
+  );
 
   const matchedStoreIds = new Set(
     connections
@@ -350,32 +320,13 @@ const resolveGHNWebhookOrder = async (trackingCode: string, shopIdInput?: number
 const syncProviderCatalog = async () => {
   await Promise.all(
     shippingProviderAdapters.map((adapter) =>
-      prisma.shippingProvider.upsert({
-        where: { code: adapter.definition.code },
-        update: {
-          display_name: adapter.definition.display_name,
-          short_description: adapter.definition.short_description,
-          logo_url: adapter.definition.logo_url,
-          is_active: true,
-          capabilities_json: toJsonObject(adapter.definition.capabilities),
-        },
-        create: {
-          code: adapter.definition.code,
-          display_name: adapter.definition.display_name,
-          short_description: adapter.definition.short_description,
-          logo_url: adapter.definition.logo_url,
-          is_active: true,
-          capabilities_json: toJsonObject(adapter.definition.capabilities),
-        },
-      }),
+      ShippingRepository.upsertProviderCatalogEntry(adapter),
     ),
   );
 };
 
 const getProviderOrThrow = async (providerCode: string) => {
-  const provider = await prisma.shippingProvider.findUnique({
-    where: { code: providerCode.toLowerCase() },
-  });
+  const provider = await ShippingRepository.findProviderByCode(providerCode);
 
   if (!provider) {
     throw new NotFoundError("Shipping provider not found");
@@ -533,26 +484,7 @@ export const ShippingService = {
   listProviders: async (storeId: string) => {
     await syncProviderCatalog();
 
-    const providers = await prisma.shippingProvider.findMany({
-      where: { is_active: true },
-      include: {
-        connections: {
-          where: { store_id: storeId },
-          select: {
-            id: true,
-            store_id: true,
-            status: true,
-            error_message: true,
-            connected_at: true,
-            disconnected_at: true,
-            last_verified_at: true,
-            updated_at: true,
-          },
-          take: 1,
-        },
-      },
-      orderBy: [{ display_name: "asc" }],
-    });
+    const providers = await ShippingRepository.findActiveProvidersWithStoreConnections(storeId);
 
     return {
       store_id: storeId,
@@ -565,21 +497,10 @@ export const ShippingService = {
   getConnectionDetail: async (providerCode: string, storeId: string) => {
     await syncProviderCatalog();
 
-    const provider = await prisma.shippingProvider.findUnique({
-      where: { code: providerCode.toLowerCase() },
-      include: {
-        connections: {
-          where: { store_id: storeId },
-          include: {
-            history_items: {
-              orderBy: [{ created_at: "desc" }],
-              take: 8,
-            },
-          },
-          take: 1,
-        },
-      },
-    });
+    const provider = await ShippingRepository.findProviderWithConnectionHistory(
+      providerCode,
+      storeId,
+    );
 
     if (!provider) {
       throw new NotFoundError("Shipping provider not found");
@@ -1187,14 +1108,10 @@ export const ShippingService = {
         };
 
     const now = new Date();
-    const existingConnection = await prisma.shippingConnection.findUnique({
-      where: {
-        provider_id_store_id: {
-          provider_id: provider.id,
-          store_id: storeId,
-        },
-      },
-    });
+    const existingConnection = await ShippingRepository.findConnectionByProviderAndStore(
+      provider.id,
+      storeId,
+    );
 
     const nextStatus: ShippingConnectionStatus = verification.success ? "connected" : "error";
     const nextMetadata = {
@@ -1206,48 +1123,41 @@ export const ShippingService = {
     };
 
     const connection = existingConnection
-      ? await prisma.shippingConnection.update({
-          where: { id: existingConnection.id },
-          data: {
-            status: nextStatus,
-            credentials_json: toJsonObject(credentials),
-            metadata_json: toJsonObject(mergeMetadata(existingConnection.metadata_json, nextMetadata)),
-            error_message: verification.success ? null : verification.message,
-            last_verified_at: shouldVerify ? now : existingConnection.last_verified_at,
-            connected_at: verification.success ? existingConnection.connected_at ?? now : existingConnection.connected_at,
-            disconnected_at: verification.success ? null : existingConnection.disconnected_at,
-          },
+      ? await ShippingRepository.updateConnection(existingConnection.id, {
+          status: nextStatus,
+          credentials_json: toJsonObject(credentials),
+          metadata_json: toJsonObject(mergeMetadata(existingConnection.metadata_json, nextMetadata)),
+          error_message: verification.success ? null : verification.message,
+          last_verified_at: shouldVerify ? now : existingConnection.last_verified_at,
+          connected_at: verification.success ? existingConnection.connected_at ?? now : existingConnection.connected_at,
+          disconnected_at: verification.success ? null : existingConnection.disconnected_at,
         })
-      : await prisma.shippingConnection.create({
-          data: {
-            provider_id: provider.id,
-            store_id: storeId,
-            status: nextStatus,
-            credentials_json: toJsonObject(credentials),
-            metadata_json: toJsonObject(nextMetadata),
-            error_message: verification.success ? null : verification.message,
-            last_verified_at: shouldVerify ? now : null,
-            connected_at: verification.success ? now : null,
-            disconnected_at: null,
-          },
+      : await ShippingRepository.createConnection({
+          provider_id: provider.id,
+          store_id: storeId,
+          status: nextStatus,
+          credentials_json: toJsonObject(credentials),
+          metadata_json: toJsonObject(nextMetadata),
+          error_message: verification.success ? null : verification.message,
+          last_verified_at: shouldVerify ? now : null,
+          connected_at: verification.success ? now : null,
+          disconnected_at: null,
         });
 
-    await prisma.shippingConnectionHistory.create({
-      data: {
-        connection_id: connection.id,
-        action: existingConnection ? "updated" : "connected",
-        status: nextStatus,
-        store_id: storeId,
-        provider_code: provider.code,
-        payload_json: toJsonObject({
-          credentials: adapter.maskCredentials(credentials),
-          metadata,
-          verification,
-        }),
-        error_message: verification.success ? null : verification.message,
-        actor_id: input.actor?.id?.trim() || null,
-        actor_name: input.actor?.name?.trim() || null,
-      },
+    await ShippingRepository.createConnectionHistory({
+      connection_id: connection.id,
+      action: existingConnection ? "updated" : "connected",
+      status: nextStatus,
+      store_id: storeId,
+      provider_code: provider.code,
+      payload_json: toJsonObject({
+        credentials: adapter.maskCredentials(credentials),
+        metadata,
+        verification,
+      }),
+      error_message: verification.success ? null : verification.message,
+      actor_id: input.actor?.id?.trim() || null,
+      actor_name: input.actor?.name?.trim() || null,
     });
 
     return ShippingService.getConnectionDetail(provider.code, storeId);
@@ -1257,14 +1167,10 @@ export const ShippingService = {
     await syncProviderCatalog();
 
     const provider = await getProviderOrThrow(providerCode);
-    const existingConnection = await prisma.shippingConnection.findUnique({
-      where: {
-        provider_id_store_id: {
-          provider_id: provider.id,
-          store_id: storeId,
-        },
-      },
-    });
+    const existingConnection = await ShippingRepository.findConnectionByProviderAndStore(
+      provider.id,
+      storeId,
+    );
 
     if (!existingConnection) {
       throw new NotFoundError("Shipping connection not found");
@@ -1278,30 +1184,25 @@ export const ShippingService = {
         ? adapter.maskCredentials(existingConnection.credentials_json as Record<string, unknown>)
         : {};
 
-    const connection = await prisma.shippingConnection.update({
-      where: { id: existingConnection.id },
-      data: {
-        status: "disconnected",
-        credentials_json: Prisma.JsonNull,
-        error_message: null,
-        disconnected_at: new Date(),
-      },
+    const connection = await ShippingRepository.updateConnection(existingConnection.id, {
+      status: "disconnected",
+      credentials_json: Prisma.JsonNull,
+      error_message: null,
+      disconnected_at: new Date(),
     });
 
-    await prisma.shippingConnectionHistory.create({
-      data: {
-        connection_id: connection.id,
-        action: "disconnected",
-        status: "disconnected",
-        store_id: storeId,
-        provider_code: provider.code,
-        payload_json: toJsonObject({
-          previous_status: existingConnection.status,
-          previous_credentials: maskedCredentials,
-        }),
-        actor_id: input.actor?.id?.trim() || null,
-        actor_name: input.actor?.name?.trim() || null,
-      },
+    await ShippingRepository.createConnectionHistory({
+      connection_id: connection.id,
+      action: "disconnected",
+      status: "disconnected",
+      store_id: storeId,
+      provider_code: provider.code,
+      payload_json: toJsonObject({
+        previous_status: existingConnection.status,
+        previous_credentials: maskedCredentials,
+      }),
+      actor_id: input.actor?.id?.trim() || null,
+      actor_name: input.actor?.name?.trim() || null,
     });
 
     return ShippingService.getConnectionDetail(provider.code, storeId);
@@ -1312,14 +1213,10 @@ export const ShippingService = {
 
     const provider = await getProviderOrThrow(providerCode);
     const adapter = resolveShippingAdapter(provider.code);
-    const existingConnection = await prisma.shippingConnection.findUnique({
-      where: {
-        provider_id_store_id: {
-          provider_id: provider.id,
-          store_id: storeId,
-        },
-      },
-    });
+    const existingConnection = await ShippingRepository.findConnectionByProviderAndStore(
+      provider.id,
+      storeId,
+    );
 
     const metadata = ensurePlainObject(input.metadata);
     const credentials = input.credentials
@@ -1340,28 +1237,23 @@ export const ShippingService = {
     });
 
     if (existingConnection) {
-      await prisma.shippingConnection.update({
-        where: { id: existingConnection.id },
-        data: {
-          status: verification.success ? "connected" : "error",
-          error_message: verification.success ? null : verification.message,
-          last_verified_at: new Date(),
-        },
+      await ShippingRepository.updateConnection(existingConnection.id, {
+        status: verification.success ? "connected" : "error",
+        error_message: verification.success ? null : verification.message,
+        last_verified_at: new Date(),
       });
 
-      await prisma.shippingConnectionHistory.create({
-        data: {
-          connection_id: existingConnection.id,
-          action: "verified",
-          status: verification.success ? "connected" : "error",
-          store_id: storeId,
-          provider_code: provider.code,
-          payload_json: toJsonObject({
-            verification,
-            credentials: adapter.maskCredentials(credentials),
-          }),
-          error_message: verification.success ? null : verification.message,
-        },
+      await ShippingRepository.createConnectionHistory({
+        connection_id: existingConnection.id,
+        action: "verified",
+        status: verification.success ? "connected" : "error",
+        store_id: storeId,
+        provider_code: provider.code,
+        payload_json: toJsonObject({
+          verification,
+          credentials: adapter.maskCredentials(credentials),
+        }),
+        error_message: verification.success ? null : verification.message,
       });
     }
 
@@ -1398,19 +1290,15 @@ export const ShippingService = {
     const warehouse = toOptionalString(payload.Warehouse);
     const timestamp = toOptionalString(payload.Time) ?? new Date().toISOString();
 
-    await prisma.$transaction(async (tx) => {
-      await tx.order.update({
-        where: { id: order.id },
-        data: {
-          shipping_service: "GHN",
-          shipping_status: nextShippingStatus,
-          warehouse_status: warehouse ?? undefined,
-          ...(nextProcessingStatus ? { processing_status: nextProcessingStatus } : {}),
-        },
+    await ShippingRepository.withTransaction(async (tx) => {
+      await ShippingRepository.updateOrderInTx(tx, order.id, {
+        shipping_service: "GHN",
+        shipping_status: nextShippingStatus,
+        warehouse_status: warehouse ?? undefined,
+        ...(nextProcessingStatus ? { processing_status: nextProcessingStatus } : {}),
       });
 
-      await tx.orderHistory.create({
-        data: {
+      await ShippingRepository.createOrderHistoryInTx(tx, {
           order_id: order.id,
           event_type: "shipping_webhook_received",
           description: "Nhận callback trạng thái đơn hàng từ GHN",
@@ -1428,7 +1316,6 @@ export const ShippingService = {
             callback_time: timestamp,
             payload,
           } as Prisma.InputJsonObject,
-        },
       });
     });
 
@@ -1456,8 +1343,7 @@ export const ShippingService = {
       return { matched: false, tracking_code: trackingCode };
     }
 
-    await prisma.orderHistory.create({
-      data: {
+    await ShippingRepository.createOrderHistory({
         order_id: order.id,
         event_type: "shipping_ticket_updated",
         description: "Nhan callback ticket tu GHN",
@@ -1473,7 +1359,6 @@ export const ShippingService = {
           updated_at: payload.UpdatedAt ?? null,
           payload,
         } as Prisma.InputJsonObject,
-      },
     });
 
     return {

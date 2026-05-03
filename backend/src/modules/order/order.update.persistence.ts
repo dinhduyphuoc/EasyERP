@@ -1,5 +1,4 @@
 import { Prisma } from "../../../generated/prisma/client";
-import { prisma } from "@lib/prisma";
 import {
   type OrderForMutation,
   type OrderWithRelations,
@@ -7,6 +6,7 @@ import {
   resolveOrderAddressId,
 } from "./order.persistence";
 import type { AddressRequestInput } from "./order.types";
+import { OrderRepository } from "./order.repository";
 
 type NormalizedOrderItem = {
   product_id: number | null;
@@ -89,7 +89,7 @@ export const persistUpdatedOrder = async ({
   >;
   normalizedItems: NormalizedOrderItem[];
 }): Promise<OrderWithRelations> => {
-  return prisma.$transaction(async (tx) => {
+  return OrderRepository.withTransaction(async (tx) => {
     const [fromAddressId, toAddressId, returnAddressId] = await Promise.all([
       resolveOrderAddressId(tx, requestedFromAddressId, fromAddressDetail, "from_address"),
       resolveOrderAddressId(tx, requestedToAddressId, toAddressDetail, "to_address"),
@@ -99,22 +99,16 @@ export const persistUpdatedOrder = async ({
     const shouldReplaceItems = !areOrderItemsEquivalent(existingItems, normalizedItems);
 
     if (shouldReplaceItems) {
-      await tx.orderItem.deleteMany({
-        where: { order_id: id },
-      });
+      await OrderRepository.deleteOrderItemsByOrderIdTx(tx, id);
     }
 
-    await tx.orderHistory.create({
-      data: createHistoryData,
-    });
+    await OrderRepository.createOrderHistoryTx(tx, { data: createHistoryData });
 
     if (createVatHistoryData) {
-      await tx.orderHistory.create({
-        data: createVatHistoryData,
-      });
+      await OrderRepository.createOrderHistoryTx(tx, { data: createVatHistoryData });
     }
 
-    return tx.order.update({
+    return OrderRepository.updateOrderTx(tx, {
       where: { id },
       data: {
         ...updateData,

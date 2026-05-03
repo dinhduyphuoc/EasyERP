@@ -1,7 +1,7 @@
-import { prisma } from "@lib/prisma";
 import { Prisma } from "../../../generated/prisma/client";
 import { BadRequestError, NotFoundError } from "@/common";
 import type { AddressRequestInput } from "./order.types";
+import { OrderRepository, type OrderTransaction } from "./order.repository";
 import {
   ORDER_CODE_NUMBER_LENGTH,
   ORDER_CODE_PREFIX,
@@ -97,7 +97,7 @@ export type OrderForMutation = Prisma.OrderGetPayload<{
 }>;
 
 export const getOrderForMutation = async (storeId: string, id: number) => {
-  const order = await prisma.order.findFirst({
+  const order = await OrderRepository.findOrderFirst({
     where: { id, store_id: storeId },
     include: orderMutationInclude,
   });
@@ -110,7 +110,7 @@ export const getOrderForMutation = async (storeId: string, id: number) => {
 };
 
 const getOrCreateAddress = async (
-  tx: Prisma.TransactionClient,
+  tx: OrderTransaction,
   input: AddressRequestInput | null | undefined,
   fieldName: string,
 ) => {
@@ -120,10 +120,7 @@ const getOrCreateAddress = async (
       : parseOptionalPositiveInt(input.id, `${fieldName}.id`) ?? null;
 
   if (existingAddressId) {
-    const address = await tx.address.findUnique({
-      where: { id: existingAddressId },
-      select: { id: true },
-    });
+    const address = await OrderRepository.findAddressByIdTx(tx, existingAddressId);
 
     if (!address) {
       throw new BadRequestError(`${fieldName}.id is invalid`);
@@ -157,13 +154,10 @@ const getOrCreateAddress = async (
   }
 
   const [state, city, district] = await Promise.all([
-    tx.state.findUnique({ where: { id: stateId }, select: { id: true, name: true } }),
-    tx.city.findUnique({ where: { id: cityId }, select: { id: true, state_id: true, name: true } }),
+    OrderRepository.findStateByIdTx(tx, stateId),
+    OrderRepository.findCityByIdTx(tx, cityId),
     districtId
-      ? tx.district.findUnique({
-          where: { id: districtId },
-          select: { id: true, city_id: true, name: true },
-        })
+      ? OrderRepository.findDistrictByIdTx(tx, districtId)
       : Promise.resolve(null),
   ]);
 
@@ -179,39 +173,33 @@ const getOrCreateAddress = async (
     throw new BadRequestError(`${fieldName}.district_id is invalid for the selected city`);
   }
 
-  const address = await tx.address.create({
-    data: {
-      state_id: state.id,
-      city_id: city.id,
-      district_id: district?.id ?? null,
-      address_line: addressLine,
-      address_line2: toOptionalTrimmedString(input.address_line2) ?? null,
-      state_name: state.name,
-      city_name: city.name,
-      district_name: district?.name ?? null,
-      postal_code: toOptionalTrimmedString(input.postal_code) ?? null,
-      country_code: toOptionalTrimmedString(input.country_code) ?? "VN",
-      latitude: parseDecimalOrNull(input.latitude, `${fieldName}.latitude`),
-      longitude: parseDecimalOrNull(input.longitude, `${fieldName}.longitude`),
-      note: toOptionalTrimmedString(input.note) ?? null,
-    },
-    select: { id: true },
+  const address = await OrderRepository.createAddressTx(tx, {
+    state_id: state.id,
+    city_id: city.id,
+    district_id: district?.id ?? null,
+    address_line: addressLine,
+    address_line2: toOptionalTrimmedString(input.address_line2) ?? null,
+    state_name: state.name,
+    city_name: city.name,
+    district_name: district?.name ?? null,
+    postal_code: toOptionalTrimmedString(input.postal_code) ?? null,
+    country_code: toOptionalTrimmedString(input.country_code) ?? "VN",
+    latitude: parseDecimalOrNull(input.latitude, `${fieldName}.latitude`),
+    longitude: parseDecimalOrNull(input.longitude, `${fieldName}.longitude`),
+    note: toOptionalTrimmedString(input.note) ?? null,
   });
 
   return address.id;
 };
 
 export const resolveOrderAddressId = async (
-  tx: Prisma.TransactionClient,
+  tx: OrderTransaction,
   explicitAddressId: number | null,
   addressInput: AddressRequestInput | null | undefined,
   fieldName: string,
 ) => {
   if (explicitAddressId) {
-    const address = await tx.address.findUnique({
-      where: { id: explicitAddressId },
-      select: { id: true },
-    });
+    const address = await OrderRepository.findAddressByIdTx(tx, explicitAddressId);
 
     if (!address) {
       throw new BadRequestError(`${fieldName}_id is invalid`);
@@ -237,18 +225,18 @@ export const persistOrderMutation = async ({
     actor_name: string | null;
     metadata: Prisma.InputJsonValue;
   };
-  beforeUpdate?: (tx: Prisma.TransactionClient) => Promise<void>;
+  beforeUpdate?: (tx: OrderTransaction) => Promise<void>;
 }) => {
-  const updatedOrderId = await prisma.$transaction(
+  const updatedOrderId = await OrderRepository.withTransaction(
     async (tx) => {
       if (beforeUpdate) {
         await beforeUpdate(tx);
       }
 
       if (historyEntry) {
-        await tx.orderHistory.create({
+        await OrderRepository.createOrderHistoryTx(tx, {
           data: {
-            order_id: orderId,
+            order: { connect: { id: orderId } },
             event_type: historyEntry.event_type,
             description: historyEntry.description,
             actor_name: historyEntry.actor_name,
@@ -257,7 +245,7 @@ export const persistOrderMutation = async ({
         });
       }
 
-      const updatedOrder = await tx.order.update({
+      const updatedOrder = await OrderRepository.updateOrderTx(tx, {
         where: { id: orderId },
         data,
       });
@@ -270,7 +258,7 @@ export const persistOrderMutation = async ({
     },
   );
 
-  const updatedOrder = await prisma.order.findUnique({
+  const updatedOrder = await OrderRepository.findOrderUnique({
     where: { id: updatedOrderId },
     include: orderInclude,
   });
@@ -282,22 +270,8 @@ export const persistOrderMutation = async ({
   return updatedOrder;
 };
 
-export const generateNextOrderCode = async (tx: Prisma.TransactionClient, storeId: string) => {
-  const counter = await tx.orderCodeCounter.upsert({
-    where: { store_id: storeId },
-    create: {
-      store_id: storeId,
-      last_sequence: 1,
-    },
-    update: {
-      last_sequence: {
-        increment: 1,
-      },
-    },
-    select: {
-      last_sequence: true,
-    },
-  });
+export const generateNextOrderCode = async (tx: OrderTransaction, storeId: string) => {
+  const counter = await OrderRepository.upsertOrderCodeCounterTx(tx, storeId);
   const nextSequence = counter.last_sequence;
 
   return `${ORDER_CODE_PREFIX}${String(nextSequence).padStart(ORDER_CODE_NUMBER_LENGTH, "0")}`;
