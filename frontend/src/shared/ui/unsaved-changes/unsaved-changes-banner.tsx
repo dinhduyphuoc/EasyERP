@@ -73,13 +73,15 @@ export function UnsavedChangesBanner({
         }}
       >
         <Stack
-          direction={{ xs: 'column', md: 'row' }}
+          direction="row"
           spacing={1.25}
-          sx={{ alignItems: { md: 'center' }, justifyContent: 'space-between' }}
+          sx={{ alignItems: 'center', justifyContent: 'space-between', minWidth: 0 }}
         >
           <Stack direction="row" spacing={1} sx={{ alignItems: 'center', minWidth: 0 }}>
             <InfoOutlinedIcon fontSize="small" />
-            <Typography sx={{ fontWeight: 600 }}>{message}</Typography>
+            <Typography noWrap sx={{ fontWeight: 600, minWidth: 0, flex: 1 }}>
+              {message}
+            </Typography>
           </Stack>
 
           <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexShrink: 0 }}>

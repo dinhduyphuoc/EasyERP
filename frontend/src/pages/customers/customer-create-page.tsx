@@ -1,10 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
 import { useNavigate, useParams } from 'react-router'
-import SaveOutlinedIcon from '@mui/icons-material/SaveOutlined'
 import {
   Box,
-  Button,
-  CircularProgress,
   MenuItem,
   Paper,
   Stack,
@@ -23,7 +20,12 @@ import { appToast } from '@/shared/ui/toast/toast.helpers'
 import { showErrorToast } from '@/shared/ui/toast/toast-error'
 import { StackedDropdown } from '@/shared/ui/form/stacked-dropdown'
 import { StackedTextField } from '@/shared/ui/form/stacked-text-field'
-import { CreateEditPageHeader } from '@/shared/ui/page'
+import {
+  CreateEditPageContainer,
+  CreateEditPageHeader,
+  buildPrimarySaveHeaderAction,
+  type CreateEditPageHeaderAction,
+} from '@/shared/ui/page'
 import { UnsavedChangesBanner, useJsonDirtyState, useUnsavedChangesPrompt } from '@/shared/ui/unsaved-changes'
 
 type GenderValue = '' | 'male' | 'female' | 'other'
@@ -372,24 +374,23 @@ export function CustomerCreatePage(): ReactElement {
     onDiscard: handleDiscard,
     onSave: () => void handleSave(),
   })
+  const headerActions: CreateEditPageHeaderAction[] = [
+    buildPrimarySaveHeaderAction({
+      label: isEditMode ? 'Cập nhật' : 'Lưu',
+      loadingLabel: 'Đang lưu...',
+      onClick: () => void handleSave(),
+      disabled: !canSave,
+      loading: isSaving,
+    }),
+  ]
 
   return (
-    <Box sx={{ px: { xs: 2, md: 3, xl: 4 }, pb: 8 }}>
+    <CreateEditPageContainer>
       <Box sx={{ mb: 2 }}>
         <CreateEditPageHeader
           title={isEditMode ? 'Chỉnh sửa khách hàng' : 'Thêm khách hàng'}
           onBack={() => attemptNavigate('/customers')}
-          actions={
-            <Button
-              variant="contained"
-              color="secondary"
-              startIcon={isSaving ? <CircularProgress size={16} color="inherit" /> : <SaveOutlinedIcon />}
-              onClick={() => void handleSave()}
-              disabled={!canSave}
-            >
-              {isSaving ? 'Đang lưu...' : isEditMode ? 'Cập nhật' : 'Lưu'}
-            </Button>
-          }
+          actions={headerActions}
         />
       </Box>
 
@@ -592,6 +593,6 @@ export function CustomerCreatePage(): ReactElement {
       </Stack>
 
       <UnsavedChangesBanner {...bannerProps} />
-    </Box>
+    </CreateEditPageContainer>
   )
 }

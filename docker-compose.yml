@@ -46,10 +46,16 @@ services:
     environment:
       NODE_ENV: development
       PORT: 3001
-      DB_CONNECTION: aws-pg
-      DATABASE_URL: ${DATABASE_URL:-postgresql://username:password@database:5432/store?schema=public}
-      LOCAL_DATABASE_URL: ${LOCAL_DATABASE_URL:-postgresql://username:password@database:5432/store?schema=public}
-      SHADOW_DATABASE_URL: ${SHADOW_DATABASE_URL:-postgresql://username:password@database:5432/store_shadow?schema=public}
+      DATABASE_PROFILE: development
+      DATABASE_DEVELOPMENT_URL: ${DATABASE_DEVELOPMENT_URL:-postgresql://username:password@database:5432/store?schema=public}
+      DATABASE_DEVELOPMENT_SHADOW_URL: ${DATABASE_DEVELOPMENT_SHADOW_URL:-postgresql://username:password@database:5432/store_shadow?schema=public}
+      DATABASE_PRODUCTION_REGION: ${DATABASE_PRODUCTION_REGION:-ap-southeast-2}
+      DATABASE_PRODUCTION_HOST: ${DATABASE_PRODUCTION_HOST:-database}
+      DATABASE_PRODUCTION_PORT: ${DATABASE_PRODUCTION_PORT:-5432}
+      DATABASE_PRODUCTION_NAME: ${DATABASE_PRODUCTION_NAME:-store}
+      DATABASE_PRODUCTION_USER: ${DATABASE_PRODUCTION_USER:-username}
+      DATABASE_PRODUCTION_PASSWORD: ${DATABASE_PRODUCTION_PASSWORD:-password}
+      DATABASE_PRODUCTION_SCHEMA: ${DATABASE_PRODUCTION_SCHEMA:-public}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
       CORS_ORIGIN: ${DEV_CORS_ORIGIN:-http://localhost:5173}
       AUTO_DB_PUSH: "false"
@@ -103,10 +109,16 @@ services:
     environment:
       NODE_ENV: production
       PORT: 3001
-      DB_CONNECTION: aws-pg
-      DATABASE_URL: ${DATABASE_URL:-postgresql://username:password@database:5432/store?schema=public}
-      LOCAL_DATABASE_URL: ${LOCAL_DATABASE_URL:-postgresql://username:password@database:5432/store?schema=public}
-      SHADOW_DATABASE_URL: ${SHADOW_DATABASE_URL:-postgresql://username:password@database:5432/store_shadow?schema=public}
+      DATABASE_PROFILE: production
+      DATABASE_DEVELOPMENT_URL: ${DATABASE_DEVELOPMENT_URL:-postgresql://username:password@database:5432/store?schema=public}
+      DATABASE_DEVELOPMENT_SHADOW_URL: ${DATABASE_DEVELOPMENT_SHADOW_URL:-postgresql://username:password@database:5432/store_shadow?schema=public}
+      DATABASE_PRODUCTION_REGION: ${DATABASE_PRODUCTION_REGION:-ap-southeast-2}
+      DATABASE_PRODUCTION_HOST: ${DATABASE_PRODUCTION_HOST:-database}
+      DATABASE_PRODUCTION_PORT: ${DATABASE_PRODUCTION_PORT:-5432}
+      DATABASE_PRODUCTION_NAME: ${DATABASE_PRODUCTION_NAME:-store}
+      DATABASE_PRODUCTION_USER: ${DATABASE_PRODUCTION_USER:-username}
+      DATABASE_PRODUCTION_PASSWORD: ${DATABASE_PRODUCTION_PASSWORD:-password}
+      DATABASE_PRODUCTION_SCHEMA: ${DATABASE_PRODUCTION_SCHEMA:-public}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
       CORS_ORIGIN: ${PROD_CORS_ORIGIN:-http://localhost:8080}
       AUTO_DB_PUSH: ${AUTO_DB_PUSH:-false}

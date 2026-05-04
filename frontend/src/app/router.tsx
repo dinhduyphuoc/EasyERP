@@ -1,7 +1,8 @@
 import { Suspense, lazy, type ReactElement } from 'react'
 import { Box, Paper, Skeleton, Stack } from '@mui/material'
 import type { RouteObject } from 'react-router'
-import { Navigate, RouterProvider, createBrowserRouter } from 'react-router'
+import { Navigate, Outlet, RouterProvider, createBrowserRouter } from 'react-router'
+import { AppDocumentTitle } from '@/app/app-document-title'
 import { sidebarRouteItems } from '@/app/config/sidebar-routes'
 import { DashboardLayout } from '@/app/layouts/dashboard-layout'
 import { PermissionRoute } from '@/modules/auth/permission-route'
@@ -128,6 +129,13 @@ const renderLazyPage = (element: ReactElement, fallback: ReactElement = <RoutePa
   <Suspense fallback={fallback}>{element}</Suspense>
 )
 
+const AppRouteShell = () => (
+  <>
+    <AppDocumentTitle />
+    <Outlet />
+  </>
+)
+
 const customRouteElements: Record<string, ReactElement> = {
   '/': renderLazyPage(<DashboardOverviewPage />),
   '/products': renderLazyPage(<ProductListPage />),
@@ -251,61 +259,66 @@ childRoutes.push({
 
 const router = createBrowserRouter([
   {
-    path: '/login',
-    element: <LoginPage />,
-  },
-  {
-    path: '/403',
-    element: <ForbiddenPage />,
-  },
-  {
-    element: <ProtectedRoute />,
+    element: <AppRouteShell />,
     children: [
       {
-        path: '/',
-        element: renderLazyPage(<DashboardLayout />),
-        children: childRoutes,
+        path: '/login',
+        element: <LoginPage />,
       },
       {
-        path: '/settings',
-        element: withPermission(['settings.read'], renderLazyPage(<SettingsWorkspaceLayout />)),
+        path: '/403',
+        element: <ForbiddenPage />,
+      },
+      {
+        element: <ProtectedRoute />,
         children: [
           {
-            index: true,
-            element: <Navigate to="general" replace />,
+            path: '/',
+            element: renderLazyPage(<DashboardLayout />),
+            children: childRoutes,
           },
           {
-            path: 'store',
-            element: <Navigate to="/settings/general" replace />,
+            path: '/settings',
+            element: withPermission(['settings.read'], renderLazyPage(<SettingsWorkspaceLayout />)),
+            children: [
+              {
+                index: true,
+                element: <Navigate to="general" replace />,
+              },
+              {
+                path: 'store',
+                element: <Navigate to="/settings/general" replace />,
+              },
+              {
+                path: 'general/store-details',
+                element: withPermission(['settings.read'], renderLazyPage(<SettingsStoreDetailsPage />)),
+              },
+              {
+                path: 'general/payment-methods',
+                element: withPermission(['payments.read'], renderLazyPage(<SettingsPaymentMethodsPage />)),
+              },
+              ...settingsRouteDefinitions.map((item) => ({
+                path: item.path.replace('/settings/', ''),
+                element:
+                  item.path === '/settings/general'
+                    ? withPermission(['settings.read'], renderLazyPage(<SettingsGeneralPage />))
+                    : item.path === '/settings/address-management'
+                      ? withPermission(['settings.read'], renderLazyPage(<SettingsAddressManagementPage />))
+                      : item.path === '/settings/payment-methods'
+                        ? withPermission(['payments.read'], renderLazyPage(<SettingsPaymentMethodsPage />))
+                        : item.path === '/settings/accounts'
+                          ? withPermission(['users.read'], renderLazyPage(<SettingsAccountsPage />))
+                          : item.path === '/settings/role-permission-groups'
+                            ? withPermission(['users.read'], renderLazyPage(<SettingsRolePermissionPage />))
+                            : item.path === '/settings/shipping-settings'
+                              ? withPermission(['settings.read'], renderLazyPage(<ShippingManagementView />))
+                              : withPermission(
+                                  item.permissions ?? ['settings.read'],
+                                  renderLazyPage(<SettingsPlaceholderPage />),
+                                ),
+              })),
+            ],
           },
-          {
-            path: 'general/store-details',
-            element: withPermission(['settings.read'], renderLazyPage(<SettingsStoreDetailsPage />)),
-          },
-          {
-            path: 'general/payment-methods',
-            element: withPermission(['payments.read'], renderLazyPage(<SettingsPaymentMethodsPage />)),
-          },
-          ...settingsRouteDefinitions.map((item) => ({
-            path: item.path.replace('/settings/', ''),
-            element:
-              item.path === '/settings/general'
-                ? withPermission(['settings.read'], renderLazyPage(<SettingsGeneralPage />))
-                : item.path === '/settings/address-management'
-                  ? withPermission(['settings.read'], renderLazyPage(<SettingsAddressManagementPage />))
-                  : item.path === '/settings/payment-methods'
-                    ? withPermission(['payments.read'], renderLazyPage(<SettingsPaymentMethodsPage />))
-                    : item.path === '/settings/accounts'
-                      ? withPermission(['users.read'], renderLazyPage(<SettingsAccountsPage />))
-                      : item.path === '/settings/role-permission-groups'
-                        ? withPermission(['users.read'], renderLazyPage(<SettingsRolePermissionPage />))
-                        : item.path === '/settings/shipping-settings'
-                          ? withPermission(['settings.read'], renderLazyPage(<ShippingManagementView />))
-                          : withPermission(
-                              item.permissions ?? ['settings.read'],
-                              renderLazyPage(<SettingsPlaceholderPage />),
-                            ),
-          })),
         ],
       },
     ],

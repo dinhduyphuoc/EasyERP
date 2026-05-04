@@ -10,6 +10,7 @@ import TrendingUpRoundedIcon from '@mui/icons-material/TrendingUpRounded'
 import { Box, MenuItem, Paper, Skeleton, Stack, TextField, Typography } from '@mui/material'
 import type { SvgIconComponent } from '@mui/icons-material'
 import { orderApi, type OrderOverviewPeriod, type OrderOverviewResponse } from '@/pages/orders/api'
+import { PageContentContainer } from '@/shared/ui/page'
 import { showErrorToast } from '@/shared/ui/toast/toast-error'
 import { formatCurrency as sharedFormatCurrency } from '@/shared/utils/currency'
 
@@ -335,7 +336,7 @@ export function DashboardOverviewPage(): ReactElement {
   }, [comparisonLabel, deltas, summary])
 
   return (
-    <Box sx={{ px: { xs: 2, md: 3, xl: 4 }, pb: 8 }}>
+    <PageContentContainer>
       <Stack spacing={2.5}>
         <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5} sx={{ alignItems: { md: 'center' } }}>
           <TextField
@@ -389,7 +390,7 @@ export function DashboardOverviewPage(): ReactElement {
           </Box>
         </Stack>
       </Stack>
-    </Box>
+    </PageContentContainer>
   )
 }
 

@@ -15,11 +15,12 @@ import type {
   ResetPasswordInput,
 } from "./auth.types";
 
-const ACCESS_TOKEN_TTL_MS = 15 * 60 * 1000;
+const ACCESS_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const PASSWORD_RESET_TTL_MS = 15 * 60 * 1000;
 const LOGIN_FAILURE_LOCK_THRESHOLD = 5;
 const LOGIN_FAILURE_LOCK_MS = 15 * 60 * 1000;
+const SESSION_TOUCH_THROTTLE_MS = 10 * 60 * 1000;
 
 const normalizeEmail = (value: string) => value.trim().toLowerCase();
 
@@ -329,11 +330,28 @@ export const AuthService = {
       throw new UnauthorizedError("Session has expired", "AUTH_SESSION_EXPIRED");
     }
 
+    if (session.idle_expires_at && session.idle_expires_at <= new Date()) {
+      await AuthRepository.expireSession(session.id);
+
+      throw new UnauthorizedError("Session has expired", "AUTH_SESSION_EXPIRED");
+    }
+
     if (session.user.status !== "active") {
       throw new ForbiddenError("Tài khoản không hoạt động");
     }
 
-    await AuthRepository.touchSession(session.id, new Date());
+    const now = new Date();
+    const shouldTouchSession =
+      !session.last_used_at ||
+      now.getTime() - session.last_used_at.getTime() > SESSION_TOUCH_THROTTLE_MS;
+
+    if (shouldTouchSession) {
+      await AuthRepository.touchSession(
+        session.id,
+        now,
+        new Date(now.getTime() + ACCESS_TOKEN_TTL_MS),
+      );
+    }
 
     const authUser = toSessionAuthUser(session.user);
     const permissions = sanitizePermissionCodes(

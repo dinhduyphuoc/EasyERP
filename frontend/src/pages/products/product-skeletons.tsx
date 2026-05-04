@@ -1,5 +1,6 @@
 import { Box, Paper, Skeleton, Stack, Table, TableBody, TableCell, TableHead, TableRow } from '@mui/material'
 import { defaultCardSx } from '@/shared/ui/paper'
+import { CreateEditPageContainer } from '@/shared/ui/page'
 
 function ProductListRowSkeleton() {
   return (
@@ -114,9 +115,9 @@ function ProductFormHeaderSkeleton() {
 
 export function ProductPageSkeleton() {
   return (
-    <Box sx={{ px: { xs: 2, md: 3, xl: 4 }, pb: 8 }}>
+    <CreateEditPageContainer>
       <ProductFormHeaderSkeleton />
-      <Box sx={{ display: 'grid', gap: 3, gridTemplateColumns: { xs: '1fr', xl: 'minmax(0, 2fr) minmax(320px, 1fr)' } }}>
+      <Box sx={{ display: 'grid', gap: 3, gridTemplateColumns: { xs: '1fr', lg: 'minmax(0, 2fr) minmax(320px, 1fr)' } }}>
         <Stack spacing={3}>
           <Paper sx={defaultCardSx}>
             <Stack spacing={3}>
@@ -175,13 +176,13 @@ export function ProductPageSkeleton() {
           </Paper>
         </Stack>
       </Box>
-    </Box>
+    </CreateEditPageContainer>
   )
 }
 
 export function ProductCategoryPageSkeleton() {
   return (
-    <Box sx={{ px: { xs: 2, md: 3, xl: 4 }, pb: 8 }}>
+    <CreateEditPageContainer>
       <Paper sx={{ ...defaultCardSx, mb: 2 }}>
         <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} sx={{ justifyContent: 'space-between', alignItems: { md: 'center' } }}>
           <Box sx={{ flex: 1 }}>
@@ -204,6 +205,6 @@ export function ProductCategoryPageSkeleton() {
           </Stack>
         </Stack>
       </Paper>
-    </Box>
+    </CreateEditPageContainer>
   )
 }

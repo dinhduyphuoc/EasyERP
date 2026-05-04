@@ -81,7 +81,12 @@ export function DashboardLayout() {
           },
         }}
       >
-        <AppSidebar collapsed={false} showExpandedContent onToggleCollapsed={() => undefined} />
+        <AppSidebar
+          collapsed={false}
+          showExpandedContent
+          onToggleCollapsed={() => undefined}
+          onNavigate={() => setMobileOpen(false)}
+        />
       </Drawer>
 
       <Box sx={{ display: 'flex' }}>
@@ -190,7 +195,7 @@ export function DashboardLayout() {
               </Stack>
             </Paper>
 
-            <Box sx={{ mx: { xs: 2, md: 3, xl: 4 }, px: { xs: 1, md: 2, xl: 3 } }}>
+            <Box sx={{ mx: { md: 3, xl: 4 }, px: { md: 2, xl: 3 } }}>
               <Outlet />
             </Box>
           </Box>

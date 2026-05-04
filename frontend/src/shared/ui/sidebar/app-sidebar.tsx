@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useRef, useState, type MouseEvent } from 'react'
 import {
   Box,
   Collapse,
@@ -26,6 +26,7 @@ type AppSidebarProps = {
   collapsed: boolean
   showExpandedContent: boolean
   onToggleCollapsed: () => void
+  onNavigate?: () => void
 }
 
 function SidebarIcon({ icon: Icon }: { icon?: SidebarItem['icon'] }) {
@@ -68,12 +69,12 @@ function SidebarLink({
   collapsed: boolean
   showExpandedContent: boolean
   nested?: boolean
-  onClick?: () => void
+  onClick?: (event: MouseEvent<HTMLAnchorElement>) => void
 }) {
   return (
     <ListItemButton
-      component={onClick ? 'button' : NavLink}
-      to={onClick ? undefined : to}
+      component={NavLink}
+      to={to}
       onClick={onClick}
       sx={{
         minHeight: 44,
@@ -114,7 +115,7 @@ function SidebarLink({
   )
 }
 
-export function AppSidebar({ collapsed, showExpandedContent, onToggleCollapsed }: AppSidebarProps) {
+export function AppSidebar({ collapsed, showExpandedContent, onToggleCollapsed, onNavigate }: AppSidebarProps) {
   const location = useLocation()
   const navigate = useNavigate()
   const { pathname } = location
@@ -141,17 +142,22 @@ export function AppSidebar({ collapsed, showExpandedContent, onToggleCollapsed }
     }))
   }
 
-  const handleNavigateToLink = (item: SidebarLinkItem) => {
+  const handleNavigateToLink = (
+    item: SidebarLinkItem,
+    event?: MouseEvent<HTMLAnchorElement>,
+  ) => {
     if (item.to === '/settings') {
+      event?.preventDefault()
       navigate('/settings/general', {
         state: {
           overlayFrom: `${location.pathname}${location.search}${location.hash}`,
         },
       })
+      onNavigate?.()
       return
     }
 
-    navigate(item.to)
+    onNavigate?.()
   }
 
   const handleOpenHoverMenu = (item: SidebarItem, anchorEl: HTMLElement) => {
@@ -207,7 +213,7 @@ export function AppSidebar({ collapsed, showExpandedContent, onToggleCollapsed }
             icon={item.icon}
             collapsed={collapsed}
             showExpandedContent={showExpandedContent}
-            onClick={item.to === '/settings' ? () => handleNavigateToLink(item) : undefined}
+            onClick={(event) => handleNavigateToLink(item, event)}
           />
         </Box>
       )
@@ -271,6 +277,7 @@ export function AppSidebar({ collapsed, showExpandedContent, onToggleCollapsed }
                 collapsed={collapsed}
                 showExpandedContent={showExpandedContent}
                 nested
+                onClick={(event) => handleNavigateToLink(child, event)}
               />
             ))}
           </List>
@@ -406,7 +413,8 @@ export function AppSidebar({ collapsed, showExpandedContent, onToggleCollapsed }
                         collapsed={false}
                         showExpandedContent
                         nested
-                        onClick={() => {
+                        onClick={(event) => {
+                          event.preventDefault()
                           handleHoverPanelClose()
                           handleNavigateToLink(child)
                         }}

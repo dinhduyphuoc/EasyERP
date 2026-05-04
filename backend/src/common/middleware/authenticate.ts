@@ -31,6 +31,7 @@ export const authenticate = async (
     }
 
     req.auth = await AuthService.authenticateSession(token);
+
     return next();
   } catch (error) {
     return next(error);

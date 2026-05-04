@@ -1,5 +1,6 @@
 import { Box, Paper, Skeleton, Stack, Table, TableBody, TableCell, TableHead, TableRow, Typography } from '@mui/material'
 import { borderedCardSx } from '@/shared/ui/paper'
+import { PageContentContainer } from '@/shared/ui/page'
 
 function OrderListRowSkeleton() {
   return (
@@ -92,7 +93,7 @@ export function ListTableSkeleton({ rows = 6 }: { rows?: number }) {
 
 export function DetailPageSkeleton() {
   return (
-    <Box sx={{ px: { xs: 2, md: 3, xl: 4 }, pb: 8 }}>
+    <PageContentContainer>
       <Box sx={{ mb: 2 }}>
         <Stack
           direction={{ xs: 'column', md: 'row' }}
@@ -204,6 +205,6 @@ export function DetailPageSkeleton() {
           </Paper>
         </Stack>
       </Box>
-    </Box>
+    </PageContentContainer>
   )
 }

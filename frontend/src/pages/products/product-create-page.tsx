@@ -1,5 +1,6 @@
 ﻿import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactElement } from 'react'
 import { useNavigate, useParams } from 'react-router'
+import AddCircleOutlineOutlinedIcon from '@mui/icons-material/AddCircleOutlineOutlined'
 import CloudUploadOutlinedIcon from '@mui/icons-material/CloudUploadOutlined'
 import CropOutlinedIcon from '@mui/icons-material/CropOutlined'
 import DeleteOutlineOutlinedIcon from '@mui/icons-material/DeleteOutlineOutlined'
@@ -11,6 +12,10 @@ import {
   Button,
   Chip,
   CircularProgress,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
   IconButton,
   InputAdornment,
   MenuItem,
@@ -23,15 +28,23 @@ import {
   TableRow,
   TextField,
   Typography,
+  useMediaQuery,
 } from '@mui/material'
+import { useTheme } from '@mui/material/styles'
 import { productApi, type ProductCategory, type ProductUpsertPayload } from '@/pages/products/product.api'
 import type { ProductDetailItem } from '@/pages/products/product-list.data'
 import { defaultCardSx } from '@/shared/ui/paper'
-import { CreateEditPageHeader } from '@/shared/ui/page'
+import {
+  CreateEditPageContainer,
+  CreateEditPageHeader,
+  buildPrimarySaveHeaderAction,
+  type CreateEditPageHeaderAction,
+} from '@/shared/ui/page'
 import { appToast } from '@/shared/ui/toast/toast.helpers'
 import { showErrorToast } from '@/shared/ui/toast/toast-error'
 import { StackedTextField } from '@/shared/ui/form/stacked-text-field'
 import { StackedDropdown } from '@/shared/ui/form/stacked-dropdown'
+import { StackedAutocomplete } from '@/shared/ui/form/stacked-autocomplete'
 import { ManagedImageField, type ManagedImageFieldHandle } from '@/shared/ui/image'
 import { UnsavedChangesBanner, useUnsavedChangesPrompt } from '@/shared/ui/unsaved-changes'
 import { formatCurrencyInput as formatCurrency } from '@/shared/utils/currency'
@@ -68,6 +81,25 @@ type ProductFormSnapshot = {
   imagePreview: string
   variantSeedMap: Record<string, Pick<VariantRow, 'sku' | 'price' | 'cogs' | 'image_url'>>
   removedVariantIds: string[]
+}
+
+type ProductCategoryAutocompleteOption =
+  | {
+      kind: 'create'
+      id: 'create'
+      label: string
+    }
+  | {
+      kind: 'category'
+      category: ProductCategory
+    }
+
+function normalizeLookup(value: string) {
+  return value
+    .trim()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
 }
 
 
@@ -185,6 +217,9 @@ function getVariantCombinations(variant: VariantRow) {
 export function ProductCreatePage(): ReactElement {
   const { id } = useParams()
   const navigate = useNavigate()
+  const theme = useTheme()
+  const isMobileFormLayout = useMediaQuery(theme.breakpoints.down('md'))
+  const fieldLayout = isMobileFormLayout ? 'default' : 'stacked'
   const navigateTimeoutRef = useRef<number | null>(null)
   const mainImageFieldRef = useRef<ManagedImageFieldHandle | null>(null)
   const [name, setName] = useState('')
@@ -193,6 +228,11 @@ export function ProductCreatePage(): ReactElement {
   const [status, setStatus] = useState<'active' | 'inactive' | 'draft' | 'deleted'>('active')
   const [category, setCategory] = useState<string | null>(null)
   const [categories, setCategories] = useState<ProductCategory[]>([])
+  const [categorySearch, setCategorySearch] = useState('')
+  const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false)
+  const [categoryModalName, setCategoryModalName] = useState('')
+  const [isCategoryModalSaving, setIsCategoryModalSaving] = useState(false)
+  const [hasAttemptedCategoryModalSave, setHasAttemptedCategoryModalSave] = useState(false)
   const [description, setDescription] = useState('')
   const [basePrice, setBasePrice] = useState(formatCurrency(0, { zeroAsEmpty: false }))
   const [baseCogs, setBaseCogs] = useState(formatCurrency(0, { zeroAsEmpty: false }))
@@ -403,6 +443,58 @@ export function ProductCreatePage(): ReactElement {
     setErrors(hasAttemptedSave ? validationErrors : {})
   }, [hasAttemptedSave, validationErrors])
 
+  useEffect(() => {
+    setCategorySearch(category ?? '')
+  }, [category])
+
+  const categoryModalErrors = useMemo(() => {
+    const nextErrors: Record<string, string> = {}
+    const trimmedValue = categoryModalName.trim()
+
+    if (!trimmedValue) {
+      nextErrors.category_name = 'Tên danh mục là bắt buộc.'
+    } else if (categories.some((item) => normalizeLookup(item.category_name) === normalizeLookup(trimmedValue))) {
+      nextErrors.category_name = 'Danh mục này đã tồn tại.'
+    }
+
+    return nextErrors
+  }, [categories, categoryModalName])
+
+  const categoryAutocompleteOptions = useMemo<ProductCategoryAutocompleteOption[]>(() => {
+    const normalizedSearch = normalizeLookup(categorySearch)
+    const matchedCategories = categories
+      .filter((item) => !normalizedSearch || normalizeLookup(item.category_name).includes(normalizedSearch))
+      .map((item) => ({
+        kind: 'category',
+        category: item,
+      }) satisfies ProductCategoryAutocompleteOption)
+
+    if (!normalizedSearch) {
+      return [
+        {
+          kind: 'create',
+          id: 'create',
+          label: '',
+        },
+        ...matchedCategories,
+      ]
+    }
+
+    const hasExactMatch = categories.some((item) => normalizeLookup(item.category_name) === normalizedSearch)
+    if (hasExactMatch) {
+      return matchedCategories
+    }
+
+    return [
+      {
+        kind: 'create',
+        id: 'create',
+        label: categorySearch.trim(),
+      },
+      ...matchedCategories,
+    ]
+  }, [categories, categorySearch])
+
   const canSave =
     !isPageLoading &&
     !isSaving &&
@@ -502,6 +594,52 @@ export function ProductCreatePage(): ReactElement {
     }
   }
 
+  const handleOpenCreateCategoryModal = (prefillValue?: string) => {
+    setCategoryModalName(prefillValue?.trim() ?? categorySearch.trim())
+    setHasAttemptedCategoryModalSave(false)
+    setIsCategoryModalOpen(true)
+  }
+
+  const handleCloseCreateCategoryModal = () => {
+    if (isCategoryModalSaving) {
+      return
+    }
+
+    setIsCategoryModalOpen(false)
+    setCategoryModalName('')
+    setHasAttemptedCategoryModalSave(false)
+  }
+
+  const handleSaveCategoryModal = async () => {
+    setHasAttemptedCategoryModalSave(true)
+
+    if (Object.keys(categoryModalErrors).length > 0) {
+      appToast.warning('Vui lòng nhập tên danh mục hợp lệ trước khi lưu.')
+      return
+    }
+
+    setIsCategoryModalSaving(true)
+    try {
+      const createdCategory = await productApi.createCategory({
+        category_name: categoryModalName.trim(),
+      })
+      const refreshedCategories = await productApi.getProductCategories(true)
+
+      setCategories(refreshedCategories)
+      setDirty(true)
+      setCategory(createdCategory.category_name)
+      setCategorySearch(createdCategory.category_name)
+      setIsCategoryModalOpen(false)
+      setCategoryModalName('')
+      setHasAttemptedCategoryModalSave(false)
+      appToast.success('Tạo danh mục thành công.')
+    } catch (error) {
+      showErrorToast(error, 'Không thể tạo danh mục. Vui lòng thử lại!')
+    } finally {
+      setIsCategoryModalSaving(false)
+    }
+  }
+
   const commitAttributeValues = (id: string) => {
     setAttributes((current) =>
       current.map((item) => {
@@ -556,34 +694,31 @@ export function ProductCreatePage(): ReactElement {
     onDiscard: handleDiscard,
     onSave: handleSave,
   })
+  const headerActions: CreateEditPageHeaderAction[] = [
+    buildPrimarySaveHeaderAction({
+      label: isEditMode ? 'Cập nhật' : 'Lưu',
+      loadingLabel: 'Đang lưu...',
+      onClick: handleSave,
+      disabled: !canSave,
+      loading: isSaving,
+    }),
+  ]
 
   if (isPageLoading) {
     return <ProductPageSkeleton />
   }
 
   return (
-    <Box sx={{ px: { xs: 2, md: 3, xl: 4 }, pb: 8 }}>
+    <CreateEditPageContainer>
       <Box sx={{ mb: 2 }}>
         <CreateEditPageHeader
           title={isEditMode ? 'Chỉnh sửa sản phẩm' : 'Thêm sản phẩm'}
           onBack={() => attemptNavigate('/products')}
-          actions={(
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
-              <Button
-                variant="contained"
-                color="secondary"
-                startIcon={isSaving ? <CircularProgress size={16} color="inherit" /> : <SaveOutlinedIcon />}
-                onClick={handleSave}
-                disabled={!canSave}
-              >
-                {isSaving ? 'Đang lưu...' : isEditMode ? 'Cập nhật' : 'Lưu'}
-              </Button>
-            </Stack>
-          )}
+          actions={headerActions}
         />
       </Box>
 
-      <Box sx={{ display: 'grid', gap: 3, gridTemplateColumns: { xs: '1fr', xl: 'minmax(0, 2fr) minmax(320px, 1fr)' } }}>
+      <Box sx={{ display: 'grid', gap: 3, gridTemplateColumns: { xs: '1fr', lg: 'minmax(0, 2fr) minmax(320px, 1fr)' } }}>
         <Stack spacing={3}>
           <Paper sx={defaultCardSx}>
             <Stack spacing={3}>
@@ -595,15 +730,16 @@ export function ProductCreatePage(): ReactElement {
 
               <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' } }}>
                 <Box sx={{ gridColumn: '1 / -1' }}>
-                  <StackedTextField fullWidth label="Tên sản phẩm *" placeholder="Ví dụ: Túi deo chéo canvas" value={name} onChange={(event) => { setDirty(true); setName(event.target.value) }} error={Boolean(errors.name)} helperText={errors.name} />
+                  <StackedTextField fullWidth layout={fieldLayout} label="Tên sản phẩm *" placeholder="Ví dụ: Túi deo chéo canvas" value={name} onChange={(event) => { setDirty(true); setName(event.target.value) }} error={Boolean(errors.name)} helperText={errors.name} />
                 </Box>
 
-                <StackedTextField fullWidth label="Mã sản phẩm *" placeholder="Ví dụ: TUI-CANVAS-01" value={sku} onChange={(event) => { setDirty(true); setSku(sanitizeSku(event.target.value)) }} error={Boolean(errors.sku)} helperText={errors.sku} />
+                <StackedTextField fullWidth layout={fieldLayout} label="Mã sản phẩm *" placeholder="Ví dụ: TUI-CANVAS-01" value={sku} onChange={(event) => { setDirty(true); setSku(sanitizeSku(event.target.value)) }} error={Boolean(errors.sku)} helperText={errors.sku} />
 
-                <StackedTextField fullWidth label="Đơn vị" placeholder="Ví dụ: cái, hộp, kg" value={unit} onChange={(event) => { setDirty(true); setUnit(event.target.value) }} />
+                <StackedTextField fullWidth layout={fieldLayout} label="Đơn vị" placeholder="Ví dụ: cái, hộp, kg" value={unit} onChange={(event) => { setDirty(true); setUnit(event.target.value) }} />
 
                 <StackedDropdown
                   fullWidth
+                  layout={fieldLayout}
                   label="Trạng thái"
                   value={status}
                   onChange={(event) => { setDirty(true); setStatus(event.target.value as 'active' | 'inactive' | 'draft') }}
@@ -613,27 +749,89 @@ export function ProductCreatePage(): ReactElement {
                   <MenuItem value="draft">Nháp</MenuItem>
                 </StackedDropdown>
 
-                <StackedDropdown
+                <StackedAutocomplete<ProductCategoryAutocompleteOption, false, false, false>
                   fullWidth
+                  layout={fieldLayout}
                   label="Danh mục"
-                  value={category ?? ''}
-                  displayEmpty
-                  onChange={(event) => {
+                  placeholder="Chọn danh mục sản phẩm"
+                  options={categoryAutocompleteOptions}
+                  value={category ? categoryAutocompleteOptions.find((item) => item.kind === 'category' && item.category.category_name === category) ?? null : null}
+                  inputValue={categorySearch}
+                  loading={isPageLoading}
+                  loadingText="Đang tải danh mục..."
+                  filterOptions={(availableOptions) => availableOptions}
+                  getOptionLabel={(option) =>
+                    option.kind === 'create'
+                      ? 'Tạo danh mục'
+                      : option.category.category_name
+                  }
+                  isOptionEqualToValue={(option, value) =>
+                    option.kind === 'create' && value.kind === 'create'
+                      ? true
+                      : option.kind === 'category' && value.kind === 'category'
+                        ? option.category.id === value.category.id
+                        : false
+                  }
+                  onInputChange={(_, value) => setCategorySearch(value)}
+                  onChange={(_, value) => {
+                    if (!value) {
+                      setDirty(true)
+                      setCategory(null)
+                      return
+                    }
+
+                    if (value.kind === 'create') {
+                      handleOpenCreateCategoryModal(value.label)
+                      return
+                    }
+
                     setDirty(true)
-                    const nextValue = event.target.value as string
-                    setCategory(nextValue || null)
+                    setCategory(value.category.category_name)
                   }}
-                >
-                  <MenuItem value="">Chọn danh mục sản phẩm</MenuItem>
-                  {categories.map((item) => (
-                    <MenuItem key={item.id} value={item.category_name}>
-                      {item.category_name}
-                    </MenuItem>
-                  ))}
-                </StackedDropdown>
+                  noOptionsText="Không tìm thấy danh mục"
+                  renderOption={(props, option) => {
+                    const { key, ...optionProps } = props
+
+                    if (option.kind === 'create') {
+                      return (
+                        <Box key={key} component="li" {...optionProps}>
+                          <Stack direction="row" spacing={1.25} sx={{ alignItems: 'center', py: 0.25 }}>
+                            <Box
+                              sx={{
+                                width: 32,
+                                height: 32,
+                                borderRadius: 2,
+                                bgcolor: 'rgba(54, 88, 167, 0.10)',
+                                color: '#3658a7',
+                                display: 'grid',
+                                placeItems: 'center',
+                                flexShrink: 0,
+                              }}
+                            >
+                              <AddCircleOutlineOutlinedIcon fontSize="small" />
+                            </Box>
+                            <Box sx={{ minWidth: 0 }}>
+                              <Typography sx={{ fontWeight: 700, color: '#0f172a' }}>
+                                Tạo danh mục mới
+                              </Typography>
+                            </Box>
+                          </Stack>
+                        </Box>
+                      )
+                    }
+
+                    return (
+                      <Box key={key} component="li" {...optionProps}>
+                        <Typography sx={{ py: 0.5, fontWeight: 400, color: '#0f172a' }}>
+                          {option.category.category_name}
+                        </Typography>
+                      </Box>
+                    )
+                  }}
+                />
 
                 <Box sx={{ gridColumn: '1 / -1' }}>
-                  <StackedTextField fullWidth multiline minRows={6} label="Mô tả sản phẩm" placeholder="Mô tả ngắn về chất liệu, công năng, điểm nổi bật của sản phẩm..." value={description} onChange={(event) => { setDirty(true); setDescription(event.target.value) }} />
+                  <StackedTextField fullWidth layout={fieldLayout} multiline minRows={6} label="Mô tả sản phẩm" placeholder="Mô tả ngắn về chất liệu, công năng, điểm nổi bật của sản phẩm..." value={description} onChange={(event) => { setDirty(true); setDescription(event.target.value) }} />
                 </Box>
               </Box>
             </Stack>
@@ -646,6 +844,7 @@ export function ProductCreatePage(): ReactElement {
                   <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, mt: 2 }}>
                     <StackedTextField
                       fullWidth
+                      layout={fieldLayout}
                       label="Giá bán"
                       value={basePrice}
                       onChange={(event) => { setDirty(true); setBasePrice(formatCurrency(event.target.value, { zeroAsEmpty: false })) }}
@@ -655,6 +854,7 @@ export function ProductCreatePage(): ReactElement {
                     />
                     <StackedTextField
                       fullWidth
+                      layout={fieldLayout}
                       label="Giá vốn"
                       value={baseCogs}
                       onChange={(event) => { setDirty(true); setBaseCogs(formatCurrency(event.target.value, { zeroAsEmpty: false })) }}
@@ -801,11 +1001,12 @@ export function ProductCreatePage(): ReactElement {
                 <Stack spacing={1.5}>
                   {attributes.map((attribute) => (
                       <Box key={attribute.id} sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', md: '1fr 1.4fr auto' } }}>
-                        <StackedTextField label="Tên thuộc tính" placeholder="Ví dụ: Màu sắc" value={attribute.name} onChange={(event) => { setDirty(true); setAttributes((current) => current.map((item) => item.id === attribute.id ? { ...item, name: event.target.value } : item)) }} />
+                        <StackedTextField layout={fieldLayout} label="Tên thuộc tính" placeholder="Ví dụ: Màu sắc" value={attribute.name} onChange={(event) => { setDirty(true); setAttributes((current) => current.map((item) => item.id === attribute.id ? { ...item, name: event.target.value } : item)) }} />
 
                         <Box>
                           <StackedTextField
                             fullWidth
+                            layout={fieldLayout}
                             label="Giá trị"
                             placeholder={attribute.values.length === 0 ? 'Nhập giá trị rồi nhấn Enter' : 'Nhập thêm giá trị'}
                             value={attribute.draft}
@@ -970,7 +1171,43 @@ export function ProductCreatePage(): ReactElement {
         </Stack>
       </Box>
 
+      <Dialog open={isCategoryModalOpen} onClose={handleCloseCreateCategoryModal} fullWidth maxWidth="sm">
+        <DialogTitle>Tạo danh mục mới</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ pt: 1 }}>
+            <Typography sx={{ color: '#667085' }}>
+              Tạo nhanh danh mục để dùng ngay cho sản phẩm đang chỉnh sửa.
+            </Typography>
+            <StackedTextField
+              fullWidth
+              required
+              layout={fieldLayout}
+              label="Tên danh mục"
+              placeholder="Ví dụ: Phụ kiện thời trang"
+              value={categoryModalName}
+              onChange={(event) => setCategoryModalName(event.target.value)}
+              error={Boolean(hasAttemptedCategoryModalSave && categoryModalErrors.category_name)}
+              helperText={hasAttemptedCategoryModalSave ? categoryModalErrors.category_name : undefined}
+              disabled={isCategoryModalSaving}
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseCreateCategoryModal} disabled={isCategoryModalSaving}>
+            Đóng
+          </Button>
+          <Button
+            variant="contained"
+            onClick={() => void handleSaveCategoryModal()}
+            disabled={isCategoryModalSaving}
+            startIcon={isCategoryModalSaving ? <CircularProgress size={16} color="inherit" /> : <SaveOutlinedIcon />}
+          >
+            {isCategoryModalSaving ? 'Đang lưu...' : 'Tạo danh mục'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       <UnsavedChangesBanner {...bannerProps} />
-    </Box>
+    </CreateEditPageContainer>
   )
 }

@@ -11,6 +11,7 @@ import { useLocation, useNavigate, useParams } from 'react-router'
 import { CommonListLayout } from '@/shared/ui/list/common-list-layout'
 import { ListEmptyState } from '@/shared/ui/list/list-empty-state'
 import type { ListColumn, ListFilterConfig } from '@/shared/ui/list/common-list.types'
+import { PageContentContainer } from '@/shared/ui/page'
 import {
   inventoryApi,
   type InventoryHistoryItem,
@@ -245,7 +246,7 @@ export function InventoryHistoryPage() {
   const shouldShowInitialSkeleton = (!hasResolvedInitialLoad || isLoading) && rows.length === 0
 
   return (
-    <Box sx={{ px: { xs: 2, md: 3, xl: 4 }, pb: 8 }}>
+    <PageContentContainer>
       <Box sx={{ mb: 2 }}>
         <Stack
           direction="row"
@@ -319,6 +320,6 @@ export function InventoryHistoryPage() {
           pageSizeOptions: [10, 20, 50],
         }}
       />
-    </Box>
+    </PageContentContainer>
   )
 }

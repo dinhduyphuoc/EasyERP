@@ -1,14 +1,11 @@
 import { useEffect, useMemo, useState, type ReactElement } from 'react'
 import { useNavigate, useParams } from 'react-router'
 import DeleteOutlineOutlinedIcon from '@mui/icons-material/DeleteOutlineOutlined'
-import SaveOutlinedIcon from '@mui/icons-material/SaveOutlined'
 import TaskAltOutlinedIcon from '@mui/icons-material/TaskAltOutlined'
 import {
   Alert,
   Autocomplete,
   Box,
-  Button,
-  CircularProgress,
   IconButton,
   LinearProgress,
   Paper,
@@ -28,7 +25,13 @@ import {
   type InventoryStockListItem,
 } from './inventory.api'
 import { InventoryAuditPageSkeleton } from './inventory-skeletons'
-import { CreateEditPageHeader } from '@/shared/ui/page'
+import {
+  CreateEditPageContainer,
+  CreateEditPageHeader,
+  buildPrimarySaveHeaderAction,
+  buildSecondarySaveHeaderAction,
+  type CreateEditPageHeaderAction,
+} from '@/shared/ui/page'
 import { defaultCardSx } from '@/shared/ui/paper'
 import { appToast } from '@/shared/ui/toast/toast.helpers'
 import { showErrorToast } from '@/shared/ui/toast/toast-error'
@@ -435,17 +438,40 @@ export function InventoryAuditCreatePage(): ReactElement {
     onSave: () => void handleSave('draft'),
     saveLabel: 'Lưu nháp',
   })
+  const headerActions: CreateEditPageHeaderAction[] | undefined = isCompletedAudit
+    ? undefined
+    : [
+        buildSecondarySaveHeaderAction({
+          label: 'Lưu nháp',
+          onClick: () => void handleSave('draft'),
+          disabled: isLoading || isSaving,
+          loading: isSaving,
+          loadingLabel: 'Đang lưu...',
+        }),
+        {
+          ...buildPrimarySaveHeaderAction({
+            label: 'Lưu',
+            onClick: () => void handleSave('complete'),
+            disabled: isLoading || isSaving,
+            loading: isSaving,
+            loadingLabel: 'Đang lưu...',
+          }),
+          startIcon: <TaskAltOutlinedIcon />,
+        },
+      ]
 
   if (isLoading) {
     return <InventoryAuditPageSkeleton />
   }
 
   return (
-    <Stack spacing={3}>
-      <CreateEditPageHeader
+    <CreateEditPageContainer>
+      <Stack spacing={3}>
+        <CreateEditPageHeader
         title={isEditMode ? 'Chỉnh sửa phiếu kiểm kho' : 'Tạo phiếu kiểm kho'}
         onBack={() => attemptNavigate('/inventory/audit')}
-      />
+        actions={headerActions}
+        />
 
       <Paper sx={defaultCardSx}>
         <Stack direction={{ xs: 'column', lg: 'row' }} spacing={3} sx={{ justifyContent: 'space-between' }}>
@@ -467,33 +493,12 @@ export function InventoryAuditCreatePage(): ReactElement {
             </Typography>
           </Box>
 
-          {isCompletedAudit ? null : (
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
-              <Button
-                variant="outlined"
-                startIcon={isSaving ? <CircularProgress size={16} color="inherit" /> : <SaveOutlinedIcon />}
-                disabled={isLoading || isSaving}
-                onClick={() => void handleSave('draft')}
-              >
-                Lưu nháp
-              </Button>
-              <Button
-                variant="contained"
-                color="secondary"
-                startIcon={isSaving ? <CircularProgress size={16} color="inherit" /> : <TaskAltOutlinedIcon />}
-                disabled={isLoading || isSaving}
-                onClick={() => void handleSave('complete')}
-              >
-                Lưu
-              </Button>
-            </Stack>
-          )}
         </Stack>
       </Paper>
 
       <Paper sx={defaultCardSx}>
         <Stack spacing={2}>
-            <Typography variant="h6" sx={{ fontWeight: 700, color: '#101828' }}>
+          <Typography variant="h6" sx={{ fontWeight: 700, color: '#101828' }}>
             Bảng kiểm kho
           </Typography>
 
@@ -651,7 +656,8 @@ export function InventoryAuditCreatePage(): ReactElement {
         </Stack>
       </Paper>
 
-      <UnsavedChangesBanner {...bannerProps} />
-    </Stack>
+        <UnsavedChangesBanner {...bannerProps} />
+      </Stack>
+    </CreateEditPageContainer>
   )
 }

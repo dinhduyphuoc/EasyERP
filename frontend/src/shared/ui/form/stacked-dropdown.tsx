@@ -7,6 +7,7 @@ import {
   OutlinedInput,
   Select,
 } from '@mui/material'
+import { STACKED_LABEL_COLOR } from '@/shared/ui/form/form.constants'
 import { FormGrid } from '@/shared/ui/form/form-grid'
 
 type SelectProps = ComponentProps<typeof Select>
@@ -35,11 +36,12 @@ export function StackedDropdown({
   ...props
 }: StackedDropdownProps): ReactElement {
   const resolvedId = id ?? labelFor
+  const shouldShrinkLabel = layout === 'default' && Boolean(label) && (Boolean(props.displayEmpty) || props.value !== '' && props.value !== undefined && props.value !== null)
 
   if (layout === 'default') {
     return (
       <FormControl error={error} required={required} fullWidth={fullWidth} size={size} sx={sx}>
-        {label ? <InputLabel id={`${resolvedId}-label`}>{label}</InputLabel> : null}
+        {label ? <InputLabel id={`${resolvedId}-label`} shrink={shouldShrinkLabel} sx={{ color: STACKED_LABEL_COLOR }}>{label}</InputLabel> : null}
         <Select
           {...props}
           id={resolvedId}
@@ -61,7 +63,7 @@ export function StackedDropdown({
         gap: 1,
       }}
     >
-      {label ? <FormLabel htmlFor={labelFor ?? resolvedId} required={required}>{label}</FormLabel> : null}
+      {label ? <FormLabel sx={{ color: STACKED_LABEL_COLOR }} htmlFor={labelFor ?? resolvedId} required={required}>{label}</FormLabel> : null}
       <FormControl error={error} required={required} fullWidth={fullWidth} size={size}>
         <Select
           {...props}

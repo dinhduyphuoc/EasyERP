@@ -188,15 +188,15 @@ export function StoreSwitcherDropdown({
         aria-haspopup="menu"
         onClick={(event) => setAnchorEl(event.currentTarget)}
         sx={{
-          px: 1.5,
-          py: 1,
+          px: { xs: 0, lg: 1.5 },
+          py: { xs: 0, lg: 1 },
           borderRadius: 3,
-          border: '1px solid rgba(15, 23, 42, 0.08)',
-          bgcolor: 'common.white',
+          border: { xs: 'none', lg: '1px solid rgba(15, 23, 42, 0.08)' },
+          bgcolor: { xs: 'transparent', lg: 'common.white' },
           display: 'flex',
           alignItems: 'center',
           gap: 1.25,
-          minWidth: { sm: 240 },
+          minWidth: { xs: 'auto', lg: 240 },
           justifyContent: 'space-between',
         }}
       >
@@ -214,7 +214,7 @@ export function StoreSwitcherDropdown({
           >
             {!user.avatarUrl ? getInitials(user.fullName) : null}
           </Avatar>
-          <Box sx={{ textAlign: 'left', minWidth: 0 }}>
+          <Box sx={{ textAlign: 'left', minWidth: 0, display: { xs: 'none', lg: 'block' } }}>
             <Typography sx={{ fontWeight: 700, color: '#0f172a' }} noWrap>
               {user.fullName}
             </Typography>
@@ -225,6 +225,7 @@ export function StoreSwitcherDropdown({
         </Stack>
         <ExpandMoreRoundedIcon
           sx={{
+            display: { xs: 'none', lg: 'block' },
             color: '#667085',
             transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)',
             transition: 'transform 180ms ease',

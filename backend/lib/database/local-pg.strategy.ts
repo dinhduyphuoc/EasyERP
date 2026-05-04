@@ -1,5 +1,6 @@
 import type { DatabaseConnectionConfig, DatabaseConnectionStrategy } from "./database-connection.types";
 import { createPostgresSslConfig } from "./postgres-ssl";
+import { getDevelopmentDatabaseUrl } from "./database-env";
 
 const getSchemaFromUrl = (connectionString: string) => {
   try {
@@ -14,10 +15,12 @@ export class LocalPostgresConnectionStrategy implements DatabaseConnectionStrate
   readonly name = "local-pg" as const;
 
   createConfig(): DatabaseConnectionConfig {
-    const connectionString = process.env.LOCAL_DATABASE_URL ?? process.env.DATABASE_URL;
+    const connectionString = getDevelopmentDatabaseUrl();
 
     if (!connectionString) {
-      throw new Error("LOCAL_DATABASE_URL or DATABASE_URL is required for local-pg connection");
+      throw new Error(
+        "DATABASE_DEVELOPMENT_URL, LOCAL_DATABASE_URL, or DATABASE_URL is required for the development database connection",
+      );
     }
 
     return {

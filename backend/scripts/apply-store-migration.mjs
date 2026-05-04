@@ -18,14 +18,20 @@ const defaultSslCaPaths = [
   path.resolve(__dirname, '../../backend/global-bundle.pem'),
 ]
 
-const databaseUrl = process.env.DATABASE_URL
+const databaseUrl =
+  process.env.DATABASE_DEVELOPMENT_URL ??
+  process.env.LOCAL_DATABASE_URL ??
+  process.env.DATABASE_URL
 
 if (!databaseUrl) {
-  throw new Error('DATABASE_URL is not configured')
+  throw new Error('DATABASE_DEVELOPMENT_URL, LOCAL_DATABASE_URL, or DATABASE_URL is not configured')
 }
 
 const getSslConfig = () => {
-  const configuredPath = process.env.AWS_PG_SSL_CA_PATH ?? process.env.PGSSLROOTCERT
+  const configuredPath =
+    process.env.DATABASE_PRODUCTION_SSL_CA_PATH ??
+    process.env.AWS_PG_SSL_CA_PATH ??
+    process.env.PGSSLROOTCERT
   const candidatePaths = configuredPath
     ? [path.resolve(process.cwd(), configuredPath)]
     : defaultSslCaPaths

@@ -32,6 +32,7 @@ import {
   Typography,
 } from '@mui/material'
 import { InfoField } from '@/shared/ui/info-field'
+import { PageContentContainer } from '@/shared/ui/page'
 import { appToast } from '@/shared/ui/toast/toast.helpers'
 import { showErrorToast } from '@/shared/ui/toast/toast-error'
 import { borderedCardSx } from '@/shared/ui/paper'
@@ -1421,7 +1422,7 @@ export function OrdersDetailPage(): ReactElement {
   )
 
   return (
-    <Box sx={{ px: { xs: 2, md: 3, xl: 4 }, pb: 8 }}>
+    <PageContentContainer>
       <Box sx={{ mb: 2 }}>
         <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} sx={{ justifyContent: 'space-between', alignItems: { md: 'center' } }}>
           <Stack
@@ -1701,7 +1702,7 @@ export function OrdersDetailPage(): ReactElement {
         onCustomerModalCityChange={handleCustomerModalCityChange}
         onCustomerModalDistrictChange={handleCustomerModalDistrictChange}
       />
-    </Box>
+    </PageContentContainer>
   )
 }
 

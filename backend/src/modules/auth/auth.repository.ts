@@ -145,11 +145,12 @@ export const AuthRepository = {
       },
     }),
 
-  touchSession: (sessionId: string, lastUsedAt: Date) =>
+  touchSession: (sessionId: string, lastUsedAt: Date, idleExpiresAt: Date) =>
     prisma.session.update({
       where: { id: sessionId },
       data: {
         last_used_at: lastUsedAt,
+        idle_expires_at: idleExpiresAt,
       },
     }),
 

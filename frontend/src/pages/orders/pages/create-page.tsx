@@ -1,19 +1,20 @@
 ﻿import { useEffect, useMemo, useState, type ReactElement } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router'
-import ArrowBackIcon from '@mui/icons-material/ArrowBack'
-import SaveOutlinedIcon from '@mui/icons-material/SaveOutlined'
 import {
   Box,
-  Button,
-  CircularProgress,
   Paper,
   Stack,
-  Typography,
 } from '@mui/material'
 import { customerApi, type LocationItem } from '@/pages/customers/customer.api'
 import { appToast } from '@/shared/ui/toast/toast.helpers'
 import { showErrorToast } from '@/shared/ui/toast/toast-error'
 import { borderedCardSx } from '@/shared/ui/paper'
+import {
+  CreateEditPageContainer,
+  CreateEditPageHeader,
+  buildPrimarySaveHeaderAction,
+  type CreateEditPageHeaderAction,
+} from '@/shared/ui/page'
 import { useAuth } from '@/modules/auth/use-auth'
 import { orderApi, type OrderCreatePayload, type OrderDetailItem, type OrderEditItem, type OrderOptionLookup } from '../api'
 import {
@@ -546,6 +547,15 @@ export function OrdersCreatePage(): ReactElement {
   const visibleErrors = hasAttemptedSave ? errors : {}
   const canSave = !isLoading && !isSaving && Object.keys(errors).length === 0
   const canEditOrder = !isEditMode || !loadedOrder || ['draft', 'placed'].includes(loadedOrder.processing_status)
+  const headerActions: CreateEditPageHeaderAction[] = [
+    buildPrimarySaveHeaderAction({
+      label: 'Lưu',
+      loadingLabel: 'Đang lưu...',
+      onClick: () => void handleSave(),
+      disabled: !canSave || !canEditOrder,
+      loading: isSaving,
+    }),
+  ]
 
   const buildStatusTimeline = (): Record<string, string> => {
     const stages = ['created', 'placed', 'delivering', 'delivered', 'completed']
@@ -715,37 +725,14 @@ export function OrdersCreatePage(): ReactElement {
   }
 
   return (
-    <Box sx={{ px: { xs: 2, md: 3, xl: 4 }, pb: 8 }}>
-        <Stack
-          direction={{ xs: 'column', md: 'row' }}
-          spacing={2}
-          sx={{ marginBottom: 2, justifyContent: 'space-between', alignItems: { md: 'center' } }}
-        >
-          <Stack direction="row" spacing={2} sx={{ alignItems: 'center' }}>
-            <Paper onClick={() => (navigate('/orders'))} sx={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              p: 1
-            }}>
-              <ArrowBackIcon sx={{color: '#344054' }} />
-            </Paper>
-            <Typography variant="h5" sx={{ fontWeight: 600, color: '#0f172a' }}>
-              {isEditMode ? 'Chỉnh sửa đơn hàng' : duplicateSource ? 'Sao chép đơn hàng' : 'Tạo đơn hàng'}
-            </Typography>
-          </Stack>
-          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
-            <Button
-              variant="contained"
-              color="secondary"
-              startIcon={isSaving ? <CircularProgress size={16} color="inherit" /> : <SaveOutlinedIcon />}
-              onClick={() => void handleSave()}
-              disabled={!canSave || !canEditOrder}
-            >
-              Lưu
-            </Button>
-          </Stack>
-        </Stack>
+    <CreateEditPageContainer>
+      <Box sx={{ mb: 2 }}>
+        <CreateEditPageHeader
+          title={isEditMode ? 'Chỉnh sửa đơn hàng' : duplicateSource ? 'Sao chép đơn hàng' : 'Tạo đơn hàng'}
+          onBack={() => navigate('/orders')}
+          actions={headerActions}
+        />
+      </Box>
 
       <Box
         sx={{
@@ -858,6 +845,6 @@ export function OrdersCreatePage(): ReactElement {
         onDistrictChange={handleCustomerModalDistrictChange}
       />
 
-    </Box>
+    </CreateEditPageContainer>
   )
 }

@@ -1,17 +1,16 @@
 import "dotenv/config";
 import { Client } from "pg";
+import { getProductionDatabaseConfig } from "../lib/database/database-env";
 import { createPostgresSslConfig } from "../lib/database/postgres-ssl";
 
 const main = async () => {
-  const host = process.env.AWS_PG_HOST ?? process.env.RDSHOST;
-  const port = Number(process.env.AWS_PG_PORT ?? 5432);
-  const database = process.env.AWS_PG_DATABASE ?? "postgres";
-  const user = process.env.AWS_PG_USER ?? "postgres";
-  const password = process.env.AWS_PG_PASSWORD;
+  const { host, port, database, user, password } = getProductionDatabaseConfig();
 
   if (!host || !password) {
     console.error("Database connection failed.");
-    console.error("Missing AWS_PG_HOST/RDSHOST or AWS_PG_PASSWORD in backend/.env.");
+    console.error(
+      "Missing DATABASE_PRODUCTION_HOST/DATABASE_PRODUCTION_PASSWORD or legacy AWS_PG_HOST/AWS_PG_PASSWORD in backend/.env.",
+    );
     process.exit(1);
   }
 

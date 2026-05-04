@@ -2,6 +2,7 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import type { DatabaseConnectionName } from "./database-connection.types";
 import { DatabaseConnectionRegistry } from "./database-connection.registry";
 import { AwsPostgresConnectionStrategy } from "./aws-pg.strategy";
+import { getDatabaseProfile } from "./database-env";
 import { LocalPostgresConnectionStrategy } from "./local-pg.strategy";
 
 const DEFAULT_CONNECTION_NAME: DatabaseConnectionName = "local-pg";
@@ -15,11 +16,17 @@ const isDatabaseConnectionName = (value: string): value is DatabaseConnectionNam
 };
 
 export const getDatabaseConnectionName = (): DatabaseConnectionName => {
-  const configuredName = process.env.DB_CONNECTION ?? DEFAULT_CONNECTION_NAME;
+  const profile = getDatabaseProfile();
+  const configuredName =
+    profile === "production"
+      ? "aws-pg"
+      : profile === "development"
+        ? "local-pg"
+        : DEFAULT_CONNECTION_NAME;
 
   if (!isDatabaseConnectionName(configuredName)) {
     throw new Error(
-      `Unsupported DB_CONNECTION "${configuredName}". Supported values: ${databaseConnectionRegistry.names().join(", ")}`,
+      `Unsupported database connection "${configuredName}". Supported values: ${databaseConnectionRegistry.names().join(", ")}`,
     );
   }
 

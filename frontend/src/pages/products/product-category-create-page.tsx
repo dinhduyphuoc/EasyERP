@@ -1,10 +1,7 @@
 import { useEffect, useMemo, useState, type ReactElement } from 'react'
 import { useNavigate, useParams } from 'react-router'
-import SaveOutlinedIcon from '@mui/icons-material/SaveOutlined'
 import {
   Box,
-  Button,
-  CircularProgress,
   Paper,
   Stack,
   Typography,
@@ -16,7 +13,12 @@ import { showErrorToast } from '@/shared/ui/toast/toast-error'
 import { StackedTextField } from '@/shared/ui/form/stacked-text-field'
 import { ProductCategoryPageSkeleton } from '@/pages/products/product-skeletons'
 import { UnsavedChangesBanner, useUnsavedChangesPrompt } from '@/shared/ui/unsaved-changes'
-import { CreateEditPageHeader } from '@/shared/ui/page'
+import {
+  CreateEditPageContainer,
+  CreateEditPageHeader,
+  buildPrimarySaveHeaderAction,
+  type CreateEditPageHeaderAction,
+} from '@/shared/ui/page'
 
 export function ProductCategoryCreatePage(): ReactElement {
   const { id } = useParams()
@@ -113,9 +115,18 @@ export function ProductCategoryCreatePage(): ReactElement {
     onDiscard: handleDiscard,
     onSave: handleSave,
   })
+  const headerActions: CreateEditPageHeaderAction[] = [
+    buildPrimarySaveHeaderAction({
+      label: isEditMode ? 'Cập nhật' : 'Lưu',
+      loadingLabel: 'Đang lưu...',
+      onClick: handleSave,
+      disabled: !canSave,
+      loading: isSaving,
+    }),
+  ]
 
   return (
-    <Box sx={{ px: { xs: 2, md: 3, xl: 4 }, pb: 8 }}>
+    <CreateEditPageContainer>
       <Paper sx={{ ...defaultCardSx, mb: 2 }}>
         <CreateEditPageHeader
           title={isEditMode ? 'Chỉnh sửa danh mục' : 'Thêm danh mục'}
@@ -125,13 +136,7 @@ export function ProductCategoryCreatePage(): ReactElement {
               : 'Tạo danh mục mới để dùng khi thêm hoặc chỉnh sửa sản phẩm.'
           }
           onBack={() => attemptNavigate('/products/categories')}
-          actions={(
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
-              <Button variant="contained" color="secondary" startIcon={isSaving ? <CircularProgress size={16} color="inherit" /> : <SaveOutlinedIcon />} onClick={handleSave} disabled={!canSave}>
-                {isSaving ? 'Đang lưu...' : isEditMode ? 'Cập nhật' : 'Lưu'}
-              </Button>
-            </Stack>
-          )}
+          actions={headerActions}
         />
       </Paper>
 
@@ -163,6 +168,6 @@ export function ProductCategoryCreatePage(): ReactElement {
       </Paper>
 
       <UnsavedChangesBanner {...bannerProps} />
-    </Box>
+    </CreateEditPageContainer>
   )
 }
