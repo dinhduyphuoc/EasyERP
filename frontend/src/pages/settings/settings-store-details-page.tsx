@@ -1,13 +1,8 @@
 import { useEffect, useMemo, useState, type ReactElement } from 'react'
-import {
-  Button,
-  CircularProgress,
-  MenuItem,
-  Paper,
-  Stack,
-} from '@mui/material'
+import { Box, Button, CircularProgress, MenuItem, Paper, Stack } from '@mui/material'
 import { useNavigate } from 'react-router'
 import { useAuth } from '@/modules/auth/use-auth'
+import { customerApi, type CityItem, type DistrictItem, type LocationItem } from '@/pages/customers/customer.api'
 import { storeApi } from '@/modules/store/store.api'
 import { useStore } from '@/modules/store/use-store'
 import { StackedDropdown } from '@/shared/ui/form/stacked-dropdown'
@@ -17,6 +12,7 @@ import { SummaryPaperHeader } from '@/shared/ui/summary-paper-header'
 import { appToast } from '@/shared/ui/toast/toast.helpers'
 import { showErrorToast } from '@/shared/ui/toast/toast-error'
 import { useJsonDirtyState } from '@/shared/ui/unsaved-changes'
+import { generalSettingsApi } from './general-settings.api'
 import { useSettingsUnsavedRegistration } from './settings-unsaved-context'
 
 const BUSINESS_TYPES = [
@@ -40,6 +36,27 @@ export function SettingsStoreDetailsPage(): ReactElement {
   const [legalFullName, setLegalFullName] = useState('')
   const [contactEmail, setContactEmail] = useState('')
   const [contactPhone, setContactPhone] = useState('')
+  const [states, setStates] = useState<LocationItem[]>([])
+  const [cities, setCities] = useState<CityItem[]>([])
+  const [districts, setDistricts] = useState<DistrictItem[]>([])
+  const [shippingContactName, setShippingContactName] = useState('')
+  const [shippingPhone, setShippingPhone] = useState('')
+  const [stateId, setStateId] = useState<number | ''>('')
+  const [cityId, setCityId] = useState<number | ''>('')
+  const [districtId, setDistrictId] = useState<number | ''>('')
+  const [addressLine, setAddressLine] = useState('')
+  const [bankSnapshot, setBankSnapshot] = useState({
+    bank_name: '',
+    bank_bin: '',
+    bank_code: '',
+    account_number: '',
+    account_holder: '',
+    qr_template: 'compact',
+  })
+  const [vatSnapshot, setVatSnapshot] = useState({
+    enabled: false,
+    rate_percent: 0,
+  })
   const dirtyState = useJsonDirtyState(
     {
       storeName,
@@ -49,6 +66,12 @@ export function SettingsStoreDetailsPage(): ReactElement {
       legalFullName,
       contactEmail,
       contactPhone,
+      shippingContactName,
+      shippingPhone,
+      stateId,
+      cityId,
+      districtId,
+      addressLine,
     },
     !isLoading,
   )
@@ -64,12 +87,17 @@ export function SettingsStoreDetailsPage(): ReactElement {
     const load = async () => {
       setIsLoading(true)
       try {
-        const store = await storeApi.getStore(activeStore.id)
+        const [store, settings, nextStates] = await Promise.all([
+          storeApi.getStore(activeStore.id),
+          generalSettingsApi.getGeneralSettings(),
+          customerApi.getStates({ is_active: true }),
+        ])
 
         if (cancelled) {
           return
         }
 
+        setStates(nextStates)
         setStoreName(store.name)
         setCurrency(store.default_currency)
         setTimezone(store.default_timezone)
@@ -77,6 +105,14 @@ export function SettingsStoreDetailsPage(): ReactElement {
         setLegalFullName(store.profile.legal_full_name)
         setContactEmail(store.profile.contact_email || user?.email || '')
         setContactPhone(store.profile.contact_phone)
+        setShippingContactName(settings.defaults.shipping_address.contact_name)
+        setShippingPhone(settings.defaults.shipping_address.phone)
+        setStateId(settings.defaults.shipping_address.state_id ?? '')
+        setCityId(settings.defaults.shipping_address.city_id ?? '')
+        setDistrictId(settings.defaults.shipping_address.district_id ?? '')
+        setAddressLine(settings.defaults.shipping_address.address_line)
+        setBankSnapshot(settings.defaults.bank_account)
+        setVatSnapshot(settings.defaults.vat)
         dirtyState.setInitialSnapshot(
           JSON.stringify({
             storeName: store.name,
@@ -86,6 +122,12 @@ export function SettingsStoreDetailsPage(): ReactElement {
             legalFullName: store.profile.legal_full_name,
             contactEmail: store.profile.contact_email || user?.email || '',
             contactPhone: store.profile.contact_phone,
+            shippingContactName: settings.defaults.shipping_address.contact_name,
+            shippingPhone: settings.defaults.shipping_address.phone,
+            stateId: settings.defaults.shipping_address.state_id ?? '',
+            cityId: settings.defaults.shipping_address.city_id ?? '',
+            districtId: settings.defaults.shipping_address.district_id ?? '',
+            addressLine: settings.defaults.shipping_address.address_line,
           }),
         )
       } catch (error) {
@@ -106,6 +148,44 @@ export function SettingsStoreDetailsPage(): ReactElement {
     }
   }, [activeStore?.id, user?.email])
 
+  useEffect(() => {
+    if (!stateId) {
+      setCities([])
+      setCityId('')
+      setDistricts([])
+      setDistrictId('')
+      return
+    }
+
+    const loadCities = async () => {
+      try {
+        setCities(await customerApi.getCities({ state_id: stateId, is_active: true }))
+      } catch (error) {
+        showErrorToast(error, 'Không thể tải quận/huyện.')
+      }
+    }
+
+    void loadCities()
+  }, [stateId])
+
+  useEffect(() => {
+    if (!cityId) {
+      setDistricts([])
+      setDistrictId('')
+      return
+    }
+
+    const loadDistricts = async () => {
+      try {
+        setDistricts(await customerApi.getDistricts({ city_id: cityId, is_active: true }))
+      } catch (error) {
+        showErrorToast(error, 'Không thể tải phường/xã.')
+      }
+    }
+
+    void loadDistricts()
+  }, [cityId])
+
   const { initialSnapshot, currentSnapshot, isDirty } = dirtyState
 
   const handleSave = async () => {
@@ -116,17 +196,33 @@ export function SettingsStoreDetailsPage(): ReactElement {
     setIsSaving(true)
 
     try {
-      await storeApi.updateStore(activeStore.id, {
-        name: storeName,
-        default_currency: currency,
-        default_timezone: timezone,
-        profile: {
-          business_type: businessType,
-          legal_full_name: legalFullName,
-          contact_email: contactEmail,
-          contact_phone: contactPhone,
-        },
-      })
+      await Promise.all([
+        storeApi.updateStore(activeStore.id, {
+          name: storeName,
+          default_currency: currency,
+          default_timezone: timezone,
+          profile: {
+            business_type: businessType,
+            legal_full_name: legalFullName,
+            contact_email: contactEmail,
+            contact_phone: contactPhone,
+          },
+        }),
+        generalSettingsApi.updateGeneralSettings({
+          defaults: {
+            shipping_address: {
+              contact_name: shippingContactName,
+              phone: shippingPhone,
+              state_id: stateId || null,
+              city_id: cityId || null,
+              district_id: districtId || null,
+              address_line: addressLine,
+            },
+            bank_account: bankSnapshot,
+            vat: vatSnapshot,
+          },
+        }),
+      ])
 
       await Promise.all([refreshUser(), refreshStores()])
       dirtyState.setInitialSnapshot(currentSnapshot)
@@ -152,6 +248,12 @@ export function SettingsStoreDetailsPage(): ReactElement {
       legalFullName: string
       contactEmail: string
       contactPhone: string
+      shippingContactName: string
+      shippingPhone: string
+      stateId: number | ''
+      cityId: number | ''
+      districtId: number | ''
+      addressLine: string
     }
 
     setStoreName(snapshot.storeName)
@@ -161,9 +263,15 @@ export function SettingsStoreDetailsPage(): ReactElement {
     setLegalFullName(snapshot.legalFullName)
     setContactEmail(snapshot.contactEmail)
     setContactPhone(snapshot.contactPhone)
+    setShippingContactName(snapshot.shippingContactName)
+    setShippingPhone(snapshot.shippingPhone)
+    setStateId(snapshot.stateId)
+    setCityId(snapshot.cityId)
+    setDistrictId(snapshot.districtId)
+    setAddressLine(snapshot.addressLine)
   }
 
-  const { attemptNavigate, pulse } = useSettingsUnsavedRegistration(
+  const { pulse } = useSettingsUnsavedRegistration(
     useMemo(
       () => ({
         isDirty,
@@ -171,7 +279,7 @@ export function SettingsStoreDetailsPage(): ReactElement {
         onSave: () => void handleSave(),
         onDiscard: handleDiscard,
       }),
-      [isDirty, isSaving, handleDiscard],
+      [isDirty, isSaving],
     ),
   )
 
@@ -181,6 +289,7 @@ export function SettingsStoreDetailsPage(): ReactElement {
         <Stack spacing={2}>
           <SummaryPaperHeader title="Thông tin cửa hàng" />
           {isLoading ? <CircularProgress size={24} /> : null}
+
 
           <StackedTextField
             fullWidth
@@ -194,6 +303,13 @@ export function SettingsStoreDetailsPage(): ReactElement {
             label="Email"
             value={contactEmail}
             onChange={(event) => setContactEmail(event.target.value)}
+          />
+          
+          <StackedTextField
+            fullWidth
+            label="Họ và tên pháp lý"
+            value={legalFullName}
+            onChange={(event) => setLegalFullName(event.target.value)}
           />
 
           <StackedTextField
@@ -215,28 +331,108 @@ export function SettingsStoreDetailsPage(): ReactElement {
               </MenuItem>
             ))}
           </StackedDropdown>
+        </Stack>
+      </Paper>
+
+      <Paper sx={borderedCardSx}>
+        <Stack spacing={2}>
+          <Stack spacing={0.75}>
+            <SummaryPaperHeader title="Địa chỉ giao hàng mặc định" />
+          </Stack>
+
+          <Box
+            sx={{
+              display: 'grid',
+              gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' },
+              gap: 2,
+            }}
+          >
+            <StackedTextField
+              fullWidth
+              label="Tên liên hệ"
+              value={shippingContactName}
+              onChange={(event) => setShippingContactName(event.target.value)}
+            />
+            <StackedTextField
+              fullWidth
+              label="Số điện thoại"
+              value={shippingPhone}
+              onChange={(event) => setShippingPhone(event.target.value)}
+            />
+          </Box>
+
+          <Box
+            sx={{
+              display: 'grid',
+              gridTemplateColumns: { xs: '1fr', md: 'repeat(3, minmax(0, 1fr))' },
+              gap: 2,
+            }}
+          >
+            <StackedDropdown
+              fullWidth
+              label="Tỉnh / Thành phố"
+              value={stateId}
+              onChange={(event) => setStateId(Number(event.target.value) || '')}
+            >
+              <MenuItem value="">Chưa chọn</MenuItem>
+              {states.map((item) => (
+                <MenuItem key={item.id} value={item.id}>
+                  {item.name}
+                </MenuItem>
+              ))}
+            </StackedDropdown>
+
+            <StackedDropdown
+              fullWidth
+              label="Quận / Huyện"
+              value={cityId}
+              onChange={(event) => setCityId(Number(event.target.value) || '')}
+              disabled={!stateId}
+            >
+              <MenuItem value="">Chưa chọn</MenuItem>
+              {cities.map((item) => (
+                <MenuItem key={item.id} value={item.id}>
+                  {item.name}
+                </MenuItem>
+              ))}
+            </StackedDropdown>
+
+            <StackedDropdown
+              fullWidth
+              label="Phường / Xã"
+              value={districtId}
+              onChange={(event) => setDistrictId(Number(event.target.value) || '')}
+              disabled={!cityId}
+            >
+              <MenuItem value="">Chưa chọn</MenuItem>
+              {districts.map((item) => (
+                <MenuItem key={item.id} value={item.id}>
+                  {item.name}
+                </MenuItem>
+              ))}
+            </StackedDropdown>
+          </Box>
 
           <StackedTextField
             fullWidth
-            label="Họ và tên pháp lý"
-            value={legalFullName}
-            onChange={(event) => setLegalFullName(event.target.value)}
+            label="Địa chỉ chi tiết"
+            value={addressLine}
+            onChange={(event) => setAddressLine(event.target.value)}
+            multiline
+            minRows={3}
           />
-
-          <Button
-            variant="outlined"
-            onClick={() => attemptNavigate('/settings/address-management')}
-            sx={{ alignSelf: 'flex-start' }}
-          >
-            Quản lý địa chỉ giao hàng mặc định
-          </Button>
         </Stack>
       </Paper>
 
       <Paper sx={borderedCardSx}>
         <Stack spacing={2}>
           <SummaryPaperHeader title="Thiết lập mặc định" />
-          <StackedDropdown fullWidth label="Currency" value={currency} onChange={(event) => setCurrency(String(event.target.value))}>
+          <StackedDropdown
+            fullWidth
+            label="Tiền tệ"
+            value={currency}
+            onChange={(event) => setCurrency(String(event.target.value))}
+          >
             {CURRENCIES.map((item) => (
               <MenuItem key={item} value={item}>
                 {item}
@@ -244,7 +440,12 @@ export function SettingsStoreDetailsPage(): ReactElement {
             ))}
           </StackedDropdown>
 
-          <StackedDropdown fullWidth label="Timezone" value={timezone} onChange={(event) => setTimezone(String(event.target.value))}>
+          <StackedDropdown
+            fullWidth
+            label="Múi giờ"
+            value={timezone}
+            onChange={(event) => setTimezone(String(event.target.value))}
+          >
             {TIMEZONES.map((item) => (
               <MenuItem key={item} value={item}>
                 {item}

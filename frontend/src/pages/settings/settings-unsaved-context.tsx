@@ -42,6 +42,7 @@ export function SettingsUnsavedProvider({
         visible={registration?.isDirty ?? false}
         shakeTick={shakeTick}
         isSaving={registration?.isSaving ?? false}
+        placement="fixed"
         onDiscard={() => registration?.onDiscard()}
         onSave={() => registration?.onSave()}
       />

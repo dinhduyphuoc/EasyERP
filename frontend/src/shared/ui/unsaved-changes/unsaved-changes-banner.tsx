@@ -7,6 +7,7 @@ type UnsavedChangesBannerProps = {
   shakeTick?: number
   isSaving?: boolean
   message?: string
+  placement?: 'sticky' | 'fixed'
   onDiscard: () => void
   onSave: () => void
   discardLabel?: string
@@ -19,6 +20,7 @@ export function UnsavedChangesBanner({
   shakeTick = 0,
   isSaving = false,
   message = 'Bạn có thay đổi chưa lưu.',
+  placement = 'sticky',
   onDiscard,
   onSave,
   discardLabel = 'Hủy',
@@ -32,12 +34,15 @@ export function UnsavedChangesBanner({
   return (
     <Box
       sx={{
-        position: 'sticky',
+        position: placement,
         bottom: 20,
-        zIndex: 20,
+        left: placement === 'fixed' ? 0 : 'auto',
+        right: placement === 'fixed' ? 0 : 'auto',
+        zIndex: (theme) => theme.zIndex.modal + 2,
         display: 'flex',
         justifyContent: 'center',
         px: { xs: 0.5, md: 0 },
+        pointerEvents: 'none',
         '@keyframes sharedUnsavedShake': {
           '0%': { transform: 'translateX(0)' },
           '20%': { transform: 'translateX(-8px)' },
@@ -52,8 +57,10 @@ export function UnsavedChangesBanner({
         elevation={8}
         key={shakeTick}
         sx={{
-          //width wrapped the content, in sm full width with some padding
           width: { xs: '100%', sm: 'auto' },
+          position: 'relative',
+          zIndex: (theme) => theme.zIndex.modal + 2,
+          pointerEvents: 'auto',
           borderRadius: 1,
           border: '1px solid #d0d5dd',
           bgcolor: '#ffffff',
@@ -61,7 +68,6 @@ export function UnsavedChangesBanner({
           px: 1.5,
           py: 1.25,
           animation: shakeTick > 0 ? 'sharedUnsavedShake 420ms ease' : 'none',
-          // add move in from bottom animation when appear for the first time
           '@keyframes sharedUnsavedMoveIn': {
             '0%': { transform: 'translateY(20px)', opacity: 0 },
             '100%': { transform: 'translateY(0)', opacity: 1 },
