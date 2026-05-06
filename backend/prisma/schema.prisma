@@ -1,0 +1,1128 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// Naming convention for this schema:
+// - Model names use singular PascalCase, for example `Order`, `Customer`, `City`.
+// - Scalar fields and relation fields use snake_case, for example `created_at`, `category_id`, `attribute_value_id`.
+// - New Prisma models/fields must follow this convention directly to keep AI/codegen output consistent.
+// - Only use `@@map` / `@map` for legacy database objects that cannot be renamed yet.
+
+model Category {
+  id            Int    @id @default(autoincrement())
+  category_name String
+  store_id      String
+  products      Product[]
+  store         Store  @relation(fields: [store_id], references: [id], onDelete: Cascade)
+
+  @@unique([store_id, category_name])
+  @@index([store_id])
+}
+
+model SalesChannel {
+  id           Int     @id @default(autoincrement())
+  channel_name String
+
+}
+
+model OrderStatus {
+  id          Int     @id @default(autoincrement())
+  status_name String
+
+}
+
+model ShippingUnit {
+  id        Int     @id @default(autoincrement())
+  unit_name String
+
+}
+
+model ShippingProvider {
+  id                Int                  @id @default(autoincrement())
+  code              String               @unique
+  display_name      String
+  short_description String?
+  logo_url          String?
+  is_active         Boolean              @default(true)
+  capabilities_json Json                 @default("{}")
+  created_at        DateTime             @default(now())
+  updated_at        DateTime             @default(now()) @updatedAt
+
+  connections       ShippingConnection[]
+  province_catalogs ShippingProviderProvince[]
+  district_catalogs ShippingProviderDistrict[]
+  ward_catalogs     ShippingProviderWard[]
+  state_mappings    ShippingProviderStateMapping[]
+  city_mappings     ShippingProviderCityMapping[]
+  district_mappings ShippingProviderDistrictMapping[]
+
+  @@index([is_active])
+}
+
+model ShippingConnection {
+  id               Int                      @id @default(autoincrement())
+  provider_id      Int
+  store_id         String
+  status           ShippingConnectionStatus @default(disconnected)
+  credentials_json Json?
+  metadata_json    Json                     @default("{}")
+  error_message    String?
+  last_sync_at     DateTime?
+  last_verified_at DateTime?
+  connected_at     DateTime?
+  disconnected_at  DateTime?
+  created_at       DateTime                 @default(now())
+  updated_at       DateTime                 @default(now()) @updatedAt
+
+  provider         ShippingProvider         @relation(fields: [provider_id], references: [id])
+  store            Store                    @relation("StoreShippingConnections", fields: [store_id], references: [id], onDelete: Cascade)
+  history_items    ShippingConnectionHistory[]
+  secret_record    ShippingConnectionSecret?
+
+  @@unique([provider_id, store_id])
+  @@index([store_id])
+  @@index([status])
+}
+
+model ShippingConnectionSecret {
+  id                     String             @id @default(cuid())
+  shipping_connection_id Int                @unique
+  secret_provider        String
+  secret_ref             String?
+  encrypted_payload      Bytes?
+  dek_wrapped            Bytes?
+  key_version            Int                @default(1)
+  created_at             DateTime           @default(now())
+  updated_at             DateTime           @default(now()) @updatedAt
+
+  shipping_connection    ShippingConnection @relation(fields: [shipping_connection_id], references: [id], onDelete: Cascade)
+}
+
+model ShippingConnectionHistory {
+  id             Int                      @id @default(autoincrement())
+  connection_id  Int
+  action         String
+  status         ShippingConnectionStatus
+  store_id       String
+  provider_code  String
+  payload_json   Json                     @default("{}")
+  error_message  String?
+  actor_id       String?
+  actor_name     String?
+  created_at     DateTime                 @default(now())
+
+  connection     ShippingConnection       @relation(fields: [connection_id], references: [id], onDelete: Cascade)
+
+  @@index([connection_id, created_at])
+  @@index([store_id, provider_code])
+}
+
+model ShippingProviderProvince {
+  id              Int       @id @default(autoincrement())
+  provider_id     Int
+  external_id     String
+  code            String?
+  name            String
+  normalized_name String
+  raw_payload     Json      @default("{}")
+  is_active       Boolean   @default(true)
+  created_at      DateTime  @default(now())
+  updated_at      DateTime  @default(now()) @updatedAt
+
+  provider        ShippingProvider              @relation(fields: [provider_id], references: [id], onDelete: Cascade)
+  districts       ShippingProviderDistrict[]
+  state_mappings  ShippingProviderStateMapping[]
+
+  @@unique([provider_id, external_id])
+  @@index([provider_id])
+  @@index([provider_id, normalized_name])
+}
+
+model ShippingProviderDistrict {
+  id              Int       @id @default(autoincrement())
+  provider_id     Int
+  province_id     Int
+  external_id     String
+  code            String?
+  name            String
+  normalized_name String
+  raw_payload     Json      @default("{}")
+  is_active       Boolean   @default(true)
+  created_at      DateTime  @default(now())
+  updated_at      DateTime  @default(now()) @updatedAt
+
+  provider        ShippingProvider            @relation(fields: [provider_id], references: [id], onDelete: Cascade)
+  province        ShippingProviderProvince    @relation(fields: [province_id], references: [id], onDelete: Cascade)
+  wards           ShippingProviderWard[]
+  city_mappings   ShippingProviderCityMapping[]
+
+  @@unique([provider_id, external_id])
+  @@index([provider_id])
+  @@index([province_id])
+  @@index([provider_id, normalized_name])
+}
+
+model ShippingProviderWard {
+  id                Int       @id @default(autoincrement())
+  provider_id       Int
+  provider_district_id Int
+  external_id       String
+  code              String?
+  name              String
+  normalized_name   String
+  raw_payload       Json      @default("{}")
+  is_active         Boolean   @default(true)
+  created_at        DateTime  @default(now())
+  updated_at        DateTime  @default(now()) @updatedAt
+
+  provider          ShippingProvider               @relation(fields: [provider_id], references: [id], onDelete: Cascade)
+  district          ShippingProviderDistrict       @relation(fields: [provider_district_id], references: [id], onDelete: Cascade)
+  district_mappings ShippingProviderDistrictMapping[]
+
+  @@unique([provider_id, external_id])
+  @@index([provider_id])
+  @@index([provider_district_id])
+  @@index([provider_id, normalized_name])
+}
+
+model ShippingProviderStateMapping {
+  id                  Int       @id @default(autoincrement())
+  provider_id         Int
+  state_id            Int
+  provider_province_id Int
+  source              String    @default("auto")
+  confidence_score    Int?
+  created_at          DateTime  @default(now())
+  updated_at          DateTime  @default(now()) @updatedAt
+
+  provider            ShippingProvider          @relation(fields: [provider_id], references: [id], onDelete: Cascade)
+  state               State                     @relation(fields: [state_id], references: [id], onDelete: Cascade)
+  provider_province   ShippingProviderProvince  @relation(fields: [provider_province_id], references: [id], onDelete: Cascade)
+
+  @@unique([provider_id, state_id])
+  @@unique([provider_id, provider_province_id])
+  @@index([state_id])
+}
+
+model ShippingProviderCityMapping {
+  id                    Int       @id @default(autoincrement())
+  provider_id           Int
+  city_id               Int
+  provider_district_id  Int
+  source                String    @default("auto")
+  confidence_score      Int?
+  created_at            DateTime  @default(now())
+  updated_at            DateTime  @default(now()) @updatedAt
+
+  provider              ShippingProvider           @relation(fields: [provider_id], references: [id], onDelete: Cascade)
+  city                  City                       @relation(fields: [city_id], references: [id], onDelete: Cascade)
+  provider_district     ShippingProviderDistrict   @relation(fields: [provider_district_id], references: [id], onDelete: Cascade)
+
+  @@unique([provider_id, city_id])
+  @@unique([provider_id, provider_district_id])
+  @@index([city_id])
+}
+
+model ShippingProviderDistrictMapping {
+  id                Int       @id @default(autoincrement())
+  provider_id       Int
+  district_id       Int
+  provider_ward_id  Int
+  source            String    @default("auto")
+  confidence_score  Int?
+  created_at        DateTime  @default(now())
+  updated_at        DateTime  @default(now()) @updatedAt
+
+  provider          ShippingProvider          @relation(fields: [provider_id], references: [id], onDelete: Cascade)
+  district          District                  @relation(fields: [district_id], references: [id], onDelete: Cascade)
+  provider_ward     ShippingProviderWard      @relation(fields: [provider_ward_id], references: [id], onDelete: Cascade)
+
+  @@unique([provider_id, district_id])
+  @@unique([provider_id, provider_ward_id])
+  @@index([district_id])
+}
+
+enum ProductStatus {
+  active
+  inactive
+  draft
+  deleted
+}
+
+enum ProductVariantStatus {
+  active
+  inactive
+  deleted
+}
+
+enum CustomerStatus {
+  active
+  inactive
+  soft_deleted
+  deleted
+}
+
+enum CustomerGender {
+  male
+  female
+  other
+}
+
+enum OrderPaymentStatus {
+  unpaid
+  paid
+  deposit
+}
+
+enum OrderProcessingStatus {
+  draft
+  placed
+  delivering
+  delivered
+  completed
+  cancelled
+  returned
+}
+
+enum OrderType {
+  sale
+  return
+}
+
+enum ShippingConnectionStatus {
+  disconnected
+  connected
+  error
+}
+
+enum CustomerAddressType {
+  billing
+  shipping
+  office
+  warehouse
+  other
+}
+
+enum UserStatus {
+  active
+  inactive
+  blocked
+}
+
+enum SessionStatus {
+  active
+  revoked
+  expired
+}
+
+enum TokenType {
+  password_reset
+  email_verification
+}
+
+enum ScopeType {
+  tenant
+  branch
+  warehouse
+  sales_channel
+  customer_segment
+}
+
+// ---------------------------------------------------------
+// 2. Nhóm Sản phẩm
+// ---------------------------------------------------------
+
+model Product {
+  id           Int      @id @default(autoincrement())
+  store_id     String
+  product_name String
+  spu          String?
+  unit         String?   
+  base_price   Decimal?  @db.Decimal(12, 2)
+  cogs         Decimal?  @db.Decimal(12, 2)
+  image_url    String?
+  status       ProductStatus @default(draft)
+  description  String?
+  created_at   DateTime @default(now())
+  updated_at   DateTime @default(now()) @updatedAt
+  category_id  Int?
+  category     Category? @relation(fields: [category_id], references: [id])
+  store        Store     @relation(fields: [store_id], references: [id], onDelete: Cascade)
+
+  attributes Attribute[]
+  variants   ProductVariant[]
+  order_items OrderItem[]
+
+  @@index([store_id])
+  @@index([spu])
+}
+
+model Attribute {
+  id         Int     @id @default(autoincrement())
+  name       String // "MÃ u sáº¯c", "Size", "Cháº¥t liá»‡u"
+  product_id   Int
+  product      Product @relation(fields: [product_id], references: [id])
+
+  values AttributeValue[]
+
+}
+
+model AttributeValue {
+  id           Int       @id @default(autoincrement())
+  value        String // "Äá»", "Xanh", "Size 32"...
+  attribute_id  Int
+  attribute     Attribute @relation(fields: [attribute_id], references: [id])
+
+  variant_links VariantAttributeValue[]
+
+}
+
+model ProductVariant {
+  sku              String                  @id
+  store_id         String
+  product_id       Int
+  product          Product                 @relation(fields: [product_id], references: [id])
+  store            Store                   @relation(fields: [store_id], references: [id], onDelete: Cascade)
+  selling_price    Decimal                 @db.Decimal(12, 2)
+  cogs             Decimal                 @default(0) @db.Decimal(12, 2)
+  image_url        String?
+  kind             ProductVariantKind      @default(generated)
+  status           ProductVariantStatus    @default(active)
+  created_at       DateTime                @default(now())
+  updated_at       DateTime                @default(now()) @updatedAt
+  attribute_values VariantAttributeValue[]
+  order_items      OrderItem[]
+  inventory_stock  InventoryStock?
+  inventory_transactions InventoryTransaction[]
+  inventory_audit_lines InventoryAuditLine[]
+  // --------------------------------------------
+
+  @@index([store_id])
+  @@index([store_id, status])
+  @@index([product_id, kind, status])
+}
+
+enum ProductVariantKind {
+  default
+  generated
+}
+
+enum InventoryTransactionType {
+  initialize
+  adjust
+  reserve
+  release
+  move_to_packing
+  pack_cancel
+  fulfill
+  return_restock
+  incoming_create
+  incoming_receive
+}
+
+enum InventoryReasonCode {
+  initialize
+  actual_count
+  damaged
+  customer_return
+  transfer
+  manufacturing
+  lost
+  order_reserved
+  order_released
+  packing_started
+  packing_cancelled
+  order_fulfilled
+  purchase_incoming
+  purchase_received
+  other
+}
+
+enum InventoryFieldName {
+  on_hand
+  available
+  committed
+  packing
+  incoming
+}
+
+enum InventoryAuditStatus {
+  draft
+  completed
+}
+
+model VariantAttributeValue {
+  variant_sku       String
+  attribute_value_id Int
+
+  variant          ProductVariant @relation(fields: [variant_sku], references: [sku])
+  attribute_value  AttributeValue @relation(fields: [attribute_value_id], references: [id])
+
+  @@id([variant_sku, attribute_value_id])
+}
+
+// ---------------------------------------------------------
+// 3. NhÃ³m KhÃ¡ch hÃ ng & Äá»‹a lÃ½
+// ---------------------------------------------------------
+
+model CustomerCategory {
+  id              Int        @id @default(autoincrement())
+  store_id        String
+  category_code   String?
+  category_name   String
+  normalized_name String
+  is_active       Boolean    @default(true)
+  created_at      DateTime   @default(now())
+  updated_at      DateTime   @default(now()) @updatedAt
+
+  customers       Customer[]
+  store           Store      @relation(fields: [store_id], references: [id], onDelete: Cascade)
+
+  @@unique([store_id, category_code])
+  @@unique([store_id, normalized_name])
+  @@index([store_id])
+}
+
+model Customer {
+  id                   Int               @id @default(autoincrement())
+  store_id             String
+  client_code          String
+  full_name            String
+  phone                String
+  email                String?
+  birth_date           DateTime?
+  gender               CustomerGender?
+  tax_code             String?
+  invoice_profile_json Json              @default("{}")
+  status               CustomerStatus    @default(active)
+  customer_category_id Int?
+  created_at           DateTime          @default(now())
+  updated_at           DateTime          @default(now()) @updatedAt
+
+  customer_category    CustomerCategory? @relation(fields: [customer_category_id], references: [id])
+  store                Store             @relation(fields: [store_id], references: [id], onDelete: Cascade)
+  orders               Order[]
+  addresses            CustomerAddress[]
+
+  @@unique([store_id, client_code])
+  @@index([full_name])
+  @@index([store_id])
+  @@index([client_code])
+  @@index([phone])
+  @@index([status])
+  @@index([email])
+  @@index([tax_code])
+}
+
+model Location {
+  id          Int    @id @default(autoincrement())
+  state       String // Tá»‰nh/ThÃ nh
+  city        String // Quáº­n/Huyá»‡n
+  district    String // PhÆ°á»ng/XÃ£
+
+}
+
+// ---------------------------------------------------------
+// 4. NhÃ³m ÄÆ¡n hÃ ng
+// ---------------------------------------------------------
+
+model State {
+  id              Int        @id @default(autoincrement())
+  code            String     @unique
+  name            String
+  normalized_name String     @unique
+  is_active       Boolean    @default(true)
+  created_at      DateTime   @default(now())
+  updated_at      DateTime   @default(now()) @updatedAt
+
+  cities          City[]
+  addresses       Address[]
+  provider_state_mappings ShippingProviderStateMapping[]
+}
+
+model City {
+  id              Int        @id @default(autoincrement())
+  state_id        Int
+  code            String
+  name            String
+  normalized_name String
+  is_active       Boolean    @default(true)
+  created_at      DateTime   @default(now())
+  updated_at      DateTime   @default(now()) @updatedAt
+
+  state           State      @relation(fields: [state_id], references: [id])
+  districts       District[]
+  addresses       Address[]
+  provider_city_mappings ShippingProviderCityMapping[]
+
+  @@unique([state_id, code])
+  @@unique([state_id, normalized_name])
+  @@index([state_id])
+}
+
+model District {
+  id              Int       @id @default(autoincrement())
+  city_id         Int
+  code            String
+  name            String
+  normalized_name String
+  is_active       Boolean   @default(true)
+  created_at      DateTime  @default(now())
+  updated_at      DateTime  @default(now()) @updatedAt
+
+  city            City      @relation(fields: [city_id], references: [id])
+  addresses       Address[]
+  provider_district_mappings ShippingProviderDistrictMapping[]
+
+  @@unique([city_id, code])
+  @@unique([city_id, normalized_name])
+  @@index([city_id])
+}
+
+model Address {
+  id             Int       @id @default(autoincrement())
+  state_id       Int
+  city_id        Int
+  district_id    Int?
+  address_line   String
+  address_line2  String?
+  state_name     String
+  city_name      String
+  district_name  String?
+  postal_code    String?
+  country_code   String    @default("VN")
+  latitude       Decimal?  @db.Decimal(10, 7)
+  longitude      Decimal?  @db.Decimal(10, 7)
+  note           String?
+  created_at     DateTime  @default(now())
+  updated_at     DateTime  @default(now()) @updatedAt
+
+  state          State     @relation(fields: [state_id], references: [id])
+  city           City      @relation(fields: [city_id], references: [id])
+  district       District? @relation(fields: [district_id], references: [id])
+  customers      CustomerAddress[]
+  orders_from    Order[]   @relation("OrderFromAddress")
+  orders_to      Order[]   @relation("OrderToAddress")
+  orders_return  Order[]   @relation("OrderReturnAddress")
+
+  @@index([state_id])
+  @@index([city_id])
+  @@index([district_id])
+}
+
+model CustomerAddress {
+  id              Int                 @id @default(autoincrement())
+  customer_id     Int
+  address_id      Int
+  type            CustomerAddressType @default(shipping)
+  label           String?
+  is_default      Boolean             @default(false)
+  recipient_name  String?
+  recipient_phone String?
+  note            String?
+  created_at      DateTime            @default(now())
+  updated_at      DateTime            @default(now()) @updatedAt
+
+  customer        Customer            @relation(fields: [customer_id], references: [id], onDelete: Cascade)
+  address         Address             @relation(fields: [address_id], references: [id], onDelete: Cascade)
+
+  @@unique([customer_id, address_id, type])
+  @@index([customer_id])
+  @@index([address_id])
+  @@index([type])
+  @@index([is_default])
+}
+
+model Order {
+  id                        Int                   @id @default(autoincrement())
+  store_id                  String
+  order_code                String
+  order_type                OrderType             @default(sale)
+  order_date                DateTime              @default(now())
+  customer_id               Int?
+  customer                  Customer?             @relation(fields: [customer_id], references: [id])
+  store                     Store                 @relation(fields: [store_id], references: [id], onDelete: Cascade)
+  customer_code             String?
+  customer_name             String
+  customer_phone            String
+  customer_email            String?
+  customer_address          String?
+  client_order_code         String?
+  note                      String?
+  required_note             String?
+  payment_type_id           Int?
+  from_address_id           Int?
+  to_address_id             Int?
+  return_address_id         Int?
+  from_name                 String?
+  from_phone                String?
+  from_address              String?
+  from_ward_name            String?
+  from_district_name        String?
+  from_province_name        String?
+  return_phone              String?
+  return_address            String?
+  return_district_id        Int?
+  return_ward_code          String?
+  cod_amount                Decimal               @default(0) @db.Decimal(12, 2)
+  content                   String?
+  weight                    Int?
+  length                    Int?
+  width                     Int?
+  height                    Int?
+  insurance_value           Decimal               @default(0) @db.Decimal(12, 2)
+  service_id                Int?
+  service_type_id           Int?
+  pick_station_id           Int?
+  deliver_station_id        Int?
+  coupon                    String?
+  pick_shift                Int[]                 @default([])
+  sub_total                 Decimal               @default(0) @db.Decimal(12, 2)
+  discount_amount           Decimal               @default(0) @db.Decimal(12, 2)
+  vat_enabled               Boolean               @default(false)
+  tax_amount                Decimal               @default(0) @db.Decimal(12, 2)
+  vat_rate_percent          Decimal               @default(0) @db.Decimal(5, 2)
+  vat_changed_by_user       Boolean               @default(false)
+  pricing_version           Int                   @default(1)
+  shipping_fee              Decimal               @default(0) @db.Decimal(12, 2)
+  total_amount              Decimal               @default(0) @db.Decimal(12, 2)
+  deposit_amount            Decimal               @default(0) @db.Decimal(12, 2)
+  paid_amount               Decimal               @default(0) @db.Decimal(12, 2)
+  outstanding_amount        Decimal               @default(0) @db.Decimal(12, 2)
+  payment_status            OrderPaymentStatus    @default(unpaid)
+  processing_status         OrderProcessingStatus @default(draft)
+  shipping_service          String?
+  sales_channel             String?
+  order_notes               String?
+  payment_notes             String?
+  warehouse_status          String?
+  tracking_code             String?
+  shipping_status           String?
+  invoice_code              String?
+  invoice_snapshot_json     Json                  @default("{}")
+  created_by                String?
+  confirmed_by              String?
+  status_timeline           Json                  @default("{}")
+  created_at                DateTime              @default(now())
+  updated_at                DateTime              @default(now()) @updatedAt
+
+  items                     OrderItem[]
+  history                   OrderHistory[]
+  from_address_detail       Address?              @relation("OrderFromAddress", fields: [from_address_id], references: [id])
+  to_address_detail         Address?              @relation("OrderToAddress", fields: [to_address_id], references: [id])
+  return_address_detail     Address?              @relation("OrderReturnAddress", fields: [return_address_id], references: [id])
+
+  @@unique([store_id, order_code])
+  @@index([store_id])
+  @@index([store_id, tracking_code])
+  @@index([order_code])
+  @@index([order_date])
+  @@index([payment_status])
+  @@index([processing_status])
+  @@index([order_type])
+  @@index([customer_id])
+  @@index([from_address_id])
+  @@index([to_address_id])
+  @@index([return_address_id])
+}
+
+model OrderItem {
+  id                  Int            @id @default(autoincrement())
+  order_id            Int
+  order               Order          @relation(fields: [order_id], references: [id], onDelete: Cascade)
+  product_id          Int?
+  product             Product?       @relation(fields: [product_id], references: [id])
+  variant_sku         String?
+  variant             ProductVariant? @relation(fields: [variant_sku], references: [sku])
+  product_name        String
+  sku                 String
+  quantity            Int
+  unit_price          Decimal        @db.Decimal(12, 2)
+  discount_amount     Decimal        @default(0) @db.Decimal(12, 2)
+  sub_total           Decimal        @db.Decimal(12, 2)
+  notes               String?
+  item_weight         Int?
+  item_length         Int?
+  item_width          Int?
+  item_height         Int?
+  category_level1     String?
+  created_at          DateTime       @default(now())
+  updated_at          DateTime       @default(now()) @updatedAt
+
+  @@index([order_id])
+  @@index([product_id])
+  @@index([variant_sku])
+}
+
+model OrderHistory {
+  id                  Int      @id @default(autoincrement())
+  order_id            Int
+  order               Order    @relation(fields: [order_id], references: [id], onDelete: Cascade)
+  event_type          String
+  description         String
+  actor_name          String?
+  metadata            Json     @default("{}")
+  created_at          DateTime @default(now())
+
+  @@index([order_id, created_at(sort: Desc)])
+}
+
+// ---------------------------------------------------------
+// 5. Kho váº­n
+// ---------------------------------------------------------
+
+model InventoryStock {
+  id                 Int      @id @default(autoincrement())
+  store_id           String
+  product_variant_id String   @unique
+  on_hand            Int      @default(0)
+  available          Int      @default(0)
+  committed          Int      @default(0)
+  packing            Int      @default(0)
+  incoming           Int      @default(0)
+  version            Int      @default(0)
+  created_at         DateTime @default(now())
+  updated_at         DateTime @updatedAt
+
+  product_variant ProductVariant @relation(fields: [product_variant_id], references: [sku])
+  store           Store          @relation(fields: [store_id], references: [id], onDelete: Cascade)
+
+  @@index([store_id])
+  @@map("InventoryStock")
+}
+
+model InventoryTransaction {
+  id                 Int                      @id @default(autoincrement())
+  store_id           String
+  product_variant_id String
+  transaction_type   InventoryTransactionType
+  reason_code        InventoryReasonCode
+  reference_type     String?
+  reference_id       String?
+  reference_code     String?
+  actor_id           String?
+  actor_name         String?
+  note               String?
+  idempotency_key    String?                  @unique
+  metadata_json      Json                     @default("{}")
+  created_at         DateTime                 @default(now())
+
+  product_variant ProductVariant            @relation(fields: [product_variant_id], references: [sku])
+  store           Store                     @relation(fields: [store_id], references: [id], onDelete: Cascade)
+  lines           InventoryTransactionLine[]
+
+  @@index([store_id, created_at(sort: Desc)])
+  @@index([product_variant_id, created_at(sort: Desc)])
+  @@index([reference_type, reference_id])
+  @@map("InventoryTransaction")
+}
+
+model InventoryAudit {
+  id                    Int                  @id @default(autoincrement())
+  store_id              String
+  audit_code            String
+  status                InventoryAuditStatus @default(draft)
+  note                  String?
+  account_id            String?
+  account_name          String?
+  counted_at            DateTime?
+  completed_at          DateTime?
+  created_at            DateTime             @default(now())
+  updated_at            DateTime             @updatedAt
+
+  lines                 InventoryAuditLine[]
+  store                 Store                @relation(fields: [store_id], references: [id], onDelete: Cascade)
+
+  @@unique([store_id, audit_code])
+  @@index([store_id])
+  @@index([status, created_at(sort: Desc)])
+  @@map("InventoryAudit")
+}
+
+model InventoryAuditLine {
+  id                    Int             @id @default(autoincrement())
+  audit_id              Int
+  product_variant_id    String
+  system_on_hand        Int
+  counted_on_hand       Int?
+  delta_qty             Int?
+  note                  String?
+  created_at            DateTime        @default(now())
+  updated_at            DateTime        @updatedAt
+
+  audit                 InventoryAudit  @relation(fields: [audit_id], references: [id], onDelete: Cascade)
+  product_variant       ProductVariant  @relation(fields: [product_variant_id], references: [sku])
+
+  @@unique([audit_id, product_variant_id])
+  @@index([audit_id])
+  @@index([product_variant_id])
+  @@map("InventoryAuditLine")
+}
+
+model InventoryTransactionLine {
+  id                 Int                @id @default(autoincrement())
+  transaction_id     Int
+  field_name         InventoryFieldName
+  delta_value        Int
+  value_after_change Int
+  created_at         DateTime           @default(now())
+
+  transaction InventoryTransaction @relation(fields: [transaction_id], references: [id], onDelete: Cascade)
+
+  @@unique([transaction_id, field_name])
+  @@index([transaction_id])
+  @@map("InventoryTransactionLine")
+}
+
+model Tenant {
+  id          String      @id @default(cuid())
+  name        String
+  slug        String      @unique
+  status      String      @default("active")
+  default_shipping_address_json Json @default("{}")
+  default_bank_account_json     Json @default("{}")
+  default_vat_json              Json @default("{}")
+  default_invoice_settings_json Json @default("{}")
+  created_at  DateTime    @default(now())
+  updated_at  DateTime    @default(now()) @updatedAt
+
+  users       User[]
+  roles       Role[]
+  stores      Store[]
+}
+
+enum StoreRole {
+  owner
+  admin
+  staff
+}
+
+model Store {
+  id                    String         @id @default(uuid())
+  tenant_id             String?
+  name                  String
+  slug                  String         @unique
+  owner_user_id         String
+  default_currency      String         @default("USD")
+  default_timezone      String         @default("UTC")
+  profile_json          Json           @default("{}")
+  default_address_json  Json           @default("{}")
+  billing_address_json  Json           @default("{}")
+  return_address_json   Json           @default("{}")
+  deleted_at            DateTime?
+  created_at            DateTime       @default(now())
+  updated_at            DateTime       @default(now()) @updatedAt
+
+  tenant                Tenant?        @relation(fields: [tenant_id], references: [id])
+  owner_user            User           @relation("StoreOwner", fields: [owner_user_id], references: [id])
+  active_users          User[]         @relation("UserActiveStore")
+  user_stores           UserStore[]
+  categories            Category[]
+  customer_categories   CustomerCategory[]
+  customers             Customer[]
+  orders                Order[]
+  products              Product[]
+  product_variants      ProductVariant[]
+  inventory_stocks      InventoryStock[]
+  inventory_transactions InventoryTransaction[]
+  inventory_audits      InventoryAudit[]
+  shipping_connections  ShippingConnection[] @relation("StoreShippingConnections")
+  order_code_counters   OrderCodeCounter[]
+
+  @@index([owner_user_id])
+  @@index([tenant_id])
+}
+
+model OrderCodeCounter {
+  store_id      String   @id
+  last_sequence Int      @default(0)
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
+
+  store         Store    @relation(fields: [store_id], references: [id], onDelete: Cascade)
+
+  @@index([updated_at])
+}
+
+model UserStore {
+  id         String    @id @default(cuid())
+  user_id    String
+  store_id   String
+  role       StoreRole
+  created_at DateTime  @default(now())
+  updated_at DateTime  @default(now()) @updatedAt
+
+  user       User      @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  store      Store     @relation(fields: [store_id], references: [id], onDelete: Cascade)
+
+  @@unique([user_id, store_id])
+  @@index([store_id])
+}
+
+model User {
+  id                     String      @id @default(cuid())
+  tenant_id              String?
+  active_store_id        String?
+  full_name              String
+  email                  String      @unique
+  email_normalized       String      @unique
+  avatar_url             String?
+  password_hash          String
+  status                 UserStatus  @default(active)
+  is_email_verified      Boolean     @default(false)
+  last_login_at          DateTime?
+  failed_login_attempts  Int         @default(0)
+  last_failed_login_at   DateTime?
+  locked_until           DateTime?
+  token_version          Int         @default(0)
+  created_at             DateTime    @default(now())
+  updated_at             DateTime    @default(now()) @updatedAt
+
+  tenant                 Tenant?     @relation(fields: [tenant_id], references: [id])
+  active_store           Store?      @relation("UserActiveStore", fields: [active_store_id], references: [id])
+  owned_stores           Store[]     @relation("StoreOwner")
+  stores                 UserStore[]
+  roles                  UserRole[]
+  scopes                 UserScope[]
+  sessions               Session[]
+  tokens                 UserToken[]
+  audit_logs             AuditLog[]  @relation("AuditActor")
+  targeted_audit_logs    AuditLog[]  @relation("AuditTarget")
+
+  @@index([tenant_id])
+  @@index([active_store_id])
+  @@index([status])
+}
+
+model Role {
+  id          String            @id @default(cuid())
+  tenant_id   String?
+  slug        String
+  name        String
+  description String?
+  is_system   Boolean           @default(true)
+  created_at  DateTime          @default(now())
+  updated_at  DateTime          @default(now()) @updatedAt
+
+  tenant      Tenant?           @relation(fields: [tenant_id], references: [id])
+  permissions RolePermission[]
+  users       UserRole[]
+
+  @@unique([tenant_id, slug])
+}
+
+model Permission {
+  id          String            @id @default(cuid())
+  code        String            @unique
+  description String?
+  created_at  DateTime          @default(now())
+
+  roles       RolePermission[]
+}
+
+model RolePermission {
+  role_id        String
+  permission_id  String
+
+  role           Role        @relation(fields: [role_id], references: [id], onDelete: Cascade)
+  permission     Permission  @relation(fields: [permission_id], references: [id], onDelete: Cascade)
+
+  @@id([role_id, permission_id])
+}
+
+model UserRole {
+  user_id      String
+  role_id      String
+  assigned_by  String?
+  assigned_at  DateTime   @default(now())
+
+  user         User       @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  role         Role       @relation(fields: [role_id], references: [id], onDelete: Cascade)
+
+  @@id([user_id, role_id])
+}
+
+model UserScope {
+  id           String     @id @default(cuid())
+  user_id       String
+  tenant_id     String
+  scope_type    ScopeType
+  scope_value   String
+  created_at    DateTime   @default(now())
+
+  user          User       @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([user_id, tenant_id, scope_type, scope_value])
+  @@index([tenant_id, scope_type, scope_value])
+}
+
+model Session {
+  id                  String         @id @default(cuid())
+  user_id             String
+  tenant_id           String?
+  session_token_hash  String         @unique
+  status              SessionStatus  @default(active)
+  user_agent          String?
+  ip_address          String?
+  device_name         String?
+  expires_at          DateTime
+  idle_expires_at     DateTime?
+  last_used_at        DateTime?
+  revoked_at          DateTime?
+  revoke_reason       String?
+  created_at          DateTime       @default(now())
+  updated_at          DateTime       @default(now()) @updatedAt
+
+  user                User           @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id, expires_at])
+  @@index([tenant_id])
+  @@index([status])
+}
+
+model UserToken {
+  id           String      @id @default(cuid())
+  user_id       String
+  token_type    TokenType
+  token_hash    String
+  expires_at    DateTime
+  consumed_at   DateTime?
+  created_at    DateTime   @default(now())
+
+  user          User       @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id, token_type])
+}
+
+model AuditLog {
+  id               String     @id @default(cuid())
+  tenant_id        String?
+  actor_user_id    String?
+  target_user_id   String?
+  action           String
+  resource_type    String
+  resource_id      String?
+  status           String
+  ip_address       String?
+  user_agent       String?
+  request_id       String?
+  metadata_json    Json       @default("{}")
+  created_at       DateTime   @default(now())
+
+  actor            User?      @relation("AuditActor", fields: [actor_user_id], references: [id])
+  target           User?      @relation("AuditTarget", fields: [target_user_id], references: [id])
+
+  @@index([tenant_id, action, created_at(sort: Desc)])
+  @@index([actor_user_id, created_at(sort: Desc)])
+  @@index([resource_type, resource_id])
+}

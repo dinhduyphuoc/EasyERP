@@ -1,0 +1,6 @@
+ALTER TABLE "Order"
+ADD COLUMN "discount_amount" DECIMAL(12,2) NOT NULL DEFAULT 0,
+ADD COLUMN "vat_rate_percent" DECIMAL(5,2) NOT NULL DEFAULT 0;
+
+ALTER TABLE "Tenant"
+ADD COLUMN "default_vat_json" JSONB NOT NULL DEFAULT '{}';

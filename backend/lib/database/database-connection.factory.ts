@@ -1,0 +1,37 @@
+import { PrismaPg } from "@prisma/adapter-pg";
+import { Pool } from "pg";
+import type { DatabaseConnectionName } from "./database-connection.types";
+import { DatabaseConnectionRegistry } from "./database-connection.registry";
+import { LocalPostgresConnectionStrategy } from "./local-pg.strategy";
+
+const DEFAULT_CONNECTION_NAME: DatabaseConnectionName = "local-pg";
+
+const databaseConnectionRegistry = new DatabaseConnectionRegistry()
+  .register(new LocalPostgresConnectionStrategy());
+
+const isDatabaseConnectionName = (value: string): value is DatabaseConnectionName => {
+  return databaseConnectionRegistry.names().includes(value as DatabaseConnectionName);
+};
+
+export const getDatabaseConnectionName = (): DatabaseConnectionName => {
+  const configuredName = DEFAULT_CONNECTION_NAME;
+
+  if (!isDatabaseConnectionName(configuredName)) {
+    throw new Error(
+      `Unsupported database connection "${configuredName}". Supported values: ${databaseConnectionRegistry.names().join(", ")}`,
+    );
+  }
+
+  return configuredName;
+};
+
+export const createPrismaPgAdapter = () => {
+  const strategy = databaseConnectionRegistry.get(getDatabaseConnectionName());
+  const config = strategy.createConfig();
+  const pool = new Pool(config.poolConfig);
+
+  return new PrismaPg(pool, {
+    ...config.prismaOptions,
+    disposeExternalPool: true,
+  });
+};
