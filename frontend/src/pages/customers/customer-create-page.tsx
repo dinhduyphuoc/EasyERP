@@ -305,7 +305,6 @@ export function CustomerCreatePage(): ReactElement {
     return nextErrors
   }, [addressLine, cityId, fullName, hasAnyAddressInput, phone, stateId])
 
-  const visibleErrors = hasAttemptedSave ? errors : {}
   const canSave = !isLoading && !isSaving && Object.keys(errors).length === 0
   const { isDirty } = dirtyState
 
@@ -489,12 +488,12 @@ export function CustomerCreatePage(): ReactElement {
               <Box sx={{ gridColumn: '1 / -1' }}>
                 <StackedTextField
                   fullWidth
-                  label="TÃªn khÃ¡ch hÃ ng *"
+                  label="TÃªn khÃ¡ch hÃ ng"
+                  required
                   placeholder="VÃ­ dá»¥: Nguyá»…n VÄƒn A"
                   value={fullName}
                   onChange={(event) => setFullName(event.target.value)}
-                  error={Boolean(visibleErrors.full_name)}
-                  helperText={visibleErrors.full_name}
+                  submitError={hasAttemptedSave ? errors.full_name : undefined}
                   disabled={isLoading}
                 />
               </Box>
@@ -525,12 +524,12 @@ export function CustomerCreatePage(): ReactElement {
 
               <StackedTextField
                 fullWidth
-                label="Số điện thoại *"
+                label="Số điện thoại"
+                required
                 placeholder="Ví dụ: 0901234567"
                 value={phone}
                 onChange={(event) => setPhone(event.target.value)}
-                error={Boolean(visibleErrors.phone)}
-                helperText={visibleErrors.phone}
+                submitError={hasAttemptedSave ? errors.phone : undefined}
                 disabled={isLoading}
               />
 
@@ -659,8 +658,7 @@ export function CustomerCreatePage(): ReactElement {
                 onChange={(_, value) => setStateId(value ? String(value.id) : '')}
                 getOptionLabel={(option) => option.name}
                 isOptionEqualToValue={(option, value) => option.id === value.id}
-                error={Boolean(visibleErrors.state_id)}
-                helperText={visibleErrors.state_id}
+                submitError={hasAttemptedSave ? errors.state_id : undefined}
                 disabled={isLoading}
                 placeholder="Chọn tỉnh/thành phố"
               />
@@ -673,8 +671,7 @@ export function CustomerCreatePage(): ReactElement {
                 onChange={(_, value) => setCityId(value ? String(value.id) : '')}
                 getOptionLabel={(option) => option.name}
                 isOptionEqualToValue={(option, value) => option.id === value.id}
-                error={Boolean(visibleErrors.city_id)}
-                helperText={visibleErrors.city_id}
+                submitError={hasAttemptedSave ? errors.city_id : undefined}
                 disabled={isLoading || !stateId}
                 placeholder="Chọn huyện/quận"
               />
@@ -697,8 +694,7 @@ export function CustomerCreatePage(): ReactElement {
                 placeholder="Số nhà, tên đường"
                 value={addressLine}
                 onChange={(event) => setAddressLine(event.target.value)}
-                error={Boolean(visibleErrors.address_line)}
-                helperText={visibleErrors.address_line}
+                submitError={hasAttemptedSave ? errors.address_line : undefined}
                 disabled={isLoading}
               />
 

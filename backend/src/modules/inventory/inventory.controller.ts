@@ -6,6 +6,7 @@ import type {
   InventoryAuditFinalizeInput,
   InventoryAuditListQuery,
   InventoryAuditParams,
+  InventoryImportRequestInput,
   InventoryAuditUpsertInput,
   InventoryHistoryQuery,
   InventoryInitializeInput,
@@ -96,6 +97,17 @@ export const InventoryController = {
     }
     const data = await InventoryService.initialize(req.store.id, parsePayload<InventoryInitializeInput>(req.body));
     return res.status(201).json(data);
+  },
+
+  importInventory: async (req: Request<{}, {}, InventoryImportRequestInput>, res: Response) => {
+    if (!req.store) {
+      throw new UnauthorizedError("Store context is required");
+    }
+    const data = await InventoryService.importInventory(
+      req.store.id,
+      parsePayload<InventoryImportRequestInput>(req.body),
+    );
+    return res.status(200).json({ items: data });
   },
 
   createAudit: async (req: Request<{}, {}, InventoryAuditUpsertInput>, res: Response) => {

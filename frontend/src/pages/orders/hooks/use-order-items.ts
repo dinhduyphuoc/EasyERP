@@ -1,8 +1,10 @@
 import { useMemo, useState } from 'react'
 
 export type ItemForm = {
+  spu_id?: number | null
   variant_sku: string
   product_id: number | null
+  sku_code?: string
   product_name: string
   sku: string
   image_url: string | null

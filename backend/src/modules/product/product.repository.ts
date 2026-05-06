@@ -23,7 +23,7 @@ const PRODUCT_INCLUDE = {
 const PRODUCT_LIST_SELECT = {
   id: true,
   product_name: true,
-  default_variant_sku: true,
+  spu: true,
   image_url: true,
   status: true,
   category_id: true,
@@ -164,6 +164,34 @@ export const ProductRepository = {
     return product;
   },
 
+  findProductIdByVariantSku: (storeId: string, sku: string) =>
+    prisma.productVariant.findFirst({
+      where: {
+        sku,
+        store_id: storeId,
+        status: {
+          not: "deleted",
+        },
+      },
+      select: {
+        product_id: true,
+      },
+    }),
+
+  findActiveProductBySpu: (storeId: string, spu: string) =>
+    prisma.product.findFirst({
+      where: {
+        spu,
+        store_id: storeId,
+        status: {
+          not: "deleted",
+        },
+      },
+      select: {
+        id: true,
+      },
+    }),
+
   findProductsForList: (args: {
     storeId: string;
     where: Prisma.ProductWhereInput;
@@ -182,14 +210,14 @@ export const ProductRepository = {
         : {}),
     }),
 
-  findSoftDeletedProductByDefaultSku: (
+  findSoftDeletedProductBySpu: (
     tx: ProductTransaction,
     storeId: string,
-    defaultVariantSku: string,
+    spu: string,
   ) =>
     tx.product.findFirst({
       where: {
-        default_variant_sku: defaultVariantSku,
+        spu,
         status: "deleted",
         store_id: storeId,
       },

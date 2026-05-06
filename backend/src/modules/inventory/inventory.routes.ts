@@ -20,6 +20,7 @@ inventoryRouter.put("/audits/:id", requirePermission("inventory.adjust"), Invent
 inventoryRouter.delete("/audits/:id", requirePermission("inventory.adjust"), InventoryController.deleteAudit);
 inventoryRouter.post("/audits/:id/complete", requirePermission("inventory.adjust"), InventoryController.completeAudit);
 inventoryRouter.post("/initialize", requirePermission("inventory.adjust"), InventoryController.initialize);
+inventoryRouter.post("/import", requirePermission("inventory.adjust"), InventoryController.importInventory);
 inventoryRouter.post("/adjust", requirePermission("inventory.adjust"), InventoryController.adjust);
 inventoryRouter.post("/reserve", requirePermission("inventory.reserve"), InventoryController.reserve);
 inventoryRouter.post("/release", requirePermission("inventory.release"), InventoryController.release);

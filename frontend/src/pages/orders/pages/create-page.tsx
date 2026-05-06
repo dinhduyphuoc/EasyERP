@@ -60,8 +60,10 @@ const parseCurrencyValue = (value: string | number | null | undefined): number =
 const formatStockNumber = (value: number | null | undefined): string => Number(value ?? 0).toLocaleString('vi-VN')
 
 const createItemFromProduct = (product: ProductSearchOption): ItemForm => ({
+  spu_id: product.spu_id ?? product.product_id,
   variant_sku: product.sku,
   product_id: product.product_id,
+  sku_code: product.sku_code ?? product.sku,
   product_name: product.product_name,
   sku: product.sku,
   image_url: product.image_url,
@@ -338,8 +340,10 @@ export function OrdersCreatePage(): ReactElement {
                   const productOption = productOptionMap.get(item.variant_sku ?? item.sku)
 
                   return {
+                    spu_id: item.spu_id ?? item.product_id,
                     variant_sku: item.variant_sku ?? '',
                     product_id: item.product_id,
+                    sku_code: item.sku_code ?? item.sku,
                     product_name: item.product_name,
                     sku: item.sku,
                     image_url: productOption?.image_url ?? null,
@@ -400,8 +404,10 @@ export function OrdersCreatePage(): ReactElement {
                   const productOption = productOptionMap.get(item.variant_sku ?? item.sku)
 
                   return {
+                    spu_id: item.spu_id ?? item.product_id,
                     variant_sku: item.variant_sku ?? '',
                     product_id: item.product_id,
+                    sku_code: item.sku_code ?? item.sku,
                     product_name: item.product_name,
                     sku: item.sku,
                     image_url: productOption?.image_url ?? null,
@@ -727,7 +733,9 @@ export function OrdersCreatePage(): ReactElement {
         order_items: itemRows
           .filter((item) => item.product_name.trim() || item.sku.trim())
           .map((item) => ({
+            spu_id: item.spu_id ?? item.product_id,
             product_id: item.product_id,
+            sku_code: item.sku_code ?? item.sku.trim(),
             variant_sku: item.variant_sku || null,
             product_name: item.product_name.trim(),
             sku: item.sku.trim(),

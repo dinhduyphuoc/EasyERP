@@ -14,6 +14,7 @@ import { appToast } from '@/shared/ui/toast/toast.helpers'
 import { showErrorToast } from '@/shared/ui/toast/toast-error'
 import { useJsonDirtyState } from '@/shared/ui/unsaved-changes'
 import { resizeImageFileToMax720p } from '@/shared/utils/image'
+import { validateEmailField } from '@/pages/onboarding/onboarding.validation'
 import { generalSettingsApi } from './general-settings.api'
 import { useSettingsUnsavedRegistration } from './settings-unsaved-context'
 
@@ -51,6 +52,7 @@ export function SettingsStoreDetailsPage(): ReactElement {
   const [avatarFileName, setAvatarFileName] = useState('')
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false)
   const [avatarUploadProgress, setAvatarUploadProgress] = useState<number | null>(null)
+  const [hasAttemptedSave, setHasAttemptedSave] = useState(false)
   const [states, setStates] = useState<LocationItem[]>([])
   const [cities, setCities] = useState<CityItem[]>([])
   const [districts, setDistricts] = useState<DistrictItem[]>([])
@@ -91,6 +93,24 @@ export function SettingsStoreDetailsPage(): ReactElement {
     },
     !isLoading,
   )
+
+  const errors = useMemo(() => {
+    const nextErrors: Partial<Record<'storeName' | 'contactEmail', string>> = {}
+
+    if (!storeName.trim()) {
+      nextErrors.storeName = 'Tên cửa hàng là bắt buộc.'
+    }
+
+    if (contactEmail.trim()) {
+      const emailError = validateEmailField(contactEmail)
+
+      if (emailError) {
+        nextErrors.contactEmail = emailError
+      }
+    }
+
+    return nextErrors
+  }, [contactEmail, storeName])
 
   useEffect(() => {
     if (!activeStore) {
@@ -252,6 +272,13 @@ export function SettingsStoreDetailsPage(): ReactElement {
       return
     }
 
+    setHasAttemptedSave(true)
+
+    if (Object.keys(errors).length > 0) {
+      appToast.warning('Vui lòng kiểm tra lại thông tin cửa hàng.')
+      return
+    }
+
     setIsSaving(true)
 
     try {
@@ -332,6 +359,7 @@ export function SettingsStoreDetailsPage(): ReactElement {
     setCityId(snapshot.cityId)
     setDistrictId(snapshot.districtId)
     setAddressLine(snapshot.addressLine)
+    setHasAttemptedSave(false)
   }
 
   const { pulse } = useSettingsUnsavedRegistration(
@@ -353,8 +381,23 @@ export function SettingsStoreDetailsPage(): ReactElement {
           <SummaryPaperHeader title="Thông tin cửa hàng" />
           {isLoading ? <CircularProgress size={24} /> : null}
 
-          <StackedTextField fullWidth label="Tên cửa hàng" value={storeName} onChange={(event) => setStoreName(event.target.value)} />
-          <StackedTextField fullWidth label="Email" value={contactEmail} onChange={(event) => setContactEmail(event.target.value)} />
+          <StackedTextField
+            fullWidth
+            required
+            label="Tên cửa hàng"
+            value={storeName}
+            onChange={(event) => setStoreName(event.target.value)}
+            submitError={hasAttemptedSave ? errors.storeName : undefined}
+          />
+          <StackedTextField
+            fullWidth
+            label="Email"
+            value={contactEmail}
+            onChange={(event) => setContactEmail(event.target.value)}
+            submitError={hasAttemptedSave ? errors.contactEmail : undefined}
+            validate={validateEmailField}
+            validateWhen="blur"
+          />
           <StackedTextField fullWidth label="Họ và tên pháp lý" value={legalFullName} onChange={(event) => setLegalFullName(event.target.value)} />
           <StackedTextField fullWidth label="Số điện thoại/Hotline" value={contactPhone} onChange={(event) => setContactPhone(event.target.value)} />
 

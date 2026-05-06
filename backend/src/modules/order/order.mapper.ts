@@ -94,7 +94,9 @@ const mapOrderItem = (item: {
 
   return {
     id: item.id,
+    spu_id: item.product_id,
     product_id: item.product_id,
+    sku_code: item.sku,
     variant_sku: item.variant_sku,
     product_name: item.product_name,
     display_name: display.display_name,

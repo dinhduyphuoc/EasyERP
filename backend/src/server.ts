@@ -14,17 +14,19 @@ const startServer = async () => {
     await cache.connect();
     await bootstrapRbac();
     console.log("Database connection succeeded.");
+    server.listen(port, () => {
+      console.log(`Backend server is running at http://localhost:${port}`);
+    });
   } catch (error) {
     const err = error as NodeJS.ErrnoException;
 
     console.error("Database connection failed.");
     console.error(`Code: ${err.code ?? "UNKNOWN"}`);
     console.error(`Message: ${err.message}`);
+    await cache.disconnect().catch(() => undefined);
+    await prisma.$disconnect().catch(() => undefined);
+    process.exit(1);
   }
-
-  server.listen(port, () => {
-    console.log(`Backend server is running at http://localhost:${port}`);
-  });
 };
 
 const shutdown = async (signal: string) => {

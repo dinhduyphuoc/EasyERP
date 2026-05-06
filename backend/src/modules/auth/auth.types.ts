@@ -4,6 +4,7 @@ export type AuthenticatedUser = {
   active_store_id: string | null;
   full_name: string;
   email: string;
+  avatar_url: string | null;
   status: string;
   last_login_at: string | null;
   roles: string[];
@@ -29,6 +30,7 @@ export type AuthenticatedSessionUser = {
   active_store_id: string | null;
   full_name: string;
   email: string;
+  avatar_url: string | null;
   status: string;
   roles: string[];
 };

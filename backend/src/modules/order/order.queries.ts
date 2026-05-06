@@ -492,6 +492,8 @@ export const searchOrderProducts = async (storeId: string, query: OrderOptionSea
   });
 
   return variants.map((variant) => ({
+    spu_id: variant.product_id,
+    sku_code: variant.sku,
     sku: variant.sku,
     label: `${variant.product.product_name} - ${variant.sku}`,
     variant_kind: variant.kind,

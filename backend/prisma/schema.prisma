@@ -346,7 +346,7 @@ model Product {
   id           Int      @id @default(autoincrement())
   store_id     String
   product_name String
-  default_variant_sku String?
+  spu          String?
   unit         String?   
   base_price   Decimal?  @db.Decimal(12, 2)
   cogs         Decimal?  @db.Decimal(12, 2)
@@ -364,7 +364,7 @@ model Product {
   order_items OrderItem[]
 
   @@index([store_id])
-  @@index([default_variant_sku])
+  @@index([spu])
 }
 
 model Attribute {
@@ -976,6 +976,7 @@ model User {
   full_name              String
   email                  String      @unique
   email_normalized       String      @unique
+  avatar_url             String?
   password_hash          String
   status                 UserStatus  @default(active)
   is_email_verified      Boolean     @default(false)

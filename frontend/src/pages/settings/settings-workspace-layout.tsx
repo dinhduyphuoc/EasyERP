@@ -321,8 +321,8 @@ function SettingsWorkspaceLayoutContent(): ReactElement {
           <Divider />
 
           <Stack direction="row" spacing={1.25} sx={{ px: 2.5, py: 2, alignItems: 'center' }}>
-            <Avatar sx={{ bgcolor: '#155eef', width: 42, height: 42 }}>
-              {getInitials(user?.full_name ?? 'User')}
+            <Avatar src={user?.avatar_url || undefined} sx={{ bgcolor: '#155eef', width: 42, height: 42 }}>
+              {!user?.avatar_url ? getInitials(user?.full_name ?? 'User') : null}
             </Avatar>
             <Box sx={{ minWidth: 0 }}>
               <Typography sx={{ fontWeight: 700, color: '#101828' }} noWrap>

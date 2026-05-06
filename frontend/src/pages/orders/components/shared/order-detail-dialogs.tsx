@@ -12,6 +12,7 @@ import {
 } from '@mui/material'
 import { StackedTextField } from '@/shared/ui/form/stacked-text-field'
 import type { CityItem, DistrictItem, LocationItem } from '@/pages/customers/customer.api'
+import { validateEmailField } from '@/pages/onboarding/onboarding.validation'
 import type { VietQrGenerateResponse } from '@/pages/settings/general-settings.api'
 import {
   CustomerModal,
@@ -343,6 +344,8 @@ export function OrderDetailDialogs(props: OrderDetailDialogsProps): ReactElement
               value={invoiceSnapshotDraft.email}
               onChange={(event) => onInvoiceSnapshotDraftChange('email', event.target.value)}
               fullWidth
+              validate={validateEmailField}
+              validateWhen="blur"
             />
             <StackedTextField
               label="Số điện thoại"

@@ -1,5 +1,7 @@
 import type { ChangeEvent, ReactElement } from 'react'
-import { Button, MenuItem, Stack, TextField, Typography } from '@mui/material'
+import { Button, MenuItem, Stack, Typography } from '@mui/material'
+import { StackedDropdown } from '@/shared/ui/form/stacked-dropdown'
+import { StackedTextField } from '@/shared/ui/form/stacked-text-field'
 
 const weightUnitOptions = [
   { value: 'g', label: 'g' },
@@ -50,26 +52,25 @@ export function OrderShippingMeasurementsForm({
       }}
     >
       <Typography variant="body2" sx={{ fontWeight: 700, color: '#344054' }}>
-        Khối lượng và kích thước
+        Khá»‘i lÆ°á»£ng vÃ  kÃ­ch thÆ°á»›c
       </Typography>
 
       <Stack direction={{ xs: 'column', lg: 'row' }} spacing={1.5} sx={{ alignItems: { lg: 'flex-end' } }}>
         <Stack direction="row" spacing={1} sx={{ flex: 1, minWidth: 0 }}>
-          <TextField
-            label="Khối lượng"
+          <StackedTextField
+            layout="default"
+            label="Khá»‘i lÆ°á»£ng"
             value={weight}
             onChange={handleNumberChange(onWeightChange)}
-            size="small"
             type="number"
             fullWidth
-            slotProps={{ htmlInput: { min: 0, step: 'any' } }}
+            inputProps={{ min: 0, step: 'any' }}
           />
-          <TextField
-            select
-            label="Đơn vị"
+          <StackedDropdown
+            layout="default"
+            label="ÄÆ¡n vá»‹"
             value={weightUnit}
-            onChange={(event) => onWeightUnitChange(event.target.value)}
-            size="small"
+            onChange={(event) => onWeightUnitChange(String(event.target.value))}
             sx={{ width: 110 }}
           >
             {weightUnitOptions.map((option) => (
@@ -77,54 +78,54 @@ export function OrderShippingMeasurementsForm({
                 {option.label}
               </MenuItem>
             ))}
-          </TextField>
+          </StackedDropdown>
         </Stack>
 
         <Stack direction="row" spacing={1} sx={{ flex: 2, minWidth: 0 }}>
-          <TextField
-            label="Dài"
+          <StackedTextField
+            layout="default"
+            label="DÃ i"
             value={length}
             onChange={handleNumberChange(onLengthChange)}
-            size="small"
             type="number"
             fullWidth
-            slotProps={{ htmlInput: { min: 0, step: 'any' } }}
+            inputProps={{ min: 0, step: 'any' }}
           />
-          <TextField
-            label="Rộng"
+          <StackedTextField
+            layout="default"
+            label="Rá»™ng"
             value={width}
             onChange={handleNumberChange(onWidthChange)}
-            size="small"
             type="number"
             fullWidth
-            slotProps={{ htmlInput: { min: 0, step: 'any' } }}
+            inputProps={{ min: 0, step: 'any' }}
           />
-          <TextField
+          <StackedTextField
+            layout="default"
             label="Cao"
             value={height}
             onChange={handleNumberChange(onHeightChange)}
-            size="small"
             type="number"
             fullWidth
-            slotProps={{ htmlInput: { min: 0, step: 'any' } }}
+            inputProps={{ min: 0, step: 'any' }}
           />
-            <Typography
-              sx={{
-                height: 40,
-                px: 0.5,
-                bgcolor: '#f8fafc',
-                display: 'flex',
-                alignItems: 'center',
-                color: '#344054',
-                fontWeight: 600,
-              }}
-            >
-              {dimensionUnit}
-            </Typography>
+          <Typography
+            sx={{
+              height: 40,
+              px: 0.5,
+              bgcolor: '#f8fafc',
+              display: 'flex',
+              alignItems: 'center',
+              color: '#344054',
+              fontWeight: 600,
+            }}
+          >
+            {dimensionUnit}
+          </Typography>
         </Stack>
 
         <Button variant="contained" color="secondary" onClick={onSubmit} disabled={isSaving}>
-          {isSaving ? 'Đang cập nhật...' : 'Cập nhật'}
+          {isSaving ? 'Äang cáº­p nháº­t...' : 'Cáº­p nháº­t'}
         </Button>
       </Stack>
     </Stack>

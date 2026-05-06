@@ -104,6 +104,37 @@ export type InventoryAuditSummary = {
   total_delta_qty: number;
 };
 
+export type InventoryImportRowInput = {
+  row_no?: number;
+  sku_code?: string | null;
+  product_variant_id?: string | null;
+  mode?: "absolute" | "delta";
+  on_hand?: number | null;
+  qty?: number | null;
+  note?: string | null;
+  reason_code?:
+    | "actual_count"
+    | "damaged"
+    | "customer_return"
+    | "transfer"
+    | "manufacturing"
+    | "lost"
+    | "other";
+};
+
+export type InventoryImportRequestInput = {
+  rows: InventoryImportRowInput[];
+  actor?: InventoryActorInput | null;
+  reference_code?: string | null;
+  note?: string | null;
+};
+
+export type InventoryImportResultItem = {
+  row_no: number;
+  sku_code: string;
+  mode: "absolute" | "delta";
+};
+
 export type InventoryAuditListResponseItem = {
   id: number;
   audit_code: string;

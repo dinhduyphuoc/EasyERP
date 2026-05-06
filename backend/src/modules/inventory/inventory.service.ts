@@ -3,6 +3,8 @@ import type {
   InventoryAdjustInput,
   InventoryAuditFinalizeInput,
   InventoryAuditListResponseItem,
+  InventoryImportRequestInput,
+  InventoryImportResultItem,
   InventoryAuditLineInput,
   InventoryAuditListQuery,
   InventoryAuditUpsertInput,
@@ -979,6 +981,8 @@ const buildStockListItem = (variant: {
     : variant.product.product_name;
 
   return {
+    sku_code: variant.sku,
+    spu_id: variant.product.id,
     product_variant_id: variant.sku,
     product_id: variant.product.id,
     product_name: variant.product.product_name,
@@ -1749,6 +1753,62 @@ export const InventoryService = {
         },
       }),
     );
+  },
+
+  importInventory: async (
+    storeId: string,
+    input: InventoryImportRequestInput,
+  ): Promise<InventoryImportResultItem[]> => {
+    if (!Array.isArray(input.rows) || input.rows.length === 0) {
+      throw new BadRequestError("rows must be a non-empty array");
+    }
+
+    const results: InventoryImportResultItem[] = [];
+
+    for (const [index, row] of input.rows.entries()) {
+      const rowNo = row.row_no ?? index + 1;
+      const skuCode =
+        toOptionalTrimmedString(row.sku_code) ??
+        toOptionalTrimmedString(row.product_variant_id);
+
+      if (!skuCode) {
+        throw new BadRequestError(`rows[${index}].sku_code is required`);
+      }
+
+      const mode = row.mode ?? "absolute";
+
+      if (mode === "absolute") {
+        const targetOnHand = parseNonNegativeInteger(row.on_hand, `rows[${index}].on_hand`);
+        await InventoryService.adjust(storeId, {
+          product_variant_id: skuCode,
+          mode: "absolute",
+          target_on_hand: targetOnHand,
+          reason_code: row.reason_code ?? "actual_count",
+          note: toNullableTrimmedString(row.note) ?? toNullableTrimmedString(input.note),
+          reference_code: toNullableTrimmedString(input.reference_code),
+          actor: input.actor ?? null,
+        });
+      } else {
+        const qty = parseInteger(row.qty, `rows[${index}].qty`);
+        await InventoryService.adjust(storeId, {
+          product_variant_id: skuCode,
+          mode: "delta",
+          qty,
+          reason_code: row.reason_code ?? "other",
+          note: toNullableTrimmedString(row.note) ?? toNullableTrimmedString(input.note),
+          reference_code: toNullableTrimmedString(input.reference_code),
+          actor: input.actor ?? null,
+        });
+      }
+
+      results.push({
+        row_no: rowNo,
+        sku_code: skuCode,
+        mode,
+      });
+    }
+
+    return results;
   },
 };
 

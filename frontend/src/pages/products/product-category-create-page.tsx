@@ -64,11 +64,11 @@ export function ProductCategoryCreatePage(): ReactElement {
     return nextErrors
   }, [categoryName])
 
-  const visibleErrors = hasAttemptedSave ? errors : {}
   const canSave = !isSaving && Object.keys(errors).length === 0 && (!isEditMode || dirty)
-
-  if (isLoading) {
-    return <ProductCategoryPageSkeleton />
+  const handleDiscard = () => {
+    setCategoryName(initialCategoryName)
+    setDirty(false)
+    setHasAttemptedSave(false)
   }
 
   const handleSave = async () => {
@@ -104,17 +104,17 @@ export function ProductCategoryCreatePage(): ReactElement {
     }
   }
 
-  const handleDiscard = () => {
-    setCategoryName(initialCategoryName)
-    setDirty(false)
-    setHasAttemptedSave(false)
-  }
   const { bannerProps, attemptNavigate } = useUnsavedChangesPrompt({
     isDirty: dirty,
     isSaving,
     onDiscard: handleDiscard,
     onSave: handleSave,
   })
+
+  if (isLoading) {
+    return <ProductCategoryPageSkeleton />
+  }
+
   const headerActions: CreateEditPageHeaderAction[] = [
     buildPrimarySaveHeaderAction({
       label: isEditMode ? 'Cập nhật' : 'Lưu',
@@ -153,15 +153,15 @@ export function ProductCategoryCreatePage(): ReactElement {
 
           <StackedTextField
             fullWidth
-            label="Tên danh mục *"
+            label="Tên danh mục"
+            required
             placeholder="Ví dụ: Phụ kiện thời trang"
             value={categoryName}
             onChange={(event) => {
               setDirty(true)
               setCategoryName(event.target.value)
             }}
-            error={Boolean(visibleErrors.category_name)}
-            helperText={visibleErrors.category_name}
+            submitError={hasAttemptedSave ? errors.category_name : undefined}
             disabled={isLoading}
           />
         </Stack>

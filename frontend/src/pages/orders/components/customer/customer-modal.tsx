@@ -1,7 +1,5 @@
 import SaveOutlinedIcon from '@mui/icons-material/SaveOutlined'
 import {
-  Autocomplete,
-  Box,
   Button,
   Checkbox,
   CircularProgress,
@@ -11,10 +9,9 @@ import {
   DialogTitle,
   FormControlLabel,
   Stack,
-  TextField,
-  Typography,
 } from '@mui/material'
 import { type CityItem, type DistrictItem, type LocationItem } from '@/pages/customers/customer.api'
+import { StackedAutocomplete } from '@/shared/ui/form/stacked-autocomplete'
 import { StackedTextField } from '@/shared/ui/form/stacked-text-field'
 
 export type CustomerModalMode = 'create' | 'edit'
@@ -70,7 +67,7 @@ export function CustomerModal({
 }: CustomerModalProps) {
   return (
     <Dialog open={open} onClose={onClose} fullWidth maxWidth="md">
-      <DialogTitle>{mode === 'create' ? 'Tạo khách hàng mới' : 'Chỉnh sửa khách hàng'}</DialogTitle>
+      <DialogTitle>{mode === 'create' ? 'Táº¡o khÃ¡ch hÃ ng má»›i' : 'Chá»‰nh sá»­a khÃ¡ch hÃ ng'}</DialogTitle>
       <DialogContent>
         <Stack spacing={2} sx={{ pt: 1 }}>
           <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
@@ -78,7 +75,7 @@ export function CustomerModal({
               fullWidth
               required
               sx={{ flex: 1 }}
-              label="Họ và tên"
+              label="Há» vÃ  tÃªn"
               value={form.fullName}
               onChange={(event) => onFieldChange('fullName', event.target.value)}
             />
@@ -86,73 +83,67 @@ export function CustomerModal({
               fullWidth
               required
               sx={{ flex: 1 }}
-              label="Số điện thoại"
+              label="Sá»‘ Ä‘iá»‡n thoáº¡i"
               value={form.phone}
               onChange={(event) => onFieldChange('phone', event.target.value)}
             />
           </Stack>
           <StackedTextField
             fullWidth
-            label="Địa chỉ"
-            placeholder="Số nhà, tên đường"
+            label="Äá»‹a chá»‰"
+            placeholder="Sá»‘ nhÃ , tÃªn Ä‘Æ°á»ng"
             value={form.addressLine}
             onChange={(event) => onFieldChange('addressLine', event.target.value)}
           />
           <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
-            <Box sx={{ flex: 1 }}>
-              <Typography variant="body2" sx={{ mb: 1, color: '#344054', fontWeight: 500 }}>
-                Tỉnh/Thành phố
-              </Typography>
-              <Autocomplete
-                options={states}
-                value={form.state}
-                loading={isStatesLoading}
-                onChange={onStateChange}
-                getOptionLabel={(option) => option.name}
-                isOptionEqualToValue={(option, value) => option.id === value.id}
-                renderInput={(params) => <TextField {...params} size="small" placeholder="Chọn tỉnh/thành phố" />}
-              />
-            </Box>
-            <Box sx={{ flex: 1 }}>
-              <Typography variant="body2" sx={{ mb: 1, color: '#344054', fontWeight: 500 }}>
-                Huyện/Quận
-              </Typography>
-              <Autocomplete
-                options={cities}
-                value={form.city}
-                loading={isCitiesLoading}
-                onChange={onCityChange}
-                getOptionLabel={(option) => option.name}
-                isOptionEqualToValue={(option, value) => option.id === value.id}
-                disabled={!form.state}
-                renderInput={(params) => <TextField {...params} size="small" placeholder="Chọn Huyện/Quận" />}
-              />
-            </Box>
-            <Box sx={{ flex: 1 }}>
-              <Typography variant="body2" sx={{ mb: 1, color: '#344054', fontWeight: 500 }}>
-                Xã/Phường
-              </Typography>
-              <Autocomplete
-                options={districts}
-                value={form.district}
-                loading={isDistrictsLoading}
-                onChange={onDistrictChange}
-                getOptionLabel={(option) => option.name}
-                isOptionEqualToValue={(option, value) => option.id === value.id}
-                disabled={!form.city}
-                renderInput={(params) => <TextField {...params} size="small" placeholder="Chọn Xã/Phường" />}
-              />
-            </Box>
+            <StackedAutocomplete<LocationItem, false, false, false>
+              fullWidth
+              sx={{ flex: 1 }}
+              label="Tá»‰nh/ThÃ nh phá»‘"
+              options={states}
+              value={form.state}
+              loading={isStatesLoading}
+              onChange={onStateChange}
+              getOptionLabel={(option) => option.name}
+              isOptionEqualToValue={(option, value) => option.id === value.id}
+              placeholder="Chá»n tá»‰nh/thÃ nh phá»‘"
+            />
+            <StackedAutocomplete<CityItem, false, false, false>
+              fullWidth
+              sx={{ flex: 1 }}
+              label="Huyá»‡n/Quáº­n"
+              options={cities}
+              value={form.city}
+              loading={isCitiesLoading}
+              onChange={onCityChange}
+              getOptionLabel={(option) => option.name}
+              isOptionEqualToValue={(option, value) => option.id === value.id}
+              disabled={!form.state}
+              placeholder="Chá»n Huyá»‡n/Quáº­n"
+            />
+            <StackedAutocomplete<DistrictItem, false, false, false>
+              fullWidth
+              sx={{ flex: 1 }}
+              label="XÃ£/PhÆ°á»ng"
+              options={districts}
+              value={form.district}
+              loading={isDistrictsLoading}
+              onChange={onDistrictChange}
+              getOptionLabel={(option) => option.name}
+              isOptionEqualToValue={(option, value) => option.id === value.id}
+              disabled={!form.city}
+              placeholder="Chá»n XÃ£/PhÆ°á»ng"
+            />
           </Stack>
           <FormControlLabel
             control={<Checkbox checked={form.setAsDefaultAddress} onChange={(event) => onDefaultAddressChange(event.target.checked)} />}
-            label="Đặt địa chỉ này làm mặc định"
+            label="Äáº·t Ä‘á»‹a chá»‰ nÃ y lÃ m máº·c Ä‘á»‹nh"
           />
         </Stack>
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose} disabled={isSaving}>
-          Đóng
+          ÄÃ³ng
         </Button>
         <Button
           variant="contained"
@@ -160,7 +151,7 @@ export function CustomerModal({
           disabled={isSaving}
           startIcon={isSaving ? <CircularProgress size={16} color="inherit" /> : <SaveOutlinedIcon />}
         >
-          {isSaving ? 'Đang lưu...' : mode === 'create' ? 'Tạo khách hàng' : 'Cập nhật'}
+          {isSaving ? 'Äang lÆ°u...' : mode === 'create' ? 'Táº¡o khÃ¡ch hÃ ng' : 'Cáº­p nháº­t'}
         </Button>
       </DialogActions>
     </Dialog>

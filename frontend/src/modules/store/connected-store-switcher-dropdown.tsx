@@ -31,7 +31,7 @@ export function ConnectedStoreSwitcherDropdown({
         id: user.id,
         fullName: user.full_name,
         email: user.email,
-        avatarUrl: null,
+        avatarUrl: user.avatar_url,
       }}
       onSwitchStore={async (storeId) => {
         try {

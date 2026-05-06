@@ -2,8 +2,11 @@ export type ProductStatusInput = "active" | "inactive" | "draft" | "deleted";
 export type ProductVariantKindInput = "default" | "generated";
 
 export interface ProductRequestInput {
-  product_name: string;
+  spu_id?: number;
+  spu_code?: string;
+  spu?: string;
   default_variant_sku?: string;
+  product_name: string;
   unit?: string;
   image_url?: string | null;
   status?: ProductStatusInput;
@@ -18,6 +21,7 @@ export interface ProductRequestInput {
     values: string[];
   }[];
   variants?: {
+    sku_code?: string;
     sku: string;
     name?: string;
     kind?: ProductVariantKindInput;
@@ -26,12 +30,15 @@ export interface ProductRequestInput {
     cogs?: number | string | null;
     image_url?: string | null;
     combinations?: string[];
+    attribute_value_ids?: number[];
   }[];
 }
 
 export interface ProductInput {
+  spu_id?: number;
+  spu_code?: string | null;
+  spu?: string | null;
   product_name: string;
-  default_variant_sku?: string | null;
   unit?: string;
   base_price?: number | null;
   cogs?: number | null;
@@ -45,12 +52,14 @@ export interface ProductInput {
     values: string[];
   }[];
   variants: {
+    sku_code?: string;
     sku: string;
     kind: ProductVariantKindInput;
     selling_price: number;
     cogs: number;
     image_url?: string | null;
     combinations: string[];
+    attribute_value_ids?: number[];
   }[];
 }
 
@@ -61,6 +70,23 @@ export interface ProductCategoryItem {
 
 export interface ProductCategoryRequestInput {
   category_name: string;
+}
+
+export interface ProductImportRowInput extends ProductRequestInput {
+  row_no?: number;
+  import_mode?: "upsert" | "create_only" | "update_only";
+}
+
+export interface ProductImportRequestInput {
+  rows: ProductImportRowInput[];
+}
+
+export interface ProductImportResultItem {
+  row_no: number;
+  action: "created" | "updated";
+  spu_id: number;
+  spu: string | null;
+  product_name: string;
 }
 
 export interface ProductListQuery {
@@ -74,8 +100,10 @@ export interface ProductListQuery {
 
 export interface ProductListResponseItem {
   id: number;
+  spu_id: number;
+  spu_code: string | null;
+  spu: string | null;
   product_name: string;
-  default_variant_sku: string | null;
   image_url: string | null;
   status: ProductStatusInput;
   category_id: number | null;
@@ -84,6 +112,7 @@ export interface ProductListResponseItem {
   variant_count: number;
   has_generated_variants: boolean;
   primary_variant: {
+    sku_code: string;
     sku: string;
     kind: ProductVariantKindInput;
     selling_price: string;

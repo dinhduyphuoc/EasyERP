@@ -1,7 +1,8 @@
 ﻿import type { ReactElement, ReactNode } from 'react'
 import AccountBalanceOutlinedIcon from '@mui/icons-material/AccountBalanceOutlined'
 import PaymentsOutlinedIcon from '@mui/icons-material/PaymentsOutlined'
-import { alpha, Box, Checkbox, Divider, FormControlLabel, InputAdornment, Paper, Stack, TextField, Typography } from '@mui/material'
+import { alpha, Box, Checkbox, Divider, FormControlLabel, InputAdornment, Paper, Stack, Typography } from '@mui/material'
+import { StackedTextField } from '@/shared/ui/form/stacked-text-field'
 import { borderedCardSx } from '@/shared/ui/paper'
 import { SummaryPaperHeader } from '@/shared/ui/summary-paper-header'
 import { formatCurrency, formatCurrencyInput } from './order.utils'
@@ -580,8 +581,8 @@ export function PaymentInformationCard({
             <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 700 }}>
               Giảm giá
             </Typography>
-            <TextField
-              variant="standard"
+            <StackedTextField
+              layout="default"
               value={formattedDiscountValue}
               onChange={(event) => handleDiscountChange(event.target.value)}
               disabled={!canEdit || !canEditDiscount}
@@ -590,15 +591,13 @@ export function PaymentInformationCard({
                 width: `calc(${discountInputWidth} + 56px)`,
                 minWidth: 'calc(9ch + 56px)',
                 maxWidth: '100%',
+              }}
+              inputSx={{
                 '& input': {
                   textAlign: 'right',
                 },
               }}
-              slotProps={{
-                input: {
-                  endAdornment: <InputAdornment position="end">₫</InputAdornment>,
-                },
-              }}
+              endAdornment={<InputAdornment position="end">₫</InputAdornment>}
             />
           </Box>
 
@@ -628,13 +627,14 @@ export function PaymentInformationCard({
                 label="Apply VAT"
                 sx={{ m: 0 }}
               />
-              <TextField
+              <StackedTextField
+                layout="default"
                 label="VAT %"
                 type="number"
                 value={vatRatePercent}
                 onChange={(event) => onVatRatePercentChange(event.target.value)}
                 disabled={!canEdit || !canEditVat || !vatEnabled}
-                slotProps={{ htmlInput: { min: 0, step: 0.01 } }}
+                inputProps={{ min: 0, step: 0.01 }}
                 sx={{ maxWidth: 180 }}
               />
               {canEdit && !canEditVat ? (
@@ -662,27 +662,24 @@ export function PaymentInformationCard({
             <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 700 }}>
               Khách đã trả
             </Typography>
-            <TextField
-              variant="standard"
+            <StackedTextField
+              layout="default"
               value={formattedPaidAmountValue}
               onChange={(event) => handlePaidAmountChange(event.target.value)}
               disabled={!canEdit}
-              error={Boolean(errors.deposit_amount)}
-              helperText={errors.deposit_amount}
+              submitError={errors.deposit_amount}
               sx={{
                 justifySelf: { sm: 'end' },
                 width: `calc(${paidAmountInputWidth} + 56px)`,
                 minWidth: 'calc(9ch + 56px)',
                 maxWidth: '100%',
+              }}
+              inputSx={{
                 '& input': {
                   textAlign: 'right',
                 },
               }}
-              slotProps={{
-                input: {
-                  endAdornment: <InputAdornment position="end">₫</InputAdornment>,
-                },
-              }}
+              endAdornment={<InputAdornment position="end">₫</InputAdornment>}
             />
           </Box>
 

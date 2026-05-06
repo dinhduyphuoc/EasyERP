@@ -10,7 +10,9 @@ import {
 } from '@mui/material'
 import { Navigate, useLocation, useNavigate } from 'react-router'
 import { useAuth } from '@/modules/auth/use-auth'
+import { useSetup } from '@/modules/setup/use-setup'
 import { getErrorMessage } from '@/shared/lib/errors'
+import { AuthScreenSkeleton } from '@/shared/ui/skeleton/loading-skeletons'
 
 type LocationState = {
   from?: string
@@ -20,10 +22,19 @@ export function LoginPage() {
   const navigate = useNavigate()
   const location = useLocation()
   const { status, login } = useAuth()
+  const { status: setupStatus, setup } = useSetup()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
+
+  if (status === 'loading' || setupStatus === 'loading') {
+    return <AuthScreenSkeleton />
+  }
+
+  if (!setup?.setupCompleted) {
+    return <Navigate to="/onboarding" replace />
+  }
 
   if (status === 'authenticated') {
     return <Navigate to="/" replace />

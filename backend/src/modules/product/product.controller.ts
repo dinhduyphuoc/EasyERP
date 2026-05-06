@@ -7,6 +7,7 @@ import { ProductService } from "./product.service";
 import type {
   BulkDeleteRequestInput,
   ProductCategoryParams,
+  ProductImportRequestInput,
   ProductImageCropRequestInput,
   ProductCategoryRequestInput,
   ProductListQuery,
@@ -266,6 +267,20 @@ export const ProductController = {
       parsePayload<ProductRequestInput>(req.body),
     );
     return res.status(201).json(product);
+  },
+
+  importProducts: async (
+    req: Request<{}, {}, ProductImportRequestInput>,
+    res: Response,
+  ) => {
+    if (!req.store) {
+      throw new UnauthorizedError("Store context is required");
+    }
+    const result = await ProductService.importProducts(
+      req.store.id,
+      parsePayload<ProductImportRequestInput>(req.body),
+    );
+    return res.status(200).json({ items: result });
   },
 
   createCategory: async (

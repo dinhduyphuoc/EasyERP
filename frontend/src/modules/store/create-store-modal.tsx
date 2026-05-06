@@ -54,6 +54,7 @@ export function CreateStoreModal({ open, onClose }: CreateStoreModalProps): Reac
           <StackedTextField
             fullWidth
             label="Tên cửa hàng"
+            required
             value={name}
             onChange={(event) => setName(event.target.value)}
           />

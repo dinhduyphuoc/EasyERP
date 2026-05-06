@@ -307,7 +307,7 @@ export function ProductCreatePage(): ReactElement {
         const categoryNameById = new Map(categoryData.map((item) => [item.id, item.category_name]))
 
         const nextName = product.product_name
-        const nextSku = product.default_variant_sku ?? product.variants[0]?.sku.split('-').slice(0, -1).join('-') ?? ''
+        const nextSku = product.spu ?? product.variants[0]?.sku.split('-').slice(0, -1).join('-') ?? ''
         const nextUnit = product.unit ?? ''
         const nextStatus = product.status ?? 'draft'
         const nextCategory = product.category_id ? categoryNameById.get(product.category_id) ?? null : null
@@ -532,8 +532,8 @@ export function ProductCreatePage(): ReactElement {
         .filter((attribute) => attribute.name && attribute.values.length > 0)
 
       const payload: ProductUpsertPayload = {
+        spu: sku.trim() || undefined,
         product_name: name.trim(),
-        default_variant_sku: sku.trim() || undefined,
         unit: unit.trim() || undefined,
         status,
         image_url: imagePreview.trim() && !isObjectUrl(imagePreview.trim()) ? imagePreview.trim() : null,
@@ -549,6 +549,7 @@ export function ProductCreatePage(): ReactElement {
 
               return {
                 name: variant.name,
+                sku_code: variant.sku.trim(),
                 sku: variant.sku.trim(),
                 kind: 'generated',
                 selling_price: sellingPrice,
@@ -731,10 +732,10 @@ export function ProductCreatePage(): ReactElement {
 
               <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' } }}>
                 <Box sx={{ gridColumn: '1 / -1' }}>
-                  <StackedTextField fullWidth layout={fieldLayout} label="Tên sản phẩm *" placeholder="Nhập tên sản phẩm" value={name} onChange={(event) => { setDirty(true); setName(event.target.value) }} error={Boolean(errors.name)} helperText={errors.name} />
+                  <StackedTextField fullWidth layout={fieldLayout} label="Tên sản phẩm" required placeholder="Nhập tên sản phẩm" value={name} onChange={(event) => { setDirty(true); setName(event.target.value) }} submitError={errors.name} />
                 </Box>
 
-                <StackedTextField fullWidth layout={fieldLayout} label="Mã sản phẩm *" placeholder="Nhập mã sản phẩm" value={sku} onChange={(event) => { setDirty(true); setSku(sanitizeSku(event.target.value)) }} error={Boolean(errors.sku)} helperText={errors.sku} />
+                <StackedTextField fullWidth layout={fieldLayout} label="Mã sản phẩm" required placeholder="Nhập mã sản phẩm" value={sku} onChange={(event) => { setDirty(true); setSku(sanitizeSku(event.target.value)) }} submitError={errors.sku} />
 
                 <StackedTextField fullWidth layout={fieldLayout} label="Đơn vị" placeholder="Ví dụ: cái, hộp, kg" value={unit} onChange={(event) => { setDirty(true); setUnit(event.target.value) }} />
 
@@ -1013,7 +1014,7 @@ export function ProductCreatePage(): ReactElement {
                             fullWidth
                             layout={fieldLayout}
                             label="Giá trị"
-                            placeholder={attribute.values.length === 0 ? 'Nhập giá trị và nhấn Enter.' : 'Nhập thêm giá trị'}
+                            placeholder={attribute.values.length === 0 ? 'Nhập giá trị và nhấn Enter. Ví dụ: Đỏ, Xanh' : 'Nhập thêm giá trị'}
                             value={attribute.draft}
                             onChange={(event) => {
                               setDirty(true)
@@ -1021,7 +1022,7 @@ export function ProductCreatePage(): ReactElement {
                             }}
                             onKeyDown={(event: KeyboardEvent<HTMLInputElement>) => handleAttributeKeyDown(event, attribute.id)}
                             onBlur={() => commitAttributeValues(attribute.id)}
-                            error={Boolean(errors[`attr-${attribute.id}`])}
+                            submitError={errors[`attr-${attribute.id}`]}
                             startAdornment={
                               attribute.values.length > 0 ? (
                                 <Box sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 0.75, mr: 0.75, py: 0.5 }}>
@@ -1190,8 +1191,7 @@ export function ProductCreatePage(): ReactElement {
               placeholder="Ví dụ: Phụ kiện thời trang"
               value={categoryModalName}
               onChange={(event) => setCategoryModalName(event.target.value)}
-              error={Boolean(hasAttemptedCategoryModalSave && categoryModalErrors.category_name)}
-              helperText={hasAttemptedCategoryModalSave ? categoryModalErrors.category_name : undefined}
+              submitError={hasAttemptedCategoryModalSave ? categoryModalErrors.category_name : undefined}
               disabled={isCategoryModalSaving}
             />
           </Stack>

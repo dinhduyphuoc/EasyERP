@@ -162,7 +162,9 @@ export interface AddressRequestInput {
 }
 
 export interface OrderItemRequestInput {
+  spu_id?: number | null;
   product_id?: number | null;
+  sku_code?: string;
   variant_sku?: string | null;
   product_name?: string;
   sku?: string;

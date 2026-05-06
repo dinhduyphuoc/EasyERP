@@ -1,4 +1,5 @@
 import { MenuItem, Paper, Stack, Typography } from '@mui/material'
+import { validateEmailField } from '@/pages/onboarding/onboarding.validation'
 import { StackedDropdown } from '@/shared/ui/form/stacked-dropdown'
 import { StackedTextField } from '@/shared/ui/form/stacked-text-field'
 import { borderedCardSx } from '@/shared/ui/paper'
@@ -87,6 +88,7 @@ export function SidebarSections({
             label="Trạng thái xử lý"
             value={resolvedProcessingStatusValue}
             onChange={(event) => onProcessingStatusChange(event.target.value as ProcessingStatus)}
+            submitError={processingStatusError}
           >
             {processingStatusOptions.map((status) => (
               <MenuItem key={status.value} value={status.value}>
@@ -147,6 +149,8 @@ export function SidebarSections({
             label="Email nhận hóa đơn"
             value={invoiceSnapshot.email}
             onChange={(event) => onInvoiceSnapshotChange('email', event.target.value)}
+            validate={validateEmailField}
+            validateWhen="blur"
           />
           <StackedTextField
             fullWidth

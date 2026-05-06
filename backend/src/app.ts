@@ -12,6 +12,7 @@ import { adminRouter } from "@/modules/admin/admin.routes";
 import { rbacRouter } from "@/modules/rbac/rbac.routes";
 import { settingsRouter } from "@/modules/settings/settings.routes";
 import { storeRouter } from "@/modules/store/store.routes";
+import { setupRouter } from "@/modules/setup/setup.routes";
 
 const app = express();
 const corsOrigin = process.env.CORS_ORIGIN?.trim();
@@ -47,6 +48,7 @@ app.get("/health", (_req: Request, res: Response) => {
 });
 
 app.use("/auth", authRouter);
+app.use("/setup", setupRouter);
 app.use("/admin", adminRouter);
 app.use("/rbac", rbacRouter);
 app.use("/settings", settingsRouter);

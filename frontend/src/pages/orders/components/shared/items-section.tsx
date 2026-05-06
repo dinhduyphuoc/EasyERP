@@ -20,6 +20,7 @@ import {
   Typography,
 } from '@mui/material'
 import { borderedCardSx } from '@/shared/ui/paper'
+import { StackedTextField } from '@/shared/ui/form/stacked-text-field'
 import { SummaryPaperHeader } from '@/shared/ui/summary-paper-header'
 import type { OrderOptionLookup } from '../../api/order.api'
 import type { ItemRow } from '../../hooks/use-order-items'
@@ -270,7 +271,8 @@ export function ItemsSection({
                           </Button>
 
                           {item.noteOpen ? (
-                            <TextField
+                            <StackedTextField
+                              layout="default"
                               fullWidth
                               multiline
                               minRows={2}
@@ -286,8 +288,8 @@ export function ItemsSection({
                     </TableCell>
 
                     <TableCell align="center">
-                      <TextField
-                        size="small"
+                      <StackedTextField
+                        layout="default"
                         value={item.quantity}
                         onChange={(event) => onUpdateItem(index, { quantity: event.target.value })}
                         disabled={isLoading}
@@ -296,8 +298,8 @@ export function ItemsSection({
                     </TableCell>
 
                     <TableCell align="right">
-                      <TextField
-                        size="small"
+                      <StackedTextField
+                        layout="default"
                         value={item.unit_price}
                         onChange={(event) => onUpdateItem(index, { unit_price: formatCurrencyInput(event.target.value) })}
                         onBlur={(event) => onUpdateItem(index, { unit_price: formatCurrencyInput(event.target.value) })}
@@ -309,11 +311,7 @@ export function ItemsSection({
                             fontVariantNumeric: 'tabular-nums',
                           },
                         }}
-                        slotProps={{
-                          input: {
-                            endAdornment: <InputAdornment position="end">đ</InputAdornment>,
-                          },
-                        }}
+                        endAdornment={<InputAdornment position="end">đ</InputAdornment>}
                       />
                       <Typography variant="body2" color="text.secondary" sx={{ mt: 1, fontVariantNumeric: 'tabular-nums' }}>
                         Giảm giá: {formatCurrency(item.discount_amount)}

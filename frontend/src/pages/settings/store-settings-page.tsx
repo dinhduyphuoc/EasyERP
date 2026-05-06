@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactElement } from 'react'
+import { useEffect, useMemo, useState, type ReactElement } from 'react'
 import {
   Alert,
   Box,
@@ -57,6 +57,21 @@ export function StoreSettingsPage(): ReactElement {
   const [returnAddress, setReturnAddress] = useState('')
   const [isSaving, setIsSaving] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
+  const [hasAttemptedSave, setHasAttemptedSave] = useState(false)
+
+  const errors = useMemo(() => {
+    const nextErrors: Partial<Record<'name' | 'slug', string>> = {}
+
+    if (!name.trim()) {
+      nextErrors.name = 'Tên cửa hàng là bắt buộc.'
+    }
+
+    if (!slug.trim()) {
+      nextErrors.slug = 'Slug là bắt buộc.'
+    }
+
+    return nextErrors
+  }, [name, slug])
 
   useEffect(() => {
     if (!activeStore) {
@@ -104,6 +119,13 @@ export function StoreSettingsPage(): ReactElement {
 
   const handleSave = async () => {
     if (!activeStore) {
+      return
+    }
+
+    setHasAttemptedSave(true)
+
+    if (Object.keys(errors).length > 0) {
+      appToast.warning('Vui lòng kiểm tra lại các trường bắt buộc.')
       return
     }
 
@@ -179,8 +201,22 @@ export function StoreSettingsPage(): ReactElement {
           <Stack spacing={2}>
             <SummaryPaperHeader title="Store info" />
             {isLoading ? <CircularProgress size={24} /> : null}
-            <StackedTextField fullWidth label="Name" value={name} onChange={(event) => setName(event.target.value)} />
-            <StackedTextField fullWidth label="Slug" value={slug} onChange={(event) => setSlug(event.target.value)} />
+            <StackedTextField
+              fullWidth
+              required
+              label="Name"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              submitError={hasAttemptedSave ? errors.name : undefined}
+            />
+            <StackedTextField
+              fullWidth
+              required
+              label="Slug"
+              value={slug}
+              onChange={(event) => setSlug(event.target.value)}
+              submitError={hasAttemptedSave ? errors.slug : undefined}
+            />
             <StackedTextField
               fullWidth
               label="Owner"

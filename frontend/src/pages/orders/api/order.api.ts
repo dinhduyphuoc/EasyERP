@@ -27,7 +27,9 @@ export type OrderInvoiceSnapshot = {
 
 export type OrderItem = {
   id: number
+  spu_id?: number | null
   product_id: number | null
+  sku_code?: string
   variant_sku: string | null
   product_name: string
   display_name?: string | null
@@ -282,6 +284,8 @@ export type OrderOptionLookup = {
     } | null
   }>
   products: Array<{
+    spu_id?: number
+    sku_code?: string
     sku: string
     label: string
     variant_kind: 'default' | 'generated'
@@ -379,7 +383,9 @@ export type OrderCreatePayload = {
   confirmed_by?: string | null
   status_timeline?: Record<string, unknown>
   order_items?: Array<{
+    spu_id?: number | null
     product_id?: number | null
+    sku_code?: string
     variant_sku?: string | null
     product_name?: string
     sku?: string

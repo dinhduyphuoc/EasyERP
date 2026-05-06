@@ -8,9 +8,9 @@ import {
   InputAdornment,
   MenuItem,
   Paper,
-  TextField,
   Typography,
 } from '@mui/material'
+import { StackedDropdown } from '@/shared/ui/form/stacked-dropdown'
 import { StackedTextField } from '@/shared/ui/form/stacked-text-field'
 import { formatCurrency, formatCurrencyInput } from '../../lib/order.utils'
 import { PAYMENT_COLLECTION_METHOD_LABELS, type PaymentCollectionMethod } from '../../lib/payment-display.helpers'
@@ -34,6 +34,9 @@ export function PaymentEntryDialog({
   remainingAmount,
   submitLabel,
   isSubmitting,
+  amountError,
+  noteError,
+  methodError,
   onClose,
   onAmountChange,
   onMethodChange,
@@ -53,6 +56,9 @@ export function PaymentEntryDialog({
   remainingAmount: number
   submitLabel: string
   isSubmitting: boolean
+  amountError?: string
+  noteError?: string
+  methodError?: string
   onClose: () => void
   onAmountChange?: (value: string) => void
   onMethodChange: (value: PaymentCollectionMethod) => void
@@ -76,6 +82,7 @@ export function PaymentEntryDialog({
             value={formatCurrencyInput(amountValue, { zeroAsEmpty: true })}
             onChange={(event) => onAmountChange?.(formatCurrencyInput(event.target.value, { zeroAsEmpty: true }))}
             endAdornment={<InputAdornment position="end">₫</InputAdornment>}
+            submitError={amountError}
             sx={{ mt: 2 }}
           />
         ) : (
@@ -86,12 +93,12 @@ export function PaymentEntryDialog({
             <Typography sx={{ mt: 0.8, fontWeight: 700, color: '#0f172a' }}>{amountValue}</Typography>
           </Paper>
         )}
-        <TextField
-          select
+        <StackedDropdown
           fullWidth
           label="Phương thức thanh toán"
           value={methodValue}
           onChange={(event) => onMethodChange(event.target.value as PaymentCollectionMethod)}
+          submitError={methodError}
           sx={{ mt: 2 }}
         >
           {Object.entries(PAYMENT_COLLECTION_METHOD_LABELS).map(([value, label]) => (
@@ -99,7 +106,7 @@ export function PaymentEntryDialog({
               {label}
             </MenuItem>
           ))}
-        </TextField>
+        </StackedDropdown>
         <StackedTextField
           fullWidth
           multiline
@@ -108,6 +115,7 @@ export function PaymentEntryDialog({
           value={noteValue}
           onChange={(event) => onNoteChange(event.target.value)}
           placeholder={notePlaceholder}
+          submitError={noteError}
           sx={{ mt: 2 }}
         />
         <Paper variant="outlined" sx={{ p: 1.5, mt: 2, bgcolor: '#f8fafc' }}>

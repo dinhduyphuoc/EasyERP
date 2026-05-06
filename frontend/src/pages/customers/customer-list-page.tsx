@@ -321,7 +321,7 @@ export function CustomerListPage() {
       loadingState={<CustomerListTableSkeleton />}
       emptyState={
         <ListEmptyState
-          title="Không tìm thấy khách hàng phù hợp"
+          title="Không tìm thấy khách hàng"
           description="Thử đổi từ khóa tìm kiếm hoặc xóa bộ lọc để xem lại toàn bộ danh sách khách hàng."
           action={
             <Button

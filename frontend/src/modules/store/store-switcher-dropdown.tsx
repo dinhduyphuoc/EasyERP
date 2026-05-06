@@ -219,7 +219,7 @@ export function StoreSwitcherDropdown({
               {user.fullName}
             </Typography>
             <Typography variant="body2" sx={{ color: '#667085' }} noWrap>
-              {activeStore?.name ?? (stores.length > 0 ? `${stores.length} store${stores.length > 1 ? 's' : ''}` : 'No store yet')}
+              {activeStore?.name ?? (stores.length > 0 ? `${stores.length} store${stores.length > 1 ? 's' : ''}` : 'Chưa có cửa hàng')}
             </Typography>
           </Box>
         </Stack>
@@ -262,7 +262,7 @@ export function StoreSwitcherDropdown({
       >
         <Box sx={{ px: 1, pb: 1 }}>
           <Typography variant="subtitle2" sx={{ px: 1, py: 0.5, color: '#475467' }}>
-            Stores
+            Cửa hàng
           </Typography>
           <Stack spacing={0.5}>
             {stores.length > 0 ? (
@@ -316,7 +316,7 @@ export function StoreSwitcherDropdown({
               <LogoutRoundedIcon fontSize="small" />
             )}
           </ListItemIcon>
-          <Typography sx={{ fontWeight: 600 }}>Log out</Typography>
+          <Typography sx={{ fontWeight: 600 }}>Đăng xuất</Typography>
         </MenuItem>
       </Menu>
     </>

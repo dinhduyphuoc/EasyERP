@@ -18,6 +18,9 @@ export type ProductVariantAttributeValue = {
 }
 
 export type ProductVariant = {
+  spu_id?: number
+  sku_code?: string
+  attribute_value_ids?: number[]
   sku: string
   product_id: number
   kind?: 'default' | 'generated'
@@ -29,8 +32,10 @@ export type ProductVariant = {
 
 export type ProductDetailItem = {
   id: number
+  spu_id?: number
+  spu_code?: string | null
+  spu?: string | null
   product_name: string
-  default_variant_sku: string | null
   unit: string | null
   base_price?: string | null
   cogs?: string | null
@@ -46,8 +51,10 @@ export type ProductDetailItem = {
 
 export type ProductListItem = {
   id: number
+  spu_id?: number
+  spu_code?: string | null
+  spu?: string | null
   product_name: string
-  default_variant_sku: string | null
   image_url: string | null
   status: 'active' | 'inactive' | 'draft' | 'deleted'
   category_id: number | null
@@ -56,6 +63,7 @@ export type ProductListItem = {
   variant_count: number
   has_generated_variants: boolean
   primary_variant: {
+    sku_code?: string
     sku: string
     kind: 'default' | 'generated'
     selling_price: string
@@ -65,8 +73,8 @@ export type ProductListItem = {
 
 export const productSkeleton: ProductListItem = {
   id: 0,
+  spu: null,
   product_name: '',
-  default_variant_sku: null,
   image_url: null,
   status: 'draft',
   category_id: null,

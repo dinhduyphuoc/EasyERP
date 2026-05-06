@@ -3,6 +3,8 @@ import { apiClient } from '@/api/api-client'
 const ENDPOINT = '/inventory'
 
 export type InventoryStockListItem = {
+  sku_code?: string
+  spu_id?: number
   product_variant_id: string
   product_id: number
   product_name: string
@@ -36,6 +38,25 @@ export type InventoryAuditPayload = {
     name?: string | null
   } | null
   lines: InventoryAuditLinePayload[]
+}
+
+export type InventoryImportPayload = {
+  rows: Array<{
+    row_no?: number
+    sku_code?: string | null
+    product_variant_id?: string | null
+    mode?: 'absolute' | 'delta'
+    on_hand?: number | null
+    qty?: number | null
+    note?: string | null
+    reason_code?: 'actual_count' | 'damaged' | 'customer_return' | 'transfer' | 'manufacturing' | 'lost' | 'other'
+  }>
+  actor?: {
+    id?: string | null
+    name?: string | null
+  } | null
+  reference_code?: string | null
+  note?: string | null
 }
 
 export type InventoryAuditLineItem = InventoryStockListItem & {
@@ -132,6 +153,16 @@ export const inventoryApi = {
 
   createAudit: async (data: InventoryAuditPayload): Promise<InventoryAuditItem> => {
     return apiClient.post(`${ENDPOINT}/audits`, data)
+  },
+
+  importInventory: async (data: InventoryImportPayload): Promise<{
+    items: Array<{
+      row_no: number
+      sku_code: string
+      mode: 'absolute' | 'delta'
+    }>
+  }> => {
+    return apiClient.post(`${ENDPOINT}/import`, data)
   },
 
   updateAudit: async (id: string | number, data: InventoryAuditPayload): Promise<InventoryAuditItem> => {

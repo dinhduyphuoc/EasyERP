@@ -773,17 +773,20 @@ export const buildHistoryEntries = (input: {
 };
 
 export const buildNormalizedItems = async (storeId: string, items: OrderItemRequestInput[]) => {
-  const requestedVariantSkus = items
-    .map((item) => toOptionalTrimmedString(item.variant_sku))
+  const requestedSkuCodes = items
+    .flatMap((item) => [toOptionalTrimmedString(item.variant_sku), toOptionalTrimmedString(item.sku_code), toOptionalTrimmedString(item.sku)])
     .filter((value): value is string => Boolean(value));
   const requestedProductIds = items
-    .map((item) => (item.product_id === null ? undefined : parseOptionalPositiveInt(item.product_id, "product_id")))
+    .map((item) => {
+      const candidate = item.spu_id ?? item.product_id;
+      return candidate === null ? undefined : parseOptionalPositiveInt(candidate, "spu_id");
+    })
     .filter((value): value is number => Boolean(value));
 
   const [variants, products] = await Promise.all([
-    requestedVariantSkus.length > 0
+    requestedSkuCodes.length > 0
       ? OrderRepository.findProductVariants({
-          where: { sku: { in: requestedVariantSkus }, store_id: storeId },
+          where: { sku: { in: requestedSkuCodes }, store_id: storeId, status: "active" },
           include: {
             product: {
               select: {
@@ -800,7 +803,12 @@ export const buildNormalizedItems = async (storeId: string, items: OrderItemRequ
           select: {
             id: true,
             product_name: true,
-            default_variant_sku: true,
+            spu: true,
+            variants: {
+              where: { status: "active" },
+              select: { sku: true },
+              orderBy: [{ sku: "asc" }],
+            },
           },
         })
       : Promise.resolve([]),
@@ -817,46 +825,68 @@ export const buildNormalizedItems = async (storeId: string, items: OrderItemRequ
       `order_items[${index}].discount_amount`,
       0,
     );
-    const variantSku = toOptionalTrimmedString(item.variant_sku) ?? null;
+    const requestedSku =
+      toOptionalTrimmedString(item.sku_code) ??
+      toOptionalTrimmedString(item.variant_sku) ??
+      toOptionalTrimmedString(item.sku) ??
+      null;
+    const rawProductId = item.spu_id ?? item.product_id;
     const productId =
-      item.product_id === null || item.product_id === undefined
+      rawProductId === null || rawProductId === undefined
         ? null
-        : parseOptionalPositiveInt(item.product_id, `order_items[${index}].product_id`) ?? null;
-    const variant = variantSku ? variantMap.get(variantSku) : undefined;
+        : parseOptionalPositiveInt(rawProductId, `order_items[${index}].spu_id`) ?? null;
+    const variant =
+      requestedSku ? variantMap.get(requestedSku) : undefined;
     const product = productId ? productMap.get(productId) : undefined;
+    const activeProductSkus = product?.variants.map((candidate) => candidate.sku) ?? [];
     const productName =
       toOptionalTrimmedString(item.product_name) ??
       variant?.product.product_name ??
       product?.product_name;
-    const sku =
-      toOptionalTrimmedString(item.sku) ??
-      variantSku ??
-      product?.default_variant_sku ??
+    const resolvedSku =
+      variant?.sku ??
+      (activeProductSkus.length === 1 ? activeProductSkus[0] : undefined) ??
       undefined;
 
     if (!productName) {
       throw new BadRequestError(`order_items[${index}].product_name is required`);
     }
 
-    if (!sku) {
-      throw new BadRequestError(`order_items[${index}].sku is required`);
-    }
-
-    if (variantSku && !variant) {
-      throw new BadRequestError(`Variant "${variantSku}" was not found`);
+    if (requestedSku && !variant) {
+      throw new BadRequestError(`SKU "${requestedSku}" was not found`);
     }
 
     if (productId && !product && !variant) {
-      throw new BadRequestError(`Product "${productId}" was not found`);
+      throw new BadRequestError(`SPU "${productId}" was not found`);
+    }
+
+    if (!requestedSku && !productId) {
+      throw new BadRequestError(`order_items[${index}].sku_code is required`);
+    }
+
+    if (product && !requestedSku && activeProductSkus.length !== 1) {
+      throw new BadRequestError(
+        `order_items[${index}] must specify sku_code because SPU "${product.product_name}" has multiple SKUs`,
+      );
+    }
+
+    if (productId && variant && variant.product.id !== productId) {
+      throw new BadRequestError(
+        `order_items[${index}].sku_code does not belong to the provided SPU`,
+      );
+    }
+
+    if (!resolvedSku) {
+      throw new BadRequestError(`order_items[${index}].sku_code is required`);
     }
 
     const calculatedSubTotal = unitPrice.mul(quantity).minus(discountAmount);
 
     return {
       product_id: variant?.product.id ?? productId,
-      variant_sku: variantSku,
+      variant_sku: variant?.sku ?? resolvedSku,
       product_name: productName,
-      sku,
+      sku: resolvedSku,
       quantity,
       unit_price: unitPrice,
       discount_amount: discountAmount,

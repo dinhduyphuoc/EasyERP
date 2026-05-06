@@ -130,13 +130,13 @@ const SYSTEM_ROLE_PERMISSIONS: Record<string, readonly string[]> = {
 };
 
 const SYSTEM_ROLE_NAMES: Record<string, string> = {
-  super_admin: "Super Admin",
-  admin: "Admin",
-  sales: "Sales",
-  warehouse: "Warehouse",
-  accountant: "Accountant",
-  customer_support: "Customer Support",
-  viewer: "Viewer",
+  super_admin: "Admin",
+  admin: "Quản trị viên",
+  sales: "Nhân viên bán hàng",
+  warehouse: "Quản lý kho",
+  accountant: "Kế toán",
+  customer_support: "Hỗ trợ khách hàng",
+  viewer: "Người xem",
 };
 
 export const bootstrapRbac = async () => {

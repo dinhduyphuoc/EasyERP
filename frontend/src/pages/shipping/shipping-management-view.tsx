@@ -126,6 +126,16 @@ export function ShippingManagementView({
   const [isSaving, setIsSaving] = useState(false)
   const [modalError, setModalError] = useState<string | null>(null)
 
+  const getFieldValidationMessage = (field: ShippingCredentialField, rawValue: string) => {
+    const value = rawValue.trim()
+
+    if (field.min_length && value && value.length < field.min_length) {
+      return `${field.label} pháº£i cÃ³ Ã­t nháº¥t ${field.min_length} kÃ½ tá»±.`
+    }
+
+    return undefined
+  }
+
   const loadProviders = async (options?: { silent?: boolean }) => {
     if (options?.silent) {
       setIsRefreshing(true)
@@ -228,16 +238,6 @@ export function ShippingManagementView({
       ...current,
       [fieldKey]: value,
     }))
-
-    setFormErrors((current) => {
-      if (!current[fieldKey]) {
-        return current
-      }
-
-      const next = { ...current }
-      delete next[fieldKey]
-      return next
-    })
   }
 
   const handleSaveConnection = async () => {
@@ -654,13 +654,16 @@ export function ShippingManagementView({
                   <StackedTextField
                     key={field.key}
                     fullWidth
+                    required={field.required}
                     type={field.input_type}
                     label={field.label}
                     placeholder={field.placeholder}
                     value={formValues[field.key] ?? ''}
                     onChange={(event) => handleChangeField(field.key, event.target.value)}
-                    error={Boolean(formErrors[field.key])}
-                    helperText={formErrors[field.key] ?? field.helper_text}
+                    helperText={field.helper_text}
+                    submitError={formErrors[field.key]}
+                    validate={(value) => getFieldValidationMessage(field, value)}
+                    validateWhen="blur"
                   />
                 ))}
 

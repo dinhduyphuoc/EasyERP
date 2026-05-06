@@ -107,7 +107,9 @@ export const duplicateOrder = async (
         },
       ],
       order_items: existingOrder.items.map((item) => ({
+        spu_id: item.product_id,
         product_id: item.product_id,
+        sku_code: item.sku,
         variant_sku: item.variant_sku,
         product_name: item.product_name,
         sku: item.sku,

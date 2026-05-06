@@ -27,6 +27,7 @@ import {
 import { useEffect, useMemo, useState, type ReactElement } from 'react'
 import { useStore } from '@/modules/store/use-store'
 import { storeApi, type StoreRecord } from '@/modules/store/store.api'
+import { validateEmailField } from '@/pages/onboarding/onboarding.validation'
 import { StackedDropdown } from '@/shared/ui/form/stacked-dropdown'
 import { StackedTextField } from '@/shared/ui/form/stacked-text-field'
 import { borderedCardSx } from '@/shared/ui/paper'
@@ -574,6 +575,7 @@ export function SettingsBillingInvoicesPage(): ReactElement {
   const [store, setStore] = useState<StoreRecord | null>(null)
   const [settings, setSettings] = useState<GeneralSettings | null>(null)
   const [invoiceDraft, setInvoiceDraft] = useState<GeneralSettings['defaults']['invoice'] | null>(null)
+  const [hasAttemptedSave, setHasAttemptedSave] = useState(false)
   const dirtyState = useJsonDirtyState({ invoiceDraft }, !isLoading && invoiceDraft !== null)
 
   useEffect(() => {
@@ -621,6 +623,40 @@ export function SettingsBillingInvoicesPage(): ReactElement {
   }, [activeStore?.id])
 
   const activeFields = useMemo(() => (mode === 'b2b' ? b2bFields : b2cFields), [mode])
+  const errors = useMemo(() => {
+    if (!invoiceDraft) {
+      return {}
+    }
+
+    const nextErrors: Record<string, string> = {}
+
+    if (!invoiceDraft.numbering.invoice_series_prefix.trim()) {
+      nextErrors.invoice_series_prefix = 'Prefix ký hiệu là bắt buộc.'
+    }
+
+    if (!invoiceDraft.seller.legal_name.trim()) {
+      nextErrors.seller_legal_name = 'Tên pháp lý là bắt buộc.'
+    }
+
+    if (!invoiceDraft.seller.tax_code.trim()) {
+      nextErrors.seller_tax_code = 'Mã số thuế là bắt buộc.'
+    }
+
+    if (!invoiceDraft.seller.address_line.trim()) {
+      nextErrors.seller_address_line = 'Địa chỉ người bán là bắt buộc.'
+    }
+
+    if (invoiceDraft.seller.email.trim()) {
+      const emailError = validateEmailField(invoiceDraft.seller.email)
+
+      if (emailError) {
+        nextErrors.seller_email = emailError
+      }
+    }
+
+    return nextErrors
+  }, [invoiceDraft])
+
   const handleInvoiceDraftChange = <T extends keyof GeneralSettings['defaults']['invoice']>(
     section: T,
     value: GeneralSettings['defaults']['invoice'][T],
@@ -637,10 +673,18 @@ export function SettingsBillingInvoicesPage(): ReactElement {
       invoiceDraft: GeneralSettings['defaults']['invoice']
     }
     setInvoiceDraft(snapshot.invoiceDraft)
+    setHasAttemptedSave(false)
   }
 
   const handleSave = async () => {
     if (!invoiceDraft) {
+      return
+    }
+
+    setHasAttemptedSave(true)
+
+    if (Object.keys(errors).length > 0) {
+      appToast.warning('Vui lòng kiểm tra lại các trường bắt buộc của invoice.')
       return
     }
 
@@ -674,6 +718,7 @@ export function SettingsBillingInvoicesPage(): ReactElement {
       setSettings(updated)
       setInvoiceDraft(updated.defaults.invoice)
       dirtyState.setInitialSnapshot(JSON.stringify({ invoiceDraft: updated.defaults.invoice }))
+      setHasAttemptedSave(false)
       appToast.success('Đã lưu cấu hình invoice.')
     } catch (error) {
       showErrorToast(error, 'Không thể lưu cấu hình invoice.')
@@ -793,6 +838,7 @@ export function SettingsBillingInvoicesPage(): ReactElement {
 
               <StackedTextField
                 label="Prefix ký hiệu"
+                required
                 value={invoiceDraft.numbering.invoice_series_prefix}
                 onChange={(event) =>
                   handleInvoiceDraftChange('numbering', {
@@ -800,14 +846,17 @@ export function SettingsBillingInvoicesPage(): ReactElement {
                     invoice_series_prefix: event.target.value,
                   })
                 }
+                submitError={hasAttemptedSave ? errors.invoice_series_prefix : undefined}
               />
 
               <StackedTextField
                 label="Tên pháp lý"
+                required
                 value={invoiceDraft.seller.legal_name}
                 onChange={(event) =>
                   handleInvoiceDraftChange('seller', { ...invoiceDraft.seller, legal_name: event.target.value })
                 }
+                submitError={hasAttemptedSave ? errors.seller_legal_name : undefined}
               />
 
               <StackedTextField
@@ -820,10 +869,12 @@ export function SettingsBillingInvoicesPage(): ReactElement {
 
               <StackedTextField
                 label="Mã số thuế"
+                required
                 value={invoiceDraft.seller.tax_code}
                 onChange={(event) =>
                   handleInvoiceDraftChange('seller', { ...invoiceDraft.seller, tax_code: event.target.value })
                 }
+                submitError={hasAttemptedSave ? errors.seller_tax_code : undefined}
               />
 
               <StackedTextField
@@ -832,6 +883,9 @@ export function SettingsBillingInvoicesPage(): ReactElement {
                 onChange={(event) =>
                   handleInvoiceDraftChange('seller', { ...invoiceDraft.seller, email: event.target.value })
                 }
+                submitError={hasAttemptedSave ? errors.seller_email : undefined}
+                validate={validateEmailField}
+                validateWhen="blur"
               />
 
               <StackedTextField
@@ -853,10 +907,12 @@ export function SettingsBillingInvoicesPage(): ReactElement {
               <Box sx={{ gridColumn: '1 / -1' }}>
                 <StackedTextField
                   label="Địa chỉ người bán"
+                  required
                   value={invoiceDraft.seller.address_line}
                   onChange={(event) =>
                     handleInvoiceDraftChange('seller', { ...invoiceDraft.seller, address_line: event.target.value })
                   }
+                  submitError={hasAttemptedSave ? errors.seller_address_line : undefined}
                 />
               </Box>
 

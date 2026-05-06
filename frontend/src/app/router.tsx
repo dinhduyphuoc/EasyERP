@@ -7,6 +7,7 @@ import { sidebarRouteItems } from '@/app/config/sidebar-routes'
 import { DashboardLayout } from '@/app/layouts/dashboard-layout'
 import { PermissionRoute } from '@/modules/auth/permission-route'
 import { ProtectedRoute } from '@/modules/auth/protected-route'
+import { OnboardingRoute, SetupProtectedRoute } from '@/modules/setup/setup-route'
 import { ForbiddenPage } from '@/pages/auth/forbidden-page'
 import { LoginPage } from '@/pages/auth/login-page'
 import { InventoryAuditPageSkeleton } from '@/pages/inventory/inventory-skeletons'
@@ -105,6 +106,9 @@ const ShippingManagementView = lazy(() =>
 )
 const SettingsPlaceholderPage = lazy(() =>
   import('@/pages/settings/settings-placeholder-page').then((module) => ({ default: module.SettingsPlaceholderPage })),
+)
+const OnboardingPage = lazy(() =>
+  import('@/pages/onboarding/onboarding-page').then((module) => ({ default: module.OnboardingPage })),
 )
 
 const childRoutes: RouteObject[] = []
@@ -269,59 +273,73 @@ const router = createBrowserRouter([
         element: <LoginPage />,
       },
       {
+        element: <OnboardingRoute />,
+        children: [
+          {
+            path: '/onboarding',
+            element: renderLazyPage(<OnboardingPage />),
+          },
+        ],
+      },
+      {
         path: '/403',
         element: <ForbiddenPage />,
       },
       {
-        element: <ProtectedRoute />,
+        element: <SetupProtectedRoute />,
         children: [
           {
-            path: '/',
-            element: renderLazyPage(<DashboardLayout />),
-            children: childRoutes,
-          },
-          {
-            path: '/settings',
-            element: withPermission(['settings.read'], renderLazyPage(<SettingsWorkspaceLayout />)),
+            element: <ProtectedRoute />,
             children: [
               {
-                index: true,
-                element: <Navigate to="general" replace />,
+                path: '/',
+                element: renderLazyPage(<DashboardLayout />),
+                children: childRoutes,
               },
               {
-                path: 'store',
-                element: <Navigate to="/settings/general" replace />,
+                path: '/settings',
+                element: withPermission(['settings.read'], renderLazyPage(<SettingsWorkspaceLayout />)),
+                children: [
+                  {
+                    index: true,
+                    element: <Navigate to="general" replace />,
+                  },
+                  {
+                    path: 'store',
+                    element: <Navigate to="/settings/general" replace />,
+                  },
+                  {
+                    path: 'general/store-details',
+                    element: withPermission(['settings.read'], renderLazyPage(<SettingsStoreDetailsPage />)),
+                  },
+                  {
+                    path: 'general/payment-methods',
+                    element: withPermission(['payments.read'], renderLazyPage(<SettingsPaymentMethodsPage />)),
+                  },
+                  ...settingsRouteDefinitions.map((item) => ({
+                    path: item.path.replace('/settings/', ''),
+                    element:
+                      item.path === '/settings/general'
+                        ? withPermission(['settings.read'], renderLazyPage(<SettingsGeneralPage />))
+                        : item.path === '/settings/address-management'
+                          ? withPermission(['settings.read'], renderLazyPage(<SettingsAddressManagementPage />))
+                          : item.path === '/settings/payment-methods'
+                            ? withPermission(['payments.read'], renderLazyPage(<SettingsPaymentMethodsPage />))
+                            : item.path === '/settings/billing-invoices'
+                              ? withPermission(['payments.read'], renderLazyPage(<SettingsBillingInvoicesPage />))
+                              : item.path === '/settings/accounts'
+                                ? withPermission(['users.read'], renderLazyPage(<SettingsAccountsPage />))
+                                : item.path === '/settings/role-permission-groups'
+                                  ? withPermission(['users.read'], renderLazyPage(<SettingsRolePermissionPage />))
+                                  : item.path === '/settings/shipping-settings'
+                                    ? withPermission(['settings.read'], renderLazyPage(<ShippingManagementView />))
+                                    : withPermission(
+                                        item.permissions ?? ['settings.read'],
+                                        renderLazyPage(<SettingsPlaceholderPage />),
+                                      ),
+                  })),
+                ],
               },
-              {
-                path: 'general/store-details',
-                element: withPermission(['settings.read'], renderLazyPage(<SettingsStoreDetailsPage />)),
-              },
-              {
-                path: 'general/payment-methods',
-                element: withPermission(['payments.read'], renderLazyPage(<SettingsPaymentMethodsPage />)),
-              },
-              ...settingsRouteDefinitions.map((item) => ({
-                path: item.path.replace('/settings/', ''),
-                element:
-                  item.path === '/settings/general'
-                    ? withPermission(['settings.read'], renderLazyPage(<SettingsGeneralPage />))
-                    : item.path === '/settings/address-management'
-                      ? withPermission(['settings.read'], renderLazyPage(<SettingsAddressManagementPage />))
-                      : item.path === '/settings/payment-methods'
-                        ? withPermission(['payments.read'], renderLazyPage(<SettingsPaymentMethodsPage />))
-                        : item.path === '/settings/billing-invoices'
-                          ? withPermission(['payments.read'], renderLazyPage(<SettingsBillingInvoicesPage />))
-                        : item.path === '/settings/accounts'
-                          ? withPermission(['users.read'], renderLazyPage(<SettingsAccountsPage />))
-                          : item.path === '/settings/role-permission-groups'
-                            ? withPermission(['users.read'], renderLazyPage(<SettingsRolePermissionPage />))
-                            : item.path === '/settings/shipping-settings'
-                              ? withPermission(['settings.read'], renderLazyPage(<ShippingManagementView />))
-                              : withPermission(
-                                  item.permissions ?? ['settings.read'],
-                                  renderLazyPage(<SettingsPlaceholderPage />),
-                                ),
-              })),
             ],
           },
         ],

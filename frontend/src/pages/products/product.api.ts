@@ -4,8 +4,10 @@ import type { ProductDetailItem, ProductListItem } from './product-list.data'
 const ENDPOINT = '/products'
 
 export type ProductUpsertPayload = {
+  spu_id?: number
+  spu_code?: string
+  spu?: string
   product_name: string
-  default_variant_sku?: string
   unit?: string
   image_url?: string | null
   description?: string
@@ -20,6 +22,7 @@ export type ProductUpsertPayload = {
     values: string[]
   }>
   variants: Array<{
+    sku_code?: string
     sku: string
     kind?: 'default' | 'generated'
     name?: string
@@ -27,6 +30,7 @@ export type ProductUpsertPayload = {
     cogs: number
     image_url?: string | null
     combinations: string[]
+    attribute_value_ids?: number[]
   }>
 }
 
@@ -48,6 +52,10 @@ export type ProductImageCropPayload = {
     width: number
     height: number
   }
+}
+
+export type ProductImportPayload = {
+  rows: ProductUpsertPayload[]
 }
 
 type BulkDeletePayload = {
@@ -127,6 +135,18 @@ export const productApi = {
 
   updateProduct: async (id: string | number, data: ProductUpsertPayload): Promise<ProductDetailItem> => {
     return apiClient.put(`${ENDPOINT}/${id}`, data)
+  },
+
+  importProducts: async (data: ProductImportPayload): Promise<{
+    items: Array<{
+      row_no: number
+      action: 'created' | 'updated'
+      spu_id: number
+      spu: string | null
+      product_name: string
+    }>
+  }> => {
+    return apiClient.post(`${ENDPOINT}/import`, data)
   },
 
   deleteProducts: async (ids: number[]): Promise<ProductBulkDeleteResult> => {

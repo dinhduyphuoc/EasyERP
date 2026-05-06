@@ -39,12 +39,43 @@ const sanitizeScopes = (
     scope_value: scope.scope_value,
   }));
 
+const toTrimmedString = (value: unknown) => (typeof value === "string" ? value.trim() : "");
+
+const toOptionalRecord = (value: unknown) =>
+  value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+
+const resolveUserAvatarUrl = (
+  user: {
+    avatar_url?: string | null;
+    active_store_id: string | null;
+    stores: Array<{
+      store: {
+        id: string;
+        profile_json?: unknown;
+      };
+    }>;
+  },
+) => {
+  const activeMembership =
+    user.stores.find((membership) => membership.store.id === user.active_store_id) ??
+    user.stores[0] ??
+    null;
+
+  if (!activeMembership) {
+    return toTrimmedString(user.avatar_url) || null;
+  }
+
+  const profile = toOptionalRecord(activeMembership.store.profile_json);
+  return toTrimmedString(user.avatar_url) || toTrimmedString(profile?.owner_avatar_url) || null;
+};
+
 const toUserAuthPayload = (user: {
   id: string;
   tenant_id: string | null;
   active_store_id: string | null;
   full_name: string;
   email: string;
+  avatar_url: string | null;
   status: string;
   last_login_at: Date | null;
   roles: Array<{
@@ -69,6 +100,7 @@ const toUserAuthPayload = (user: {
       slug: string;
       default_currency: string;
       default_timezone: string;
+      profile_json: unknown;
     };
   }>;
 }) => {
@@ -82,10 +114,11 @@ const toUserAuthPayload = (user: {
   return {
     id: user.id,
     tenant_id: user.tenant_id,
-    active_store_id: user.active_store_id,
-    full_name: user.full_name,
-    email: user.email,
-    status: user.status,
+  active_store_id: user.active_store_id,
+  full_name: user.full_name,
+  email: user.email,
+  avatar_url: resolveUserAvatarUrl(user),
+  status: user.status,
     last_login_at: user.last_login_at?.toISOString() ?? null,
     roles: roleSlugs,
     permissions: permissionCodes,
@@ -110,6 +143,7 @@ const toSessionAuthUser = (user: {
   active_store_id: string | null;
   full_name: string;
   email: string;
+  avatar_url: string | null;
   status: string;
   roles: Array<{
     role: {
@@ -121,12 +155,19 @@ const toSessionAuthUser = (user: {
       }>;
     };
   }>;
+  stores: Array<{
+    store: {
+      id: string;
+      profile_json: unknown;
+    };
+  }>;
 }): AuthenticatedSessionUser => ({
   id: user.id,
   tenant_id: user.tenant_id,
   active_store_id: user.active_store_id,
   full_name: user.full_name,
   email: user.email,
+  avatar_url: resolveUserAvatarUrl(user),
   status: user.status,
   roles: sanitizeRoleSlugs(user.roles.map((item) => item.role.slug)),
 });

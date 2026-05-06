@@ -1,5 +1,6 @@
-import { Autocomplete, Box, Paper, Stack, TextField, Typography } from '@mui/material'
+import { Paper, Stack, Typography } from '@mui/material'
 import { type CityItem, type DistrictItem, type LocationItem } from '@/pages/customers/customer.api'
+import { StackedAutocomplete } from '@/shared/ui/form/stacked-autocomplete'
 import { StackedTextField } from '@/shared/ui/form/stacked-text-field'
 import { borderedCardSx } from '@/shared/ui/paper'
 import { SummaryPaperHeader } from '@/shared/ui/summary-paper-header'
@@ -79,21 +80,19 @@ const LocationField = <T extends { id: number; name: string }>({
   disabled?: boolean
   onChange: (_event: unknown, value: T | null) => void
 }) => (
-  <Box sx={{ flex: 1 }}>
-    <Typography variant="body2" sx={{ mb: 1, color: '#344054', fontWeight: 500 }}>
-      {label}
-    </Typography>
-    <Autocomplete
-      options={options}
-      value={value}
-      loading={loading}
-      onChange={onChange}
-      getOptionLabel={(option) => option.name}
-      isOptionEqualToValue={(option, nextValue) => option.id === nextValue.id}
-      disabled={disabled}
-      renderInput={(params) => <TextField {...params} size="small" placeholder={placeholder} />}
-    />
-  </Box>
+  <StackedAutocomplete<T, false, false, false>
+    fullWidth
+    sx={{ flex: 1 }}
+    label={label}
+    options={options}
+    value={value}
+    loading={loading}
+    onChange={onChange}
+    getOptionLabel={(option) => option.name}
+    isOptionEqualToValue={(option, nextValue) => option.id === nextValue.id}
+    disabled={disabled}
+    placeholder={placeholder}
+  />
 )
 
 export function ShippingSection({

@@ -54,6 +54,7 @@ export function CustomerSection({
   onSelectCustomer,
 }: CustomerSectionProps) {
   const visibleOptions = isLoading ? [] : customerSearchOptions
+  const customerLookupError = customerNameError || customerPhoneError
 
   return (
     <Stack spacing={3}>
@@ -202,14 +203,12 @@ export function CustomerSection({
             <TextField
               {...params}
               placeholder="Tìm theo tên, mã khách hàng, số điện thoại"
-              error={Boolean(customerNameError || customerPhoneError)}
+              error={Boolean(customerLookupError)}
+              helperText={customerLookupError}
             />
           )}
         />
       )}
-
-      {customerNameError ? <Typography color="error">{customerNameError}</Typography> : null}
-      {customerPhoneError ? <Typography color="error">{customerPhoneError}</Typography> : null}
     </Stack>
   )
 }

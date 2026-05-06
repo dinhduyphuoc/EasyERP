@@ -10,6 +10,8 @@ import {
 } from "./product.repository";
 import type {
   ProductCategoryItem,
+  ProductImportRequestInput,
+  ProductImportResultItem,
   ProductListResponseItem,
   ProductCategoryRequestInput,
   ProductInput,
@@ -142,14 +144,16 @@ const mapProductListItem = (product: ProductListRecord): ProductListResponseItem
     .filter((value) => Number.isFinite(value))
     .sort((left, right) => left - right);
   const primaryVariant =
-    product.variants.find((variant) => variant.sku === product.default_variant_sku) ??
+    product.variants.find((variant) => variant.sku === product.spu) ??
     product.variants[0] ??
     null;
 
   return {
     id: product.id,
+    spu_id: product.id,
+    spu_code: null,
+    spu: product.spu,
     product_name: product.product_name,
-    default_variant_sku: product.default_variant_sku,
     image_url: product.image_url,
     status: product.status,
     category_id: product.category_id,
@@ -161,6 +165,7 @@ const mapProductListItem = (product: ProductListRecord): ProductListResponseItem
     has_generated_variants: product.variants.some((variant) => variant.kind === "generated"),
     primary_variant: primaryVariant
       ? {
+          sku_code: primaryVariant.sku,
           sku: primaryVariant.sku,
           kind: primaryVariant.kind,
           selling_price: primaryVariant.selling_price.toString(),
@@ -169,6 +174,19 @@ const mapProductListItem = (product: ProductListRecord): ProductListResponseItem
       : null,
   };
 };
+
+const mapProductDetailItem = (product: ProductDetailRecord) => ({
+  ...product,
+  spu_id: product.id,
+  spu_code: null,
+  spu: product.spu,
+  variants: product.variants.map((variant) => ({
+    ...variant,
+    sku_code: variant.sku,
+    spu_id: product.id,
+    attribute_value_ids: variant.attribute_values.map((item) => item.attribute_value_id),
+  })),
+});
 
 const PRODUCT_STATUSES: ProductStatusInput[] = ["active", "inactive", "draft", "deleted"];
 
@@ -209,7 +227,7 @@ const buildProductListWhere = (
       ? {
           OR: [
             { product_name: { contains: search, mode: "insensitive" } },
-            { default_variant_sku: { contains: search, mode: "insensitive" } },
+            { spu: { contains: search, mode: "insensitive" } },
             {
               variants: {
                 some: variantSearchWhere,
@@ -261,12 +279,26 @@ const normalizeAttributeInputs = (attributes: ProductRequestInput["attributes"])
 const normalizeVariantCombinations = (
   variant: NonNullable<ProductRequestInput["variants"]>[number],
 ) => {
+  const directAttributeValueIds = (variant.attribute_value_ids ?? []).filter(
+    (value): value is number => typeof value === "number" && Number.isInteger(value) && value > 0,
+  );
+
+  if (directAttributeValueIds.length > 0) {
+    return {
+      attributeValueIds: directAttributeValueIds,
+      combinations: [] as string[],
+    };
+  }
+
   const directCombinations = (variant.combinations ?? [])
     .map((combination) => combination.trim())
     .filter(Boolean);
 
   if (directCombinations.length > 0) {
-    return directCombinations;
+    return {
+      attributeValueIds: [] as number[],
+      combinations: directCombinations,
+    };
   }
 
   const derivedCombinations = (variant.name ?? "")
@@ -274,7 +306,10 @@ const normalizeVariantCombinations = (
     .map((value) => value.trim())
     .filter(Boolean);
 
-  return derivedCombinations;
+  return {
+    attributeValueIds: [] as number[],
+    combinations: derivedCombinations,
+  };
 };
 
 const ensureUniqueValues = (values: string[], fieldName: string) => {
@@ -287,7 +322,7 @@ const ensureUniqueValues = (values: string[], fieldName: string) => {
 
 const toProductData = (data: ProductInput) => ({
   product_name: data.product_name,
-  default_variant_sku: data.default_variant_sku,
+  spu: data.spu,
   unit: data.unit,
   base_price: data.base_price,
   cogs: data.cogs,
@@ -333,10 +368,17 @@ const buildAttributeValueMap = (
 };
 
 const resolveAttributeValueIds = (
-  combinations: string[],
+  variant: {
+    combinations: string[];
+    attribute_value_ids?: number[];
+  },
   attributeValueMap: Map<string, number>,
 ) => {
-  return combinations.map((combination) => {
+  if (variant.attribute_value_ids && variant.attribute_value_ids.length > 0) {
+    return variant.attribute_value_ids;
+  }
+
+  return variant.combinations.map((combination) => {
     const attributeValueId = attributeValueMap.get(combination);
 
     if (!attributeValueId) {
@@ -456,10 +498,7 @@ const syncVariants = async (
   }
 
   for (const variant of variants) {
-    const attributeValueIds = resolveAttributeValueIds(
-      variant.combinations,
-      attributeValueMap,
-    );
+    const attributeValueIds = resolveAttributeValueIds(variant, attributeValueMap);
 
     if (existingSkuSet.has(variant.sku)) {
       await ProductRepository.updateVariant(tx, variant.sku, {
@@ -543,7 +582,12 @@ const normalizeProductInput = async (
     throw new BadRequestError("product_name is required");
   }
 
-  const defaultVariantSku =
+  const legacyPayload = payload as ProductRequestInput & {
+    default_sku_code?: unknown;
+  };
+  const defaultSpu =
+    toOptionalTrimmedString(payload.spu) ??
+    toOptionalTrimmedString(legacyPayload.default_sku_code) ??
     toOptionalTrimmedString(payload.default_variant_sku);
   const attributes = normalizeAttributeInputs(payload.attributes);
   const categoryId = await resolveCategoryId(tx, storeId, payload);
@@ -557,8 +601,8 @@ const normalizeProductInput = async (
             toOptionalNumber(payload.variants?.[0]?.price) ??
             0;
 
-          if (!defaultVariantSku) {
-            throw new BadRequestError("default_variant_sku is required for products without variants");
+          if (!defaultSpu) {
+            throw new BadRequestError("spu is required for products without variants");
           }
 
           const singleVariantImage =
@@ -567,7 +611,7 @@ const normalizeProductInput = async (
 
           return [
             {
-              sku: defaultVariantSku,
+              sku: defaultSpu,
               kind: "default" as const,
               selling_price: sellingPrice,
               cogs:
@@ -580,7 +624,9 @@ const normalizeProductInput = async (
           ];
         })()
       : (payload.variants ?? []).map((variant) => {
-          const variantSku = toOptionalTrimmedString(variant.sku);
+          const variantSku =
+            toOptionalTrimmedString(variant.sku_code) ??
+            toOptionalTrimmedString(variant.sku);
           const sellingPrice =
             toOptionalNumber(variant.selling_price) ?? toOptionalNumber(variant.price) ?? 0;
 
@@ -588,9 +634,12 @@ const normalizeProductInput = async (
             throw new BadRequestError("Each variant must have a sku");
           }
 
-          const combinations = normalizeVariantCombinations(variant);
+          const normalizedVariantLinks = normalizeVariantCombinations(variant);
 
-          if (combinations.length === 0) {
+          if (
+            normalizedVariantLinks.combinations.length === 0 &&
+            normalizedVariantLinks.attributeValueIds.length === 0
+          ) {
             throw new BadRequestError(
               `Variant "${variantSku}" must have at least one combination value`,
             );
@@ -605,7 +654,8 @@ const normalizeProductInput = async (
               toOptionalNumber(payload.cogs) ??
               sellingPrice,
             image_url: normalizePersistedImageUrl(variant.image_url),
-            combinations,
+            combinations: normalizedVariantLinks.combinations,
+            attribute_value_ids: normalizedVariantLinks.attributeValueIds,
           };
         });
 
@@ -618,12 +668,16 @@ const normalizeProductInput = async (
     "variants.sku",
   );
 
+  const resolvedDefaultSku =
+    attributes.length === 0
+      ? variants[0]?.sku ?? defaultSpu ?? null
+      : defaultSpu ?? variants[0]?.sku ?? null;
+
   return {
+    spu_id: payload.spu_id,
+    spu_code: toOptionalTrimmedString(payload.spu_code) ?? null,
+    spu: resolvedDefaultSku,
     product_name: productName,
-    default_variant_sku:
-      attributes.length === 0
-        ? variants[0]?.sku ?? defaultVariantSku ?? null
-        : defaultVariantSku ?? null,
     unit: toOptionalTrimmedString(payload.unit),
     base_price: attributes.length === 0 ? variants[0]?.selling_price ?? null : null,
     cogs:
@@ -687,15 +741,16 @@ const getCachedProductList = async (storeId: string, query: ProductListQuery = {
 
 const getCachedProductDetail = async (storeId: string, productId: number) => {
   const cacheKey = productCacheKeys.detail(storeId, productId);
-  const cached = await cache.getJson<ProductDetailRecord>(cacheKey);
+  const cached = await cache.getJson<ReturnType<typeof mapProductDetailItem>>(cacheKey);
 
   if (cached) {
     return cached;
   }
 
   const product = await getProductOrThrow(storeId, productId);
-  await cache.setJson(cacheKey, product, PRODUCT_DETAIL_CACHE_TTL_SECONDS);
-  return product;
+  const mappedProduct = mapProductDetailItem(product);
+  await cache.setJson(cacheKey, mappedProduct, PRODUCT_DETAIL_CACHE_TTL_SECONDS);
+  return mappedProduct;
 };
 
 export const ProductService = {
@@ -732,11 +787,11 @@ export const ProductService = {
 
       // Restore soft-deleted product when the default simple-variant SKU matches.
       let existingProduct = null;
-      if (data.default_variant_sku) {
-        existingProduct = await ProductRepository.findSoftDeletedProductByDefaultSku(
+      if (data.spu) {
+        existingProduct = await ProductRepository.findSoftDeletedProductBySpu(
           tx,
           storeId,
-          data.default_variant_sku,
+          data.spu,
         );
       }
 
@@ -812,7 +867,7 @@ export const ProductService = {
 
     await deleteManagedProductImageFromS3(oldImageUrlToDelete);
     await invalidateProductReadModels(storeId, [product.id]);
-    return product;
+    return mapProductDetailItem(product);
   },
 
   getProducts: async (storeId: string, query: ProductListQuery = {}) => {
@@ -926,7 +981,69 @@ export const ProductService = {
 
     await deleteManagedProductImageFromS3(oldImageUrlToDelete);
     await invalidateProductReadModels(storeId, [id]);
-    return product;
+    return mapProductDetailItem(product);
+  },
+
+  importProducts: async (
+    storeId: string,
+    payload: ProductImportRequestInput,
+  ): Promise<ProductImportResultItem[]> => {
+    if (!Array.isArray(payload.rows) || payload.rows.length === 0) {
+      throw new BadRequestError("rows must be a non-empty array");
+    }
+
+    const results: ProductImportResultItem[] = [];
+
+    for (const [index, row] of payload.rows.entries()) {
+      const rowNo = row.row_no ?? index + 1;
+      const importMode = row.import_mode ?? "upsert";
+      const legacyRow = row as ProductRequestInput & { default_sku_code?: unknown };
+      const defaultSkuCode =
+        toOptionalTrimmedString(legacyRow.default_sku_code) ??
+        toOptionalTrimmedString(row.default_variant_sku) ??
+        null;
+      const firstVariantSku =
+        row.variants?.find((variant) => toOptionalTrimmedString(variant.sku_code) ?? toOptionalTrimmedString(variant.sku))
+          ?.sku_code ??
+        row.variants?.find((variant) => toOptionalTrimmedString(variant.sku_code) ?? toOptionalTrimmedString(variant.sku))
+          ?.sku ??
+        null;
+
+      let targetProductId =
+        row.spu_id !== undefined && row.spu_id !== null ? Number(row.spu_id) : undefined;
+
+      if (!targetProductId && defaultSkuCode) {
+        const existingByDefaultSku = await ProductRepository.findActiveProductBySpu(storeId, defaultSkuCode);
+        targetProductId = existingByDefaultSku?.id;
+      }
+
+      if (!targetProductId && firstVariantSku) {
+        const existingByVariantSku = await ProductRepository.findProductIdByVariantSku(storeId, firstVariantSku);
+        targetProductId = existingByVariantSku?.product_id;
+      }
+
+      if (importMode === "create_only" && targetProductId) {
+        throw new ConflictError(`rows[${index}] matched an existing SPU and cannot be created twice`);
+      }
+
+      if (importMode === "update_only" && !targetProductId) {
+        throw new NotFoundError(`rows[${index}] did not match an existing SPU to update`);
+      }
+
+      const product = targetProductId
+        ? await ProductService.editProduct(storeId, targetProductId, row)
+        : await ProductService.createProduct(storeId, row);
+
+      results.push({
+        row_no: rowNo,
+        action: targetProductId ? "updated" : "created",
+        spu_id: product.id,
+        spu: product.spu ?? null,
+        product_name: product.product_name,
+      });
+    }
+
+    return results;
   },
 
   deleteProducts: async (storeId: string, ids: number[]) => {

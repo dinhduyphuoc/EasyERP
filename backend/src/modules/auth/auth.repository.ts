@@ -1,6 +1,14 @@
 import { prisma } from "@lib/prisma";
 
-const USER_AUTH_CONTEXT_INCLUDE = {
+const USER_AUTH_CONTEXT_SELECT = {
+  id: true,
+  tenant_id: true,
+  active_store_id: true,
+  full_name: true,
+  email: true,
+  avatar_url: true,
+  status: true,
+  last_login_at: true,
   roles: {
     include: {
       role: {
@@ -33,15 +41,29 @@ const USER_AUTH_CONTEXT_INCLUDE = {
           slug: true,
           default_currency: true,
           default_timezone: true,
+          profile_json: true,
         },
       },
     },
   },
 } as const;
 
-const SESSION_AUTH_INCLUDE = {
+const SESSION_AUTH_SELECT = {
+  id: true,
+  expires_at: true,
+  idle_expires_at: true,
+  last_used_at: true,
+  revoked_at: true,
+  status: true,
   user: {
-    include: {
+    select: {
+      id: true,
+      tenant_id: true,
+      active_store_id: true,
+      full_name: true,
+      email: true,
+      avatar_url: true,
+      status: true,
       roles: {
         include: {
           role: {
@@ -59,6 +81,16 @@ const SESSION_AUTH_INCLUDE = {
           },
         },
       },
+      stores: {
+        include: {
+          store: {
+            select: {
+              id: true,
+              profile_json: true,
+            },
+          },
+        },
+      },
     },
   },
 } as const;
@@ -67,7 +99,7 @@ export const AuthRepository = {
   findUserAuthContextById: (userId: string) =>
     prisma.user.findUnique({
       where: { id: userId },
-      include: USER_AUTH_CONTEXT_INCLUDE,
+      select: USER_AUTH_CONTEXT_SELECT,
     }),
 
   updateFailedLogin: (args: {
@@ -128,13 +160,13 @@ export const AuthRepository = {
         last_login_at: args.lastLoginAt,
         active_store_id: args.activeStoreId,
       },
-      include: USER_AUTH_CONTEXT_INCLUDE,
+      select: USER_AUTH_CONTEXT_SELECT,
     }),
 
   findSessionWithAuthUserByTokenHash: (hashedToken: string) =>
     prisma.session.findUnique({
       where: { session_token_hash: hashedToken },
-      include: SESSION_AUTH_INCLUDE,
+      select: SESSION_AUTH_SELECT,
     }),
 
   expireSession: (sessionId: string) =>

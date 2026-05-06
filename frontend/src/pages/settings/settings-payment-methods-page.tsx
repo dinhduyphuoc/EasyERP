@@ -2,8 +2,8 @@
 import {
   Box,
   Button,
-  CircularProgress,
   Paper,
+  Skeleton,
   Stack,
   Typography,
 } from '@mui/material'
@@ -16,6 +16,27 @@ import { showErrorToast } from '@/shared/ui/toast/toast-error'
 import { useJsonDirtyState } from '@/shared/ui/unsaved-changes'
 import { generalSettingsApi, type VietQrBankItem } from './general-settings.api'
 import { useSettingsUnsavedRegistration } from './settings-unsaved-context'
+
+function PaymentMethodsSkeleton(): ReactElement {
+  return (
+    <Stack spacing={2}>
+      <Stack spacing={0.75}>
+        <Skeleton variant="text" width={112} height={26} />
+        <Skeleton variant="rounded" height={56} sx={{ borderRadius: 3 }} />
+      </Stack>
+
+      <Stack spacing={0.75}>
+        <Skeleton variant="text" width={124} height={26} />
+        <Skeleton variant="rounded" height={56} sx={{ borderRadius: 3 }} />
+      </Stack>
+
+      <Stack spacing={0.75}>
+        <Skeleton variant="text" width={170} height={26} />
+        <Skeleton variant="rounded" height={56} sx={{ borderRadius: 3 }} />
+      </Stack>
+    </Stack>
+  )
+}
 
 export function SettingsPaymentMethodsPage(): ReactElement {
   const [isLoading, setIsLoading] = useState(true)
@@ -173,40 +194,42 @@ export function SettingsPaymentMethodsPage(): ReactElement {
             </Box>
           </Stack>
 
-          {isLoading ? <CircularProgress size={24} /> : null}
+          {isLoading ? (
+            <PaymentMethodsSkeleton />
+          ) : (
+            <Stack spacing={2}>
+              <StackedAutocomplete<VietQrBankItem, false, false, false>
+                options={bankOptions}
+                label="Ngân hàng"
+                placeholder="Chọn ngân hàng"
+                value={selectedBank}
+                loading={isLoading}
+                autoHighlight
+                getOptionLabel={(option) => option.short_name || option.name}
+                isOptionEqualToValue={(option, value) => option.bin === value.bin}
+                onChange={(_, value) => {
+                  setBankName(value?.name ?? '')
+                  setBankBin(value?.bin ?? '')
+                  setBankCode(value?.code ?? '')
+                }}
+                renderOption={(props, option) => (
+                  <Box component="li" {...props}>
+                    <Stack spacing={0.25} sx={{ py: 0.5 }}>
+                      <Typography sx={{ fontWeight: 700, color: '#101828' }}>
+                        {option.short_name || option.name}
+                      </Typography>
+                      <Typography variant="body2" sx={{ color: '#667085' }}>
+                        {option.name}
+                      </Typography>
+                    </Stack>
+                  </Box>
+                )}
+              />
 
-          <Stack spacing={2}>
-            <StackedAutocomplete<VietQrBankItem, false, false, false>
-              options={bankOptions}
-              label="Ngân hàng"
-              placeholder="Chọn ngân hàng"
-              value={selectedBank}
-              loading={isLoading}
-              autoHighlight
-              getOptionLabel={(option) => option.short_name || option.name}
-              isOptionEqualToValue={(option, value) => option.bin === value.bin}
-              onChange={(_, value) => {
-                setBankName(value?.name ?? '')
-                setBankBin(value?.bin ?? '')
-                setBankCode(value?.code ?? '')
-              }}
-              renderOption={(props, option) => (
-                <Box component="li" {...props}>
-                  <Stack spacing={0.25} sx={{ py: 0.5 }}>
-                    <Typography sx={{ fontWeight: 700, color: '#101828' }}>
-                      {option.short_name || option.name}
-                    </Typography>
-                    <Typography variant="body2" sx={{ color: '#667085' }}>
-                      {option.name}
-                    </Typography>
-                  </Stack>
-                </Box>
-              )}
-            />
-
-            <StackedTextField fullWidth label="Số tài khoản" value={accountNumber} onChange={(event) => setAccountNumber(event.target.value)} />
-            <StackedTextField fullWidth label="Tên chủ tài khoản" value={accountHolder} onChange={(event) => setAccountHolder(event.target.value)} />
-          </Stack>
+              <StackedTextField fullWidth label="Số tài khoản" value={accountNumber} onChange={(event) => setAccountNumber(event.target.value)} />
+              <StackedTextField fullWidth label="Tên chủ tài khoản" value={accountHolder} onChange={(event) => setAccountHolder(event.target.value)} />
+            </Stack>
+          )}
         </Stack>
       </Paper>
 

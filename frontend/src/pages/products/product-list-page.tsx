@@ -283,7 +283,7 @@ export function ProductListPage() {
       const matchesKeyword =
         keyword.length === 0 ||
         row.product_name.toLowerCase().includes(keyword) ||
-        row.default_variant_sku?.toLowerCase().includes(keyword) ||
+        row.spu?.toLowerCase().includes(keyword) ||
         row.primary_variant?.sku.toLowerCase().includes(keyword)
 
       const matchesCategory =
@@ -362,7 +362,7 @@ export function ProductListPage() {
       {
         key: 'sku',
         title: 'Mã sản phẩm',
-        render: (row) => row.default_variant_sku ?? row.primary_variant?.sku ?? '-',
+        render: (row) => row.spu ?? row.primary_variant?.sku ?? '-',
       },
       {
         key: 'category',
