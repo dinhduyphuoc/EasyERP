@@ -5,7 +5,7 @@ import {
   TextField,
   type AutocompleteProps,
 } from '@mui/material'
-import { STACKED_LABEL_COLOR } from '@/shared/ui/form/form.constants'
+import { Label } from '@/shared/ui/form/form.constants'
 import { FormGrid } from '@/shared/ui/form/form-grid'
 
 export type StackedAutocompleteProps<
@@ -67,10 +67,10 @@ export function StackedAutocomplete<
             sx={[
               {
                 '& .MuiInputLabel-root': {
-                  color: STACKED_LABEL_COLOR,
+                  color: Label,
                 },
                 '& .MuiInputLabel-root.Mui-focused': {
-                  color: STACKED_LABEL_COLOR,
+                  color: Label,
                 },
               },
               ...(Array.isArray(textFieldSx) ? textFieldSx : textFieldSx ? [textFieldSx] : []),
@@ -84,7 +84,7 @@ export function StackedAutocomplete<
   return (
     <FormGrid sx={{ ...sx, gap: 1 }}>
       {label ? (
-        <FormLabel sx={{ color: STACKED_LABEL_COLOR }} htmlFor={labelFor ?? resolvedId} required={required}>
+        <FormLabel sx={{ color: Label }} htmlFor={labelFor ?? resolvedId} required={required}>
           {label}
         </FormLabel>
       ) : null}

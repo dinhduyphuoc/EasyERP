@@ -10,6 +10,7 @@ storeRouter.get("/", StoreController.getStores);
 storeRouter.post("/", StoreController.createStore);
 storeRouter.post("/switch", StoreController.switchStore);
 storeRouter.get("/:id", StoreController.getStoreById);
+storeRouter.post("/:id/upload-avatar", StoreController.uploadAvatar);
 storeRouter.patch("/:id", StoreController.updateStore);
 storeRouter.delete("/:id", StoreController.deleteStore);
 

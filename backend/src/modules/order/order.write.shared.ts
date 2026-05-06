@@ -1,6 +1,7 @@
 import { Prisma } from "../../../generated/prisma/client";
 import { BadRequestError } from "@/common";
 import type {
+  OrderInvoiceSnapshotInput,
   OrderItemRequestInput,
   OrderPaymentStatusInput,
   OrderProcessingStatusInput,
@@ -83,6 +84,9 @@ export const loadOrderCustomer = async (storeId: string, customerId: number | nu
       client_code: true,
       full_name: true,
       phone: true,
+      email: true,
+      tax_code: true,
+      invoice_profile_json: true,
     },
   });
 
@@ -91,6 +95,100 @@ export const loadOrderCustomer = async (storeId: string, customerId: number | nu
   }
 
   return customer;
+};
+
+const toInvoiceType = (value: unknown): "b2b" | "b2c" =>
+  value === "b2b" || value === "b2c" ? value : "b2c";
+
+const toOptionalObjectRecord = (value: unknown): Record<string, unknown> =>
+  value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+
+export const normalizeInvoiceSnapshot = (
+  input: OrderInvoiceSnapshotInput | null | undefined,
+  fallback?: {
+    customerName?: string | null;
+    customerPhone?: string | null;
+    customerEmail?: string | null;
+    customerAddress?: string | null;
+    customerTaxCode?: string | null;
+    existing?: Record<string, unknown>;
+  },
+) => {
+  const existing = fallback?.existing ?? {};
+  const resolvedTaxCode =
+    toOptionalTrimmedString(input?.tax_code) ??
+    (typeof existing.tax_code === "string" ? existing.tax_code.trim() : undefined) ??
+    fallback?.customerTaxCode ??
+    "";
+  const resolvedBuyerName =
+    toOptionalTrimmedString(input?.buyer_name) ??
+    (typeof existing.buyer_name === "string" ? existing.buyer_name.trim() : undefined) ??
+    fallback?.customerName ??
+    "";
+
+  return {
+    invoice_type:
+      input?.invoice_type !== undefined && input?.invoice_type !== null
+        ? toInvoiceType(input.invoice_type)
+        : (typeof existing.invoice_type === "string" ? toInvoiceType(existing.invoice_type) : resolvedTaxCode ? "b2b" : "b2c"),
+    buyer_name: resolvedBuyerName,
+    company_name:
+      toOptionalTrimmedString(input?.company_name) ??
+      (typeof existing.company_name === "string" ? existing.company_name.trim() : ""),
+    tax_code: resolvedTaxCode,
+    personal_id:
+      toOptionalTrimmedString(input?.personal_id) ??
+      (typeof existing.personal_id === "string" ? existing.personal_id.trim() : ""),
+    budget_unit_code:
+      toOptionalTrimmedString(input?.budget_unit_code) ??
+      (typeof existing.budget_unit_code === "string" ? existing.budget_unit_code.trim() : ""),
+    email:
+      toOptionalTrimmedString(input?.email) ??
+      (typeof existing.email === "string" ? existing.email.trim() : undefined) ??
+      fallback?.customerEmail ??
+      "",
+    phone:
+      toOptionalTrimmedString(input?.phone) ??
+      (typeof existing.phone === "string" ? existing.phone.trim() : undefined) ??
+      fallback?.customerPhone ??
+      "",
+    address_line:
+      toOptionalTrimmedString(input?.address_line) ??
+      (typeof existing.address_line === "string" ? existing.address_line.trim() : undefined) ??
+      fallback?.customerAddress ??
+      "",
+    note:
+      toOptionalTrimmedString(input?.note) ??
+      (typeof existing.note === "string" ? existing.note.trim() : ""),
+  };
+};
+
+export const buildInvoiceSnapshotFromCustomer = (args: {
+  input: OrderInvoiceSnapshotInput | null | undefined;
+  customer:
+    | {
+        full_name: string;
+        phone: string;
+        email: string | null;
+        tax_code: string | null;
+        invoice_profile_json: unknown;
+      }
+    | null;
+  customerName: string;
+  customerPhone: string;
+  customerEmail: string | null;
+  customerAddress: string | null;
+}) => {
+  const existingProfile = args.customer ? toOptionalObjectRecord(args.customer.invoice_profile_json) : {};
+
+  return normalizeInvoiceSnapshot(args.input, {
+    customerName: args.customerName,
+    customerPhone: args.customerPhone,
+    customerEmail: args.customerEmail ?? args.customer?.email ?? null,
+    customerAddress: args.customerAddress,
+    customerTaxCode: args.customer?.tax_code ?? null,
+    existing: existingProfile,
+  });
 };
 
 export const ensureCustomerContact = (
@@ -558,6 +656,7 @@ export const buildOrderCreateData = ({
   paidAmount,
   outstandingAmount,
   statusTimeline,
+  invoiceSnapshot,
 }: {
   resolved: ResolvedOrderWriteInput;
   customerCode: string | null;
@@ -578,6 +677,7 @@ export const buildOrderCreateData = ({
   paidAmount: Prisma.Decimal;
   outstandingAmount: Prisma.Decimal;
   statusTimeline: Prisma.InputJsonValue;
+  invoiceSnapshot: Prisma.InputJsonValue;
 }): Omit<
   Prisma.OrderUncheckedCreateInput,
   "store_id" | "order_code" | "from_address_id" | "to_address_id" | "return_address_id"
@@ -639,6 +739,7 @@ export const buildOrderCreateData = ({
   tracking_code: resolved.trackingCode,
   shipping_status: resolved.shippingStatus,
   invoice_code: resolved.invoiceCode,
+  invoice_snapshot_json: invoiceSnapshot,
   created_by: resolved.createdBy,
   confirmed_by: resolved.confirmedBy,
   status_timeline: statusTimeline,
@@ -664,6 +765,7 @@ export const buildOrderUpdateData = ({
   paidAmount,
   outstandingAmount,
   statusTimeline,
+  invoiceSnapshot,
 }: {
   resolved: ResolvedOrderWriteInput;
   customerCode: string | null;
@@ -684,6 +786,7 @@ export const buildOrderUpdateData = ({
   paidAmount: Prisma.Decimal;
   outstandingAmount: Prisma.Decimal;
   statusTimeline: Prisma.InputJsonValue;
+  invoiceSnapshot: Prisma.InputJsonValue;
 }): Prisma.OrderUncheckedUpdateInput => ({
   ...buildOrderCreateData({
     resolved,
@@ -705,5 +808,6 @@ export const buildOrderUpdateData = ({
     paidAmount,
     outstandingAmount,
     statusTimeline,
+    invoiceSnapshot,
   }),
 });

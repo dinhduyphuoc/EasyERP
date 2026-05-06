@@ -10,6 +10,7 @@ import {
 } from '@mui/material'
 import { Navigate, useLocation, useNavigate } from 'react-router'
 import { useAuth } from '@/modules/auth/use-auth'
+import { getErrorMessage } from '@/shared/lib/errors'
 
 type LocationState = {
   from?: string
@@ -39,9 +40,7 @@ export function LoginPage() {
       await login({ email, password })
       navigate(from, { replace: true })
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : 'Đăng nhập thất bại. Vui lòng thử lại.'
-      setErrorMessage(message)
+      setErrorMessage(getErrorMessage(error, 'Đăng nhập thất bại. Vui lòng thử lại.'))
     } finally {
       setIsSubmitting(false)
     }

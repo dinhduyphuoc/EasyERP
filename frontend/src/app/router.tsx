@@ -88,6 +88,9 @@ const SettingsStoreDetailsPage = lazy(() =>
 const SettingsPaymentMethodsPage = lazy(() =>
   import('@/pages/settings/settings-payment-methods-page').then((module) => ({ default: module.SettingsPaymentMethodsPage })),
 )
+const SettingsBillingInvoicesPage = lazy(() =>
+  import('@/pages/settings/settings-billing-invoices-page').then((module) => ({ default: module.SettingsBillingInvoicesPage })),
+)
 const SettingsAddressManagementPage = lazy(() =>
   import('@/pages/settings/settings-address-management-page').then((module) => ({ default: module.SettingsAddressManagementPage })),
 )
@@ -306,6 +309,8 @@ const router = createBrowserRouter([
                       ? withPermission(['settings.read'], renderLazyPage(<SettingsAddressManagementPage />))
                       : item.path === '/settings/payment-methods'
                         ? withPermission(['payments.read'], renderLazyPage(<SettingsPaymentMethodsPage />))
+                        : item.path === '/settings/billing-invoices'
+                          ? withPermission(['payments.read'], renderLazyPage(<SettingsBillingInvoicesPage />))
                         : item.path === '/settings/accounts'
                           ? withPermission(['users.read'], renderLazyPage(<SettingsAccountsPage />))
                           : item.path === '/settings/role-permission-groups'

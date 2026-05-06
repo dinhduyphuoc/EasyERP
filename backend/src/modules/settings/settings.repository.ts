@@ -10,6 +10,7 @@ export const SettingsRepository = {
         default_shipping_address_json: true,
         default_bank_account_json: true,
         default_vat_json: true,
+        default_invoice_settings_json: true,
       },
     }),
 
@@ -22,6 +23,7 @@ export const SettingsRepository = {
       },
       select: {
         profile_json: true,
+        billing_address_json: true,
       },
     }),
 
@@ -30,6 +32,7 @@ export const SettingsRepository = {
     shippingAddress: Prisma.InputJsonValue;
     bankAccount: Prisma.InputJsonValue;
     vat: Prisma.InputJsonValue;
+    invoice: Prisma.InputJsonValue;
   }) =>
     prisma.tenant.update({
       where: { id: args.tenantId },
@@ -37,12 +40,14 @@ export const SettingsRepository = {
         default_shipping_address_json: args.shippingAddress,
         default_bank_account_json: args.bankAccount,
         default_vat_json: args.vat,
+        default_invoice_settings_json: args.invoice,
       },
       select: {
         id: true,
         default_shipping_address_json: true,
         default_bank_account_json: true,
         default_vat_json: true,
+        default_invoice_settings_json: true,
       },
     }),
 

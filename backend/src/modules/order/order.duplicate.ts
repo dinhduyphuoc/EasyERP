@@ -86,6 +86,12 @@ export const duplicateOrder = async (
       tracking_code: null,
       shipping_status: null,
       invoice_code: null,
+      invoice_snapshot:
+        existingOrder.invoice_snapshot_json &&
+        typeof existingOrder.invoice_snapshot_json === "object" &&
+        !Array.isArray(existingOrder.invoice_snapshot_json)
+          ? (existingOrder.invoice_snapshot_json as Record<string, unknown>)
+          : undefined,
       created_by: actorName,
       confirmed_by: null,
       status_timeline: {},

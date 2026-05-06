@@ -32,6 +32,7 @@ type OrderListRow = {
   tracking_code: string | null;
   shipping_status: string | null;
   invoice_code: string | null;
+  invoice_snapshot_json: Prisma.JsonValue;
   created_by: string | null;
   confirmed_by: string | null;
   created_at: Date;
@@ -125,6 +126,38 @@ const mapOrderHistory = (entry: {
 });
 
 export const mapOrderHistoryEntry = mapOrderHistory;
+
+const mapInvoiceSnapshot = (value: Prisma.JsonValue) => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {
+      invoice_type: "b2c",
+      buyer_name: "",
+      company_name: "",
+      tax_code: "",
+      personal_id: "",
+      budget_unit_code: "",
+      email: "",
+      phone: "",
+      address_line: "",
+      note: "",
+    };
+  }
+
+  const source = value as Record<string, unknown>;
+
+  return {
+    invoice_type: source.invoice_type === "b2b" ? "b2b" : "b2c",
+    buyer_name: typeof source.buyer_name === "string" ? source.buyer_name : "",
+    company_name: typeof source.company_name === "string" ? source.company_name : "",
+    tax_code: typeof source.tax_code === "string" ? source.tax_code : "",
+    personal_id: typeof source.personal_id === "string" ? source.personal_id : "",
+    budget_unit_code: typeof source.budget_unit_code === "string" ? source.budget_unit_code : "",
+    email: typeof source.email === "string" ? source.email : "",
+    phone: typeof source.phone === "string" ? source.phone : "",
+    address_line: typeof source.address_line === "string" ? source.address_line : "",
+    note: typeof source.note === "string" ? source.note : "",
+  };
+};
 
 const compactTimelineStage = (stage: unknown) => {
   if (!stage || typeof stage !== "object") {
@@ -273,6 +306,7 @@ const buildBaseOrderPayload = (order: {
   tracking_code: string | null;
   shipping_status: string | null;
   invoice_code: string | null;
+  invoice_snapshot_json: Prisma.JsonValue;
   created_by: string | null;
   confirmed_by: string | null;
   status_timeline: Prisma.JsonValue;
@@ -348,6 +382,7 @@ const buildBaseOrderPayload = (order: {
     tracking_code: order.tracking_code,
     shipping_status: order.shipping_status,
     invoice_code: order.invoice_code,
+    invoice_snapshot: mapInvoiceSnapshot(order.invoice_snapshot_json),
     created_by: order.created_by,
     confirmed_by: order.confirmed_by,
     status_timeline: compactTimeline(order.status_timeline),
@@ -394,6 +429,7 @@ export const mapOrderListItem = (order: OrderListRow) => ({
   tracking_code: order.tracking_code,
   shipping_status: order.shipping_status,
   invoice_code: order.invoice_code,
+  invoice_snapshot: mapInvoiceSnapshot(order.invoice_snapshot_json),
   created_by: order.created_by,
   confirmed_by: order.confirmed_by,
   created_at: order.created_at.toISOString(),

@@ -1,16 +1,8 @@
-import FmdGoodOutlinedIcon from '@mui/icons-material/FmdGoodOutlined'
-import {
-  Box,
-  Button,
-  CircularProgress,
-  MenuItem,
-  Paper,
-  Stack,
-  Typography,
-} from '@mui/material'
+﻿import FmdGoodOutlinedIcon from '@mui/icons-material/FmdGoodOutlined'
+import { Box, Button, CircularProgress, Paper, Stack, Typography } from '@mui/material'
 import { useEffect, useMemo, useState, type ReactElement } from 'react'
 import { customerApi, type CityItem, type DistrictItem, type LocationItem } from '@/pages/customers/customer.api'
-import { StackedDropdown } from '@/shared/ui/form/stacked-dropdown'
+import { StackedAutocomplete } from '@/shared/ui/form/stacked-autocomplete'
 import { StackedTextField } from '@/shared/ui/form/stacked-text-field'
 import { borderedCardSx } from '@/shared/ui/paper'
 import { SummaryPaperHeader } from '@/shared/ui/summary-paper-header'
@@ -132,6 +124,7 @@ export function SettingsAddressManagementPage(): ReactElement {
 
     return [addressLine, districtName, cityName, stateName].filter(Boolean).join(', ') || 'Chưa có địa chỉ mặc định'
   }, [addressLine, cities, cityId, districtId, districts, stateId, states])
+
   const { initialSnapshot, currentSnapshot, isDirty } = dirtyState
 
   const handleSave = async () => {
@@ -181,6 +174,7 @@ export function SettingsAddressManagementPage(): ReactElement {
     setDistrictId(snapshot.districtId)
     setAddressLine(snapshot.addressLine)
   }
+
   useSettingsUnsavedRegistration(
     useMemo(
       () => ({
@@ -189,7 +183,7 @@ export function SettingsAddressManagementPage(): ReactElement {
         onSave: () => void handleSave(),
         onDiscard: handleDiscard,
       }),
-      [isDirty, isSaving, handleDiscard],
+      [isDirty, isSaving],
     ),
   )
 
@@ -239,32 +233,40 @@ export function SettingsAddressManagementPage(): ReactElement {
                 gap: 2,
               }}
             >
-              <StackedDropdown fullWidth label="Tỉnh / Thành phố" value={stateId} onChange={(event) => setStateId(Number(event.target.value) || '')}>
-                <MenuItem value="">Chưa chọn</MenuItem>
-                {states.map((item) => (
-                  <MenuItem key={item.id} value={item.id}>
-                    {item.name}
-                  </MenuItem>
-                ))}
-              </StackedDropdown>
+              <StackedAutocomplete
+                fullWidth
+                label="Tỉnh / Thành phố"
+                options={states}
+                value={states.find((item) => item.id === stateId) ?? null}
+                onChange={(_, value) => setStateId(value?.id ?? '')}
+                getOptionLabel={(option) => option.name}
+                isOptionEqualToValue={(option, value) => option.id === value.id}
+                placeholder="Chọn tỉnh / thành phố"
+              />
 
-              <StackedDropdown fullWidth label="Quận / Huyện" value={cityId} onChange={(event) => setCityId(Number(event.target.value) || '')} disabled={!stateId}>
-                <MenuItem value="">Chưa chọn</MenuItem>
-                {cities.map((item) => (
-                  <MenuItem key={item.id} value={item.id}>
-                    {item.name}
-                  </MenuItem>
-                ))}
-              </StackedDropdown>
+              <StackedAutocomplete
+                fullWidth
+                label="Quận / Huyện"
+                options={cities}
+                value={cities.find((item) => item.id === cityId) ?? null}
+                onChange={(_, value) => setCityId(value?.id ?? '')}
+                getOptionLabel={(option) => option.name}
+                isOptionEqualToValue={(option, value) => option.id === value.id}
+                placeholder="Chọn quận / huyện"
+                disabled={!stateId}
+              />
 
-              <StackedDropdown fullWidth label="Phường / Xã" value={districtId} onChange={(event) => setDistrictId(Number(event.target.value) || '')} disabled={!cityId}>
-                <MenuItem value="">Chưa chọn</MenuItem>
-                {districts.map((item) => (
-                  <MenuItem key={item.id} value={item.id}>
-                    {item.name}
-                  </MenuItem>
-                ))}
-              </StackedDropdown>
+              <StackedAutocomplete
+                fullWidth
+                label="Phường / Xã"
+                options={districts}
+                value={districts.find((item) => item.id === districtId) ?? null}
+                onChange={(_, value) => setDistrictId(value?.id ?? '')}
+                getOptionLabel={(option) => option.name}
+                isOptionEqualToValue={(option, value) => option.id === value.id}
+                placeholder="Chọn phường / xã"
+                disabled={!cityId}
+              />
             </Box>
 
             <StackedTextField fullWidth label="Địa chỉ chi tiết" value={addressLine} onChange={(event) => setAddressLine(event.target.value)} multiline minRows={3} />

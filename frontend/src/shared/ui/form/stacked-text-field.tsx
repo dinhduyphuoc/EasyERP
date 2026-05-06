@@ -1,6 +1,6 @@
 import type { ComponentProps, ReactElement, ReactNode } from 'react'
 import { FormControl, FormHelperText, FormLabel, InputLabel, OutlinedInput } from '@mui/material'
-import { STACKED_LABEL_COLOR } from '@/shared/ui/form/form.constants'
+import { Label } from '@/shared/ui/form/form.constants'
 import { FormGrid } from '@/shared/ui/form/form-grid'
 
 export type StackedTextFieldProps = Omit<ComponentProps<typeof OutlinedInput>, 'label'> & {
@@ -32,7 +32,7 @@ export function StackedTextField({
   if (layout === 'default') {
     return (
       <FormControl error={error} required={required} fullWidth={fullWidth} size={size} sx={sx}>
-        {label ? <InputLabel htmlFor={labelFor ?? resolvedId} sx={{ color: STACKED_LABEL_COLOR }}>{label}</InputLabel> : null}
+        {label ? <InputLabel htmlFor={labelFor ?? resolvedId} sx={{ color: Label }}>{label}</InputLabel> : null}
         <OutlinedInput
           {...props}
           id={resolvedId}
@@ -50,7 +50,7 @@ export function StackedTextField({
 
   return (
     <FormGrid sx={{ ...sx, gap: 1 }}>
-      {label ? <FormLabel sx={{ color: STACKED_LABEL_COLOR }} htmlFor={labelFor ?? resolvedId} required={required}>{label}</FormLabel> : null}
+      {label ? <FormLabel sx={{ color: Label }} htmlFor={labelFor ?? resolvedId} required={required}>{label}</FormLabel> : null}
       <OutlinedInput
         {...props}
         id={resolvedId}

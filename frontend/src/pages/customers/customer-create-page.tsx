@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
+﻿import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
 import { useNavigate, useParams } from 'react-router'
 import {
   Box,
@@ -18,6 +18,7 @@ import {
 import { defaultCardSx } from '@/shared/ui/paper'
 import { appToast } from '@/shared/ui/toast/toast.helpers'
 import { showErrorToast } from '@/shared/ui/toast/toast-error'
+import { StackedAutocomplete } from '@/shared/ui/form/stacked-autocomplete'
 import { StackedDropdown } from '@/shared/ui/form/stacked-dropdown'
 import { StackedTextField } from '@/shared/ui/form/stacked-text-field'
 import {
@@ -29,6 +30,7 @@ import {
 import { UnsavedChangesBanner, useJsonDirtyState, useUnsavedChangesPrompt } from '@/shared/ui/unsaved-changes'
 
 type GenderValue = '' | 'male' | 'female' | 'other'
+type InvoiceEntityTypeValue = 'individual' | 'business'
 
 export function CustomerCreatePage(): ReactElement {
   const navigate = useNavigate()
@@ -49,6 +51,16 @@ export function CustomerCreatePage(): ReactElement {
   const [birthDate, setBirthDate] = useState('')
   const [gender, setGender] = useState<GenderValue>('')
   const [taxCode, setTaxCode] = useState('')
+  const [invoiceEntityType, setInvoiceEntityType] = useState<InvoiceEntityTypeValue>('individual')
+  const [invoiceCompanyName, setInvoiceCompanyName] = useState('')
+  const [invoiceBuyerName, setInvoiceBuyerName] = useState('')
+  const [invoiceTaxCode, setInvoiceTaxCode] = useState('')
+  const [invoicePersonalId, setInvoicePersonalId] = useState('')
+  const [invoiceBudgetUnitCode, setInvoiceBudgetUnitCode] = useState('')
+  const [invoiceEmail, setInvoiceEmail] = useState('')
+  const [invoicePhone, setInvoicePhone] = useState('')
+  const [invoiceAddressLine, setInvoiceAddressLine] = useState('')
+  const [invoiceNote, setInvoiceNote] = useState('')
   const [categories, setCategories] = useState<CustomerCategory[]>([])
   const [states, setStates] = useState<LocationItem[]>([])
   const [cities, setCities] = useState<CityItem[]>([])
@@ -72,6 +84,16 @@ export function CustomerCreatePage(): ReactElement {
       birthDate,
       gender,
       taxCode,
+      invoiceEntityType,
+      invoiceCompanyName,
+      invoiceBuyerName,
+      invoiceTaxCode,
+      invoicePersonalId,
+      invoiceBudgetUnitCode,
+      invoiceEmail,
+      invoicePhone,
+      invoiceAddressLine,
+      invoiceNote,
     },
     !isLoading,
   )
@@ -106,6 +128,16 @@ export function CustomerCreatePage(): ReactElement {
           setBirthDate(customerData.birth_date ? customerData.birth_date.slice(0, 10) : '')
           setGender(customerData.gender ?? '')
           setTaxCode(customerData.tax_code ?? '')
+          setInvoiceEntityType(customerData.invoice_profile.entity_type ?? 'individual')
+          setInvoiceCompanyName(customerData.invoice_profile.company_name ?? '')
+          setInvoiceBuyerName(customerData.invoice_profile.buyer_name ?? customerData.full_name ?? '')
+          setInvoiceTaxCode(customerData.invoice_profile.tax_code ?? customerData.tax_code ?? '')
+          setInvoicePersonalId(customerData.invoice_profile.personal_id ?? '')
+          setInvoiceBudgetUnitCode(customerData.invoice_profile.budget_unit_code ?? '')
+          setInvoiceEmail(customerData.invoice_profile.email ?? customerData.email ?? '')
+          setInvoicePhone(customerData.invoice_profile.phone ?? customerData.phone ?? '')
+          setInvoiceAddressLine(customerData.invoice_profile.address_line ?? address?.address_line ?? '')
+          setInvoiceNote(customerData.invoice_profile.note ?? '')
           setCities(cityData)
           setDistricts(districtData)
           setStateId(address ? String(address.state_id) : '')
@@ -130,6 +162,16 @@ export function CustomerCreatePage(): ReactElement {
               birthDate: customerData.birth_date ? customerData.birth_date.slice(0, 10) : '',
               gender: customerData.gender ?? '',
               taxCode: customerData.tax_code ?? '',
+              invoiceEntityType: customerData.invoice_profile.entity_type ?? 'individual',
+              invoiceCompanyName: customerData.invoice_profile.company_name ?? '',
+              invoiceBuyerName: customerData.invoice_profile.buyer_name ?? customerData.full_name ?? '',
+              invoiceTaxCode: customerData.invoice_profile.tax_code ?? customerData.tax_code ?? '',
+              invoicePersonalId: customerData.invoice_profile.personal_id ?? '',
+              invoiceBudgetUnitCode: customerData.invoice_profile.budget_unit_code ?? '',
+              invoiceEmail: customerData.invoice_profile.email ?? customerData.email ?? '',
+              invoicePhone: customerData.invoice_profile.phone ?? customerData.phone ?? '',
+              invoiceAddressLine: customerData.invoice_profile.address_line ?? address?.address_line ?? '',
+              invoiceNote: customerData.invoice_profile.note ?? '',
             }),
           )
 
@@ -153,12 +195,22 @@ export function CustomerCreatePage(): ReactElement {
               birthDate: '',
               gender: '',
               taxCode: '',
+              invoiceEntityType: 'individual',
+              invoiceCompanyName: '',
+              invoiceBuyerName: '',
+              invoiceTaxCode: '',
+              invoicePersonalId: '',
+              invoiceBudgetUnitCode: '',
+              invoiceEmail: '',
+              invoicePhone: '',
+              invoiceAddressLine: '',
+              invoiceNote: '',
             }),
           )
         }
       } catch (error) {
-        console.error('Lỗi khi tải dữ liệu khách hàng:', error)
-        showErrorToast(error, 'Không thể tải dữ liệu tạo khách hàng.')
+        console.error('Lá»—i khi táº£i dá»¯ liá»‡u khÃ¡ch hÃ ng:', error)
+        showErrorToast(error, 'KhÃ´ng thá»ƒ táº£i dá»¯ liá»‡u táº¡o khÃ¡ch hÃ ng.')
       } finally {
         setIsLoading(false)
       }
@@ -185,8 +237,8 @@ export function CustomerCreatePage(): ReactElement {
         const data = await customerApi.getCities({ state_id: Number(stateId), is_active: true })
         setCities(data)
       } catch (error) {
-        console.error('Lỗi khi tải huyện/quận:', error)
-        showErrorToast(error, 'Không thể tải danh sách huyện/quận.')
+        console.error('Lá»—i khi táº£i huyá»‡n/quáº­n:', error)
+        showErrorToast(error, 'KhÃ´ng thá»ƒ táº£i danh sÃ¡ch huyá»‡n/quáº­n.')
       }
     }
 
@@ -212,8 +264,8 @@ export function CustomerCreatePage(): ReactElement {
         const data = await customerApi.getDistricts({ city_id: Number(cityId), is_active: true })
         setDistricts(data)
       } catch (error) {
-        console.error('Lỗi khi tải xã/phường:', error)
-        showErrorToast(error, 'Không thể tải danh sách xã/phường.')
+        console.error('Lá»—i khi táº£i xÃ£/phÆ°á»ng:', error)
+        showErrorToast(error, 'KhÃ´ng thá»ƒ táº£i danh sÃ¡ch xÃ£/phÆ°á»ng.')
       }
     }
 
@@ -229,24 +281,24 @@ export function CustomerCreatePage(): ReactElement {
     const nextErrors: Record<string, string> = {}
 
     if (!fullName.trim()) {
-      nextErrors.full_name = 'Tên khách hàng là bắt buộc.'
+      nextErrors.full_name = 'TÃªn khÃ¡ch hÃ ng lÃ  báº¯t buá»™c.'
     }
 
     if (!phone.trim()) {
-      nextErrors.phone = 'Số điện thoại là bắt buộc.'
+      nextErrors.phone = 'Sá»‘ Ä‘iá»‡n thoáº¡i lÃ  báº¯t buá»™c.'
     }
 
     if (hasAnyAddressInput) {
       if (!stateId) {
-        nextErrors.state_id = 'Tỉnh/Thành phố là bắt buộc khi nhập địa chỉ.'
+        nextErrors.state_id = 'Tá»‰nh/ThÃ nh phá»‘ lÃ  báº¯t buá»™c khi nháº­p Ä‘á»‹a chá»‰.'
       }
 
       if (!cityId) {
-        nextErrors.city_id = 'Huyện/Quận là bắt buộc khi nhập địa chỉ.'
+        nextErrors.city_id = 'Huyá»‡n/Quáº­n lÃ  báº¯t buá»™c khi nháº­p Ä‘á»‹a chá»‰.'
       }
 
       if (!addressLine.trim()) {
-        nextErrors.address_line = 'Địa chỉ 1 là bắt buộc khi nhập địa chỉ.'
+        nextErrors.address_line = 'Äá»‹a chá»‰ 1 lÃ  báº¯t buá»™c khi nháº­p Ä‘á»‹a chá»‰.'
       }
     }
 
@@ -277,6 +329,16 @@ export function CustomerCreatePage(): ReactElement {
       birthDate: string
       gender: GenderValue
       taxCode: string
+      invoiceEntityType: InvoiceEntityTypeValue
+      invoiceCompanyName: string
+      invoiceBuyerName: string
+      invoiceTaxCode: string
+      invoicePersonalId: string
+      invoiceBudgetUnitCode: string
+      invoiceEmail: string
+      invoicePhone: string
+      invoiceAddressLine: string
+      invoiceNote: string
     }
 
     isHydratingRef.current = true
@@ -294,6 +356,16 @@ export function CustomerCreatePage(): ReactElement {
     setBirthDate(snapshot.birthDate)
     setGender(snapshot.gender)
     setTaxCode(snapshot.taxCode)
+    setInvoiceEntityType(snapshot.invoiceEntityType)
+    setInvoiceCompanyName(snapshot.invoiceCompanyName)
+    setInvoiceBuyerName(snapshot.invoiceBuyerName)
+    setInvoiceTaxCode(snapshot.invoiceTaxCode)
+    setInvoicePersonalId(snapshot.invoicePersonalId)
+    setInvoiceBudgetUnitCode(snapshot.invoiceBudgetUnitCode)
+    setInvoiceEmail(snapshot.invoiceEmail)
+    setInvoicePhone(snapshot.invoicePhone)
+    setInvoiceAddressLine(snapshot.invoiceAddressLine)
+    setInvoiceNote(snapshot.invoiceNote)
     setHasAttemptedSave(false)
 
     window.setTimeout(() => {
@@ -305,7 +377,7 @@ export function CustomerCreatePage(): ReactElement {
     setHasAttemptedSave(true)
 
     if (!canSave) {
-      appToast.warning('Vui lòng nhập đầy đủ thông tin bắt buộc trước khi lưu.')
+      appToast.warning('Vui lÃ²ng nháº­p Ä‘áº§y Ä‘á»§ thÃ´ng tin báº¯t buá»™c trÆ°á»›c khi lÆ°u.')
       return
     }
 
@@ -319,6 +391,18 @@ export function CustomerCreatePage(): ReactElement {
         birth_date: birthDate || null,
         gender: gender || null,
         tax_code: taxCode.trim() || null,
+        invoice_profile: {
+          entity_type: invoiceEntityType,
+          company_name: invoiceCompanyName.trim() || null,
+          buyer_name: invoiceBuyerName.trim() || fullName.trim() || null,
+          tax_code: invoiceTaxCode.trim() || taxCode.trim() || null,
+          personal_id: invoicePersonalId.trim() || null,
+          budget_unit_code: invoiceBudgetUnitCode.trim() || null,
+          email: invoiceEmail.trim() || email.trim() || null,
+          phone: invoicePhone.trim() || phone.trim() || null,
+          address_line: invoiceAddressLine.trim() || addressLine.trim() || null,
+          note: invoiceNote.trim() || null,
+        },
         status: 'active',
         customer_category_id: customerCategoryId ? Number(customerCategoryId) : null,
       }
@@ -331,7 +415,7 @@ export function CustomerCreatePage(): ReactElement {
         payload.addresses = [
           {
             type: 'shipping',
-            label: 'Địa chỉ chính',
+            label: 'Äá»‹a chá»‰ chÃ­nh',
             is_default: true,
             recipient_name: fullName.trim(),
             recipient_phone: phone.trim(),
@@ -350,19 +434,19 @@ export function CustomerCreatePage(): ReactElement {
 
       if (isEditMode && id) {
         await customerApi.updateCustomer(id, payload)
-        appToast.success('Cập nhật khách hàng thành công.')
+        appToast.success('Cáº­p nháº­t khÃ¡ch hÃ ng thÃ nh cÃ´ng.')
       } else {
         await customerApi.createCustomer(payload)
-        appToast.success('Thêm khách hàng thành công.')
+        appToast.success('ThÃªm khÃ¡ch hÃ ng thÃ nh cÃ´ng.')
       }
       navigate('/customers')
     } catch (error) {
-      console.error('Lỗi khi tạo khách hàng:', error)
+      console.error('Lá»—i khi táº¡o khÃ¡ch hÃ ng:', error)
       showErrorToast(
         error,
         isEditMode
-          ? 'Không thể cập nhật khách hàng. Vui lòng thử lại.'
-          : 'Không thể tạo khách hàng. Vui lòng thử lại.',
+          ? 'KhÃ´ng thá»ƒ cáº­p nháº­t khÃ¡ch hÃ ng. Vui lÃ²ng thá»­ láº¡i.'
+          : 'KhÃ´ng thá»ƒ táº¡o khÃ¡ch hÃ ng. Vui lÃ²ng thá»­ láº¡i.',
       )
     } finally {
       setIsSaving(false)
@@ -376,8 +460,8 @@ export function CustomerCreatePage(): ReactElement {
   })
   const headerActions: CreateEditPageHeaderAction[] = [
     buildPrimarySaveHeaderAction({
-      label: isEditMode ? 'Cập nhật' : 'Lưu',
-      loadingLabel: 'Đang lưu...',
+      label: isEditMode ? 'Cáº­p nháº­t' : 'LÆ°u',
+      loadingLabel: 'Äang lÆ°u...',
       onClick: () => void handleSave(),
       disabled: !canSave,
       loading: isSaving,
@@ -388,7 +472,7 @@ export function CustomerCreatePage(): ReactElement {
     <CreateEditPageContainer>
       <Box sx={{ mb: 2 }}>
         <CreateEditPageHeader
-          title={isEditMode ? 'Chỉnh sửa khách hàng' : 'Thêm khách hàng'}
+          title={isEditMode ? 'Chá»‰nh sá»­a khÃ¡ch hÃ ng' : 'ThÃªm khÃ¡ch hÃ ng'}
           onBack={() => attemptNavigate('/customers')}
           actions={headerActions}
         />
@@ -398,15 +482,15 @@ export function CustomerCreatePage(): ReactElement {
         <Paper sx={defaultCardSx}>
           <Stack spacing={3}>
             <Typography variant="h6" sx={{ fontWeight: 600 }}>
-              Thông tin chung
+              ThÃ´ng tin chung
             </Typography>
 
             <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' } }}>
               <Box sx={{ gridColumn: '1 / -1' }}>
                 <StackedTextField
                   fullWidth
-                  label="Tên khách hàng *"
-                  placeholder="Ví dụ: Nguyễn Văn A"
+                  label="TÃªn khÃ¡ch hÃ ng *"
+                  placeholder="VÃ­ dá»¥: Nguyá»…n VÄƒn A"
                   value={fullName}
                   onChange={(event) => setFullName(event.target.value)}
                   error={Boolean(visibleErrors.full_name)}
@@ -417,8 +501,8 @@ export function CustomerCreatePage(): ReactElement {
 
               <StackedTextField
                 fullWidth
-                label="Mã khách hàng"
-                placeholder="Để trống để hệ thống tự tạo"
+                label="MÃ£ khÃ¡ch hÃ ng"
+                placeholder="Äá»ƒ trá»‘ng Ä‘á»ƒ há»‡ thá»‘ng tá»± táº¡o"
                 value={clientCode}
                 onChange={(event) => setClientCode(event.target.value)}
                 disabled={isLoading}
@@ -465,58 +549,147 @@ export function CustomerCreatePage(): ReactElement {
         <Paper sx={defaultCardSx}>
           <Stack spacing={3}>
             <Typography variant="h6" sx={{ fontWeight: 600 }}>
-              Thông tin địa chỉ
+              Hồ sơ xuất hóa đơn
             </Typography>
 
             <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' } }}>
               <StackedDropdown
                 fullWidth
+                label="Loại khách xuất hóa đơn"
+                value={invoiceEntityType}
+                onChange={(event) => setInvoiceEntityType(event.target.value as InvoiceEntityTypeValue)}
+                disabled={isLoading}
+              >
+                <MenuItem value="individual">Cá nhân</MenuItem>
+                <MenuItem value="business">Doanh nghiệp</MenuItem>
+              </StackedDropdown>
+
+              <StackedTextField
+                fullWidth
+                label="Người nhận hóa đơn"
+                value={invoiceBuyerName}
+                onChange={(event) => setInvoiceBuyerName(event.target.value)}
+                disabled={isLoading}
+                placeholder="Mặc định sẽ dùng tên khách hàng"
+              />
+
+              <StackedTextField
+                fullWidth
+                label="Tên công ty"
+                value={invoiceCompanyName}
+                onChange={(event) => setInvoiceCompanyName(event.target.value)}
+                disabled={isLoading}
+              />
+
+              <StackedTextField
+                fullWidth
+                label="Mã số thuế"
+                value={invoiceTaxCode}
+                onChange={(event) => setInvoiceTaxCode(event.target.value)}
+                disabled={isLoading}
+              />
+
+              <StackedTextField
+                fullWidth
+                label="Số định danh cá nhân"
+                value={invoicePersonalId}
+                onChange={(event) => setInvoicePersonalId(event.target.value)}
+                disabled={isLoading}
+              />
+
+              <StackedTextField
+                fullWidth
+                label="Mã đơn vị NSNN"
+                value={invoiceBudgetUnitCode}
+                onChange={(event) => setInvoiceBudgetUnitCode(event.target.value)}
+                disabled={isLoading}
+              />
+
+              <StackedTextField
+                fullWidth
+                label="Email nhận hóa đơn"
+                value={invoiceEmail}
+                onChange={(event) => setInvoiceEmail(event.target.value)}
+                disabled={isLoading}
+              />
+
+              <StackedTextField
+                fullWidth
+                label="Số điện thoại hóa đơn"
+                value={invoicePhone}
+                onChange={(event) => setInvoicePhone(event.target.value)}
+                disabled={isLoading}
+              />
+
+              <Box sx={{ gridColumn: '1 / -1' }}>
+                <StackedTextField
+                  fullWidth
+                  label="Địa chỉ xuất hóa đơn"
+                  value={invoiceAddressLine}
+                  onChange={(event) => setInvoiceAddressLine(event.target.value)}
+                  disabled={isLoading}
+                />
+              </Box>
+
+              <Box sx={{ gridColumn: '1 / -1' }}>
+                <StackedTextField
+                  fullWidth
+                  label="Ghi chú hóa đơn"
+                  value={invoiceNote}
+                  onChange={(event) => setInvoiceNote(event.target.value)}
+                  disabled={isLoading}
+                />
+              </Box>
+            </Box>
+          </Stack>
+        </Paper>
+
+        <Paper sx={defaultCardSx}>
+          <Stack spacing={3}>
+            <Typography variant="h6" sx={{ fontWeight: 600 }}>
+              Thông tin địa chỉ
+            </Typography>
+
+            <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' } }}>
+              <StackedAutocomplete
+                fullWidth
                 label="Tỉnh/Thành phố"
-                value={stateId}
-                onChange={(event) => setStateId(event.target.value as string)}
+                options={states}
+                value={states.find((state) => String(state.id) === stateId) ?? null}
+                onChange={(_, value) => setStateId(value ? String(value.id) : '')}
+                getOptionLabel={(option) => option.name}
+                isOptionEqualToValue={(option, value) => option.id === value.id}
                 error={Boolean(visibleErrors.state_id)}
                 helperText={visibleErrors.state_id}
                 disabled={isLoading}
-              >
-                <MenuItem value="">Chọn tỉnh/thành phố</MenuItem>
-                {states.map((state) => (
-                  <MenuItem key={state.id} value={String(state.id)}>
-                    {state.name}
-                  </MenuItem>
-                ))}
-              </StackedDropdown>
+                placeholder="Chọn tỉnh/thành phố"
+              />
 
-              <StackedDropdown
+              <StackedAutocomplete
                 fullWidth
                 label="Huyện/Quận"
-                value={cityId}
-                onChange={(event) => setCityId(event.target.value as string)}
+                options={cities}
+                value={cities.find((city) => String(city.id) === cityId) ?? null}
+                onChange={(_, value) => setCityId(value ? String(value.id) : '')}
+                getOptionLabel={(option) => option.name}
+                isOptionEqualToValue={(option, value) => option.id === value.id}
                 error={Boolean(visibleErrors.city_id)}
                 helperText={visibleErrors.city_id}
                 disabled={isLoading || !stateId}
-              >
-                <MenuItem value="">Chọn huyện/quận</MenuItem>
-                {cities.map((city) => (
-                  <MenuItem key={city.id} value={String(city.id)}>
-                    {city.name}
-                  </MenuItem>
-                ))}
-              </StackedDropdown>
+                placeholder="Chọn huyện/quận"
+              />
 
-              <StackedDropdown
+              <StackedAutocomplete
                 fullWidth
                 label="Xã/Phường"
-                value={districtId}
-                onChange={(event) => setDistrictId(event.target.value as string)}
+                options={districts}
+                value={districts.find((district) => String(district.id) === districtId) ?? null}
+                onChange={(_, value) => setDistrictId(value ? String(value.id) : '')}
+                getOptionLabel={(option) => option.name}
+                isOptionEqualToValue={(option, value) => option.id === value.id}
                 disabled={isLoading || !cityId}
-              >
-                <MenuItem value="">Chọn xã/phường</MenuItem>
-                {districts.map((district) => (
-                  <MenuItem key={district.id} value={String(district.id)}>
-                    {district.name}
-                  </MenuItem>
-                ))}
-              </StackedDropdown>
+                placeholder="Chọn xã/phường"
+              />
 
               <StackedTextField
                 fullWidth
@@ -553,14 +726,14 @@ export function CustomerCreatePage(): ReactElement {
         <Paper sx={defaultCardSx}>
           <Stack spacing={3}>
             <Typography variant="h6" sx={{ fontWeight: 600 }}>
-              Thông tin bổ sung
+              ThÃ´ng tin bá»• sung
             </Typography>
 
             <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' } }}>
               <StackedTextField
                 fullWidth
                 type="date"
-                label="Ngày tháng năm sinh"
+                label="NgÃ y thÃ¡ng nÄƒm sinh"
                 value={birthDate}
                 onChange={(event) => setBirthDate(event.target.value)}
                 disabled={isLoading}
@@ -568,21 +741,21 @@ export function CustomerCreatePage(): ReactElement {
 
               <StackedDropdown
                 fullWidth
-                label="Giới tính"
+                label="Giá»›i tÃ­nh"
                 value={gender}
                 onChange={(event) => setGender(event.target.value as GenderValue)}
                 disabled={isLoading}
               >
-                <MenuItem value="">Chưa chọn</MenuItem>
+                <MenuItem value="">ChÆ°a chá»n</MenuItem>
                 <MenuItem value="male">Nam</MenuItem>
-                <MenuItem value="female">Nữ</MenuItem>
-                <MenuItem value="other">Khác</MenuItem>
+                <MenuItem value="female">Ná»¯</MenuItem>
+                <MenuItem value="other">KhÃ¡c</MenuItem>
               </StackedDropdown>
 
               <StackedTextField
                 fullWidth
                 label="MST"
-                placeholder="Mã số thuế"
+                placeholder="MÃ£ sá»‘ thuáº¿"
                 value={taxCode}
                 onChange={(event) => setTaxCode(event.target.value)}
                 disabled={isLoading}
@@ -596,3 +769,5 @@ export function CustomerCreatePage(): ReactElement {
     </CreateEditPageContainer>
   )
 }
+
+

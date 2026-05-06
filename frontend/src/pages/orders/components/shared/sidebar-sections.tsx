@@ -3,7 +3,7 @@ import { StackedDropdown } from '@/shared/ui/form/stacked-dropdown'
 import { StackedTextField } from '@/shared/ui/form/stacked-text-field'
 import { borderedCardSx } from '@/shared/ui/paper'
 import { SummaryPaperHeader } from '@/shared/ui/summary-paper-header'
-import type { OrderOptionLookup } from '../../api/order.api'
+import type { OrderInvoiceSnapshot, OrderOptionLookup } from '../../api/order.api'
 import { getProcessingStatusMeta } from '../../lib/order.utils'
 
 type ProcessingStatus = 'draft' | 'placed' | 'delivering' | 'delivered' | 'completed' | 'cancelled' | 'returned'
@@ -16,6 +16,8 @@ type SidebarSectionsProps = {
   processingStatus: ProcessingStatus
   salesChannel: string
   orderNotes: string
+  invoiceCode: string
+  invoiceSnapshot: OrderInvoiceSnapshot
   processingStatusOptions: OrderOptionLookup['processing_statuses']
   processingStatusError?: string
   onOrderCodeChange: (value: string) => void
@@ -24,6 +26,8 @@ type SidebarSectionsProps = {
   onProcessingStatusChange: (value: ProcessingStatus) => void
   onSalesChannelChange: (value: string) => void
   onOrderNotesChange: (value: string) => void
+  onInvoiceCodeChange: (value: string) => void
+  onInvoiceSnapshotChange: (field: keyof OrderInvoiceSnapshot, value: string) => void
 }
 
 export function SidebarSections({
@@ -33,6 +37,8 @@ export function SidebarSections({
   processingStatus,
   salesChannel,
   orderNotes,
+  invoiceCode,
+  invoiceSnapshot,
   processingStatusOptions,
   processingStatusError,
   onOrderCodeChange,
@@ -41,6 +47,8 @@ export function SidebarSections({
   onProcessingStatusChange,
   onSalesChannelChange,
   onOrderNotesChange,
+  onInvoiceCodeChange,
+  onInvoiceSnapshotChange,
 }: SidebarSectionsProps) {
   const resolvedProcessingStatusValue = processingStatusOptions.some((status) => status.value === processingStatus)
     ? processingStatus
@@ -94,6 +102,58 @@ export function SidebarSections({
             onChange={(event) => onSalesChannelChange(event.target.value)}
           />
           {processingStatusError ? <Typography color="error">{processingStatusError}</Typography> : null}
+        </Stack>
+      </Paper>
+
+      <Paper sx={borderedCardSx}>
+        <Stack spacing={1.5}>
+          <SummaryPaperHeader title="Thông tin hóa đơn" />
+          <StackedTextField
+            fullWidth
+            label="Mã hóa đơn"
+            placeholder="Để trống nếu chưa chốt"
+            value={invoiceCode}
+            onChange={(event) => onInvoiceCodeChange(event.target.value)}
+          />
+          <StackedDropdown
+            fullWidth
+            label="Loại hóa đơn"
+            value={invoiceSnapshot.invoice_type}
+            onChange={(event) => onInvoiceSnapshotChange('invoice_type', String(event.target.value))}
+          >
+            <MenuItem value="b2c">B2C</MenuItem>
+            <MenuItem value="b2b">B2B</MenuItem>
+          </StackedDropdown>
+          <StackedTextField
+            fullWidth
+            label="Người mua / người nhận hóa đơn"
+            value={invoiceSnapshot.buyer_name}
+            onChange={(event) => onInvoiceSnapshotChange('buyer_name', event.target.value)}
+          />
+          <StackedTextField
+            fullWidth
+            label="Tên công ty"
+            value={invoiceSnapshot.company_name}
+            onChange={(event) => onInvoiceSnapshotChange('company_name', event.target.value)}
+          />
+          <StackedTextField
+            fullWidth
+            label="Mã số thuế"
+            value={invoiceSnapshot.tax_code}
+            onChange={(event) => onInvoiceSnapshotChange('tax_code', event.target.value)}
+          />
+          <StackedTextField
+            fullWidth
+            label="Email nhận hóa đơn"
+            value={invoiceSnapshot.email}
+            onChange={(event) => onInvoiceSnapshotChange('email', event.target.value)}
+          />
+          <StackedTextField
+            fullWidth
+            label="Địa chỉ xuất hóa đơn"
+            value={invoiceSnapshot.address_line}
+            onChange={(event) => onInvoiceSnapshotChange('address_line', event.target.value)}
+          />
         </Stack>
       </Paper>
 

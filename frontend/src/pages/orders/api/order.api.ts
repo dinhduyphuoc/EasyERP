@@ -12,6 +12,18 @@ export type OrderProcessingStatus =
   | 'cancelled'
   | 'returned'
 export type OrderType = 'sale' | 'return'
+export type OrderInvoiceSnapshot = {
+  invoice_type: 'b2b' | 'b2c'
+  buyer_name: string
+  company_name: string
+  tax_code: string
+  personal_id: string
+  budget_unit_code: string
+  email: string
+  phone: string
+  address_line: string
+  note: string
+}
 
 export type OrderItem = {
   id: number
@@ -103,6 +115,7 @@ export type OrderListItem = {
   tracking_code: string | null
   shipping_status: string | null
   invoice_code: string | null
+  invoice_snapshot: OrderInvoiceSnapshot
   created_by: string | null
   confirmed_by: string | null
   created_at: string
@@ -361,6 +374,7 @@ export type OrderCreatePayload = {
   tracking_code?: string | null
   shipping_status?: string | null
   invoice_code?: string | null
+  invoice_snapshot?: Partial<OrderInvoiceSnapshot> | null
   created_by?: string | null
   confirmed_by?: string | null
   status_timeline?: Record<string, unknown>
@@ -405,6 +419,7 @@ export type OrderActionPayload = {
   from_phone?: string | null
   warehouse_status?: string | null
   invoice_code?: string | null
+  invoice_snapshot?: Partial<OrderInvoiceSnapshot> | null
 }
 
 export type DuplicateOrderPayload = {
@@ -433,6 +448,25 @@ export const orderApi = {
 
   getOrderHistory: async (id: string | number): Promise<OrderHistoryItem[]> => {
     return apiClient.get(`${ENDPOINT}/${id}/history`)
+  },
+
+  getInvoicePrintReadyHtml: async (id: string | number): Promise<string> => {
+    return apiClient.get(`${ENDPOINT}/${id}/invoice/print-ready`, {
+      responseType: 'text',
+      headers: {
+        Accept: 'text/html',
+      },
+    })
+  },
+
+  getInvoicePdf: async (id: string | number, options?: { download?: boolean }): Promise<ArrayBuffer> => {
+    return apiClient.get(`${ENDPOINT}/${id}/invoice/pdf`, {
+      params: options?.download ? { download: '1' } : undefined,
+      responseType: 'arraybuffer',
+      headers: {
+        Accept: 'application/pdf',
+      },
+    })
   },
 
   getGHNOrderInfo: async (id: string | number): Promise<OrderShippingOrderInfo> => {

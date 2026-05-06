@@ -1,1 +1,1 @@
-export const STACKED_LABEL_COLOR = '#1f1f1f'
+export const Label = '#1f1f1f'

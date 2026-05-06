@@ -1,9 +1,9 @@
 import { Bounce, toast, type ToastOptions } from 'react-toastify'
 
 export const defaultToastOptions: ToastOptions = {
-  position: 'top-right',
+  position: 'top-center',
   autoClose: 5000,
-  hideProgressBar: false,
+  hideProgressBar: true,
   closeOnClick: true,
   pauseOnHover: false,
   draggable: true,

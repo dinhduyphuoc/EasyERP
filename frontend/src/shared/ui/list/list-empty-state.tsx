@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
-import { Box, Button, Stack, Typography, alpha } from '@mui/material'
+import Inventory2OutlinedIcon from '@mui/icons-material/Inventory2Outlined'
+import { Box, Stack, Typography, alpha } from '@mui/material'
 
 type ListEmptyStateProps = {
   title: string
@@ -35,7 +36,7 @@ export function ListEmptyState({
           color: 'primary.main',
         }}
       >
-        {illustration ?? <Button variant="text" disableRipple sx={{ pointerEvents: 'none' }}>0</Button>}
+        {illustration ?? <Inventory2OutlinedIcon fontSize="large" />}
       </Box>
       <Box>
         <Typography variant="h6" sx={{ fontWeight: 700 }}>

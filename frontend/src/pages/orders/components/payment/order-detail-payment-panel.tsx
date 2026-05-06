@@ -27,12 +27,16 @@ export function OrderDetailPaymentPanel({
   invoiceStatusColor,
   invoiceCode,
   canExportInvoice,
+  canPrintInvoice,
+  canDownloadInvoicePdf,
   canGeneratePaymentQr,
   canAddPayment,
   canEditOrder,
   isActing,
   isGeneratingQr,
   onOpenInvoiceDialog,
+  onPrintInvoice,
+  onDownloadInvoicePdf,
   onOpenPaymentQr,
   onOpenAddPaymentDialog,
   onOpenConfirmPaidDialog,
@@ -54,12 +58,16 @@ export function OrderDetailPaymentPanel({
   invoiceStatusColor: 'default' | 'success'
   invoiceCode: string | null
   canExportInvoice: boolean
+  canPrintInvoice: boolean
+  canDownloadInvoicePdf: boolean
   canGeneratePaymentQr: boolean
   canAddPayment: boolean
   canEditOrder: boolean
   isActing: boolean
   isGeneratingQr: boolean
   onOpenInvoiceDialog: () => void
+  onPrintInvoice: () => void
+  onDownloadInvoicePdf: () => void
   onOpenPaymentQr: () => void
   onOpenAddPaymentDialog: () => void
   onOpenConfirmPaidDialog: () => void
@@ -129,6 +137,26 @@ export function OrderDetailPaymentPanel({
                 disabled={isGeneratingQr}
               >
                 Tạo QR
+              </Button>
+            ) : null}
+            {canPrintInvoice ? (
+              <Button
+                variant="outlined"
+                startIcon={<ReceiptLongOutlinedIcon />}
+                onClick={onPrintInvoice}
+                disabled={isActing}
+              >
+                In hóa đơn
+              </Button>
+            ) : null}
+            {canDownloadInvoicePdf ? (
+              <Button
+                variant="outlined"
+                startIcon={<ReceiptLongOutlinedIcon />}
+                onClick={onDownloadInvoicePdf}
+                disabled={isActing}
+              >
+                PDF hóa đơn
               </Button>
             ) : null}
             <Button

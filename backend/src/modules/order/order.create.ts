@@ -17,6 +17,7 @@ import {
   validateRequestedHistory,
 } from "./order.helpers";
 import {
+  buildInvoiceSnapshotFromCustomer,
   buildOrderCreateData,
   buildOrderRuntimeTimeline,
   ensureCustomerContact,
@@ -45,6 +46,14 @@ export const createOrder = async (
   const customerEmail = toOptionalTrimmedString(input.customer_info?.email) ?? null;
   const customerAddress = toOptionalTrimmedString(input.customer_info?.address) ?? null;
   const requiredCustomerContact = ensureCustomerContact(customerName, customerPhone);
+  const invoiceSnapshot = buildInvoiceSnapshotFromCustomer({
+    input: input.invoice_snapshot,
+    customer,
+    customerName: requiredCustomerContact.customerName,
+    customerPhone: requiredCustomerContact.customerPhone,
+    customerEmail,
+    customerAddress,
+  });
 
   const requestedVatEnabled = toOptionalBoolean(input.vat_enabled);
   const subTotal =
@@ -158,6 +167,7 @@ export const createOrder = async (
       paidAmount,
       outstandingAmount,
       statusTimeline: statusTimeline as Prisma.InputJsonValue,
+      invoiceSnapshot: invoiceSnapshot as Prisma.InputJsonValue,
     }),
     normalizedItems,
     historyEntries,

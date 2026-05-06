@@ -26,6 +26,7 @@ const EMPTY_STORE_PROFILE = {
   legal_full_name: '',
   contact_email: '',
   contact_phone: '',
+  avatar_url: '',
   state_id: null,
   city_id: null,
   district_id: null,

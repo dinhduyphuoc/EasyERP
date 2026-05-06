@@ -104,7 +104,7 @@ export async function ensureSuperAdmin(tenantId: string) {
   }
 
   if (SUPER_ADMIN_PASSWORD.length < 8) {
-    throw new Error("SUPER_ADMIN_PASSWORD must be at least 8 characters");
+    throw new Error("Mật khẩu phải có ít nhất 8 ký tự");
   }
 
   const superAdminRole = await prisma.role.findFirst({
@@ -118,7 +118,7 @@ export async function ensureSuperAdmin(tenantId: string) {
   });
 
   if (!superAdminRole) {
-    throw new Error("super_admin role is missing. Run RBAC bootstrap first.");
+    throw new Error("Vai trò super_admin không tồn tại. Vui lòng chạy bootstrap RBAC trước.");
   }
 
   const passwordHash = await PasswordService.hashPassword(SUPER_ADMIN_PASSWORD);

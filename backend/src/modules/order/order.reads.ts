@@ -4,6 +4,7 @@ export {
   getGHNPrintInfo,
   getGHNTrackingLogs,
 } from "./order.ghn.reads";
+export { getOrderInvoicePdf, getOrderInvoicePrintHtml } from "./order.invoice";
 export {
   getOrderById,
   getOrderForEdit,

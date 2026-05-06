@@ -5,8 +5,6 @@ import { getDatabaseSslCaPath } from "./database-env";
 
 const DEFAULT_SSL_CA_PATHS = ["global-bundle.pem", "backend/global-bundle.pem"];
 
-const LOCALHOST_HOSTNAMES = new Set(["localhost", "127.0.0.1", "::1"]);
-
 const getSslCaPath = (connectionString?: string) => {
   return getDatabaseSslCaPath(connectionString);
 };
@@ -24,19 +22,6 @@ const parseSslMode = (connectionString?: string) => {
   }
 };
 
-const isLocalConnectionString = (connectionString?: string) => {
-  if (!connectionString) {
-    return false;
-  }
-
-  try {
-    const url = new URL(connectionString);
-    return LOCALHOST_HOSTNAMES.has(url.hostname.trim().toLowerCase());
-  } catch {
-    return false;
-  }
-};
-
 const resolveExistingPath = (path?: string) => {
   const candidates = path ? [path] : DEFAULT_SSL_CA_PATHS;
 
@@ -45,16 +30,19 @@ const resolveExistingPath = (path?: string) => {
 
 export const createPostgresSslConfig = (connectionString?: string): PoolConfig["ssl"] => {
   const sslMode = parseSslMode(connectionString);
+  const explicitCaPath = getSslCaPath(connectionString);
 
   if (sslMode === "disable") {
     return false;
   }
 
-  if (isLocalConnectionString(connectionString)) {
+  // Default to non-SSL unless the connection string or env explicitly opts in.
+  // This keeps local Docker hosts like `db` working without pretending they support TLS.
+  if (!sslMode && !explicitCaPath) {
     return false;
   }
 
-  const caPath = resolveExistingPath(getSslCaPath(connectionString));
+  const caPath = resolveExistingPath(explicitCaPath);
 
   if (!caPath) {
     return { rejectUnauthorized: false };

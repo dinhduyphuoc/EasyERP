@@ -9,6 +9,8 @@ import {
   getOrderById,
   getOrderForEdit,
   getOrderHistory,
+  getOrderInvoicePdf,
+  getOrderInvoicePrintHtml,
   getOrderOverview,
   getOrderOptions,
   getOrders,
@@ -50,6 +52,8 @@ const parsePayload = <T>(body: unknown) => {
 
   return body as T;
 };
+
+const shouldDownload = (value: unknown) => value === "1" || value === "true" || value === true;
 
 const requireStoreContext = (req: { store?: Request["store"] }) => {
   if (!req.store) {
@@ -128,6 +132,38 @@ export const OrderController = {
     const store = requireStoreContext(req);
     const history = await getOrderHistory(store.id, parseId(req.params.id));
     return res.status(200).json(history satisfies OrderHistoryResponseItem[]);
+  },
+
+  getInvoicePrintReadyHtml: async (req: Request<OrderParams, {}, {}, { download?: string }>, res: Response) => {
+    const store = requireStoreContext(req);
+    const data = await getOrderInvoicePrintHtml({
+      storeId: store.id,
+      orderId: parseId(req.params.id),
+      tenantId: req.auth?.user.tenant_id ?? null,
+    });
+
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.setHeader(
+      "Content-Disposition",
+      `${shouldDownload(req.query.download) ? "attachment" : "inline"}; filename="${data.file_name}"`,
+    );
+    return res.status(200).send(data.html);
+  },
+
+  getInvoicePdf: async (req: Request<OrderParams, {}, {}, { download?: string }>, res: Response) => {
+    const store = requireStoreContext(req);
+    const data = await getOrderInvoicePdf({
+      storeId: store.id,
+      orderId: parseId(req.params.id),
+      tenantId: req.auth?.user.tenant_id ?? null,
+    });
+
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader(
+      "Content-Disposition",
+      `${shouldDownload(req.query.download) ? "attachment" : "inline"}; filename="${data.file_name}"`,
+    );
+    return res.status(200).send(data.buffer);
   },
 
   getGHNPrintInfo: async (req: Request<OrderParams>, res: Response) => {

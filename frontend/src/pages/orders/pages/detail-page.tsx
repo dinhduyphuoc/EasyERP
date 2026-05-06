@@ -43,6 +43,7 @@ import {
   orderApi,
   type OrderActionName,
   type OrderDetailItem,
+  type OrderInvoiceSnapshot,
   type OrderShippingOrderInfo,
   type OrderShippingTrackingLogItem,
 } from '../api'
@@ -106,6 +107,19 @@ const joinAddressParts = (parts: Array<string | null | undefined>) =>
     .map((part) => (typeof part === 'string' ? part.trim() : ''))
     .filter(Boolean)
     .join(', ')
+
+const buildInvoiceSnapshotDraft = (order: OrderDetailItem | null): OrderInvoiceSnapshot => ({
+  invoice_type: order?.invoice_snapshot?.invoice_type ?? 'b2c',
+  buyer_name: order?.invoice_snapshot?.buyer_name ?? order?.customer_info.name ?? '',
+  company_name: order?.invoice_snapshot?.company_name ?? '',
+  tax_code: order?.invoice_snapshot?.tax_code ?? '',
+  personal_id: order?.invoice_snapshot?.personal_id ?? '',
+  budget_unit_code: order?.invoice_snapshot?.budget_unit_code ?? '',
+  email: order?.invoice_snapshot?.email ?? order?.customer_info.email ?? '',
+  phone: order?.invoice_snapshot?.phone ?? order?.customer_info.phone ?? '',
+  address_line: order?.invoice_snapshot?.address_line ?? order?.customer_info.address ?? '',
+  note: order?.invoice_snapshot?.note ?? '',
+})
 
 const isRequestTimeoutError = (error: unknown) =>
   axios.isAxiosError(error) &&
@@ -275,6 +289,9 @@ export function OrdersDetailPage(): ReactElement {
   const [isActing, setIsActing] = useState(false)
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null)
   const [invoiceCodeDraft, setInvoiceCodeDraft] = useState('')
+  const [invoiceSnapshotDraft, setInvoiceSnapshotDraft] = useState<OrderInvoiceSnapshot>(
+    buildInvoiceSnapshotDraft(initialOrder),
+  )
   const [isInvoiceDialogOpen, setIsInvoiceDialogOpen] = useState(false)
   const [isQrDialogOpen, setIsQrDialogOpen] = useState(false)
   const [isGeneratingQr, setIsGeneratingQr] = useState(false)
@@ -322,6 +339,8 @@ export function OrdersDetailPage(): ReactElement {
   useEffect(() => {
     setOrder(initialOrder)
     setIsLoading(false)
+    setInvoiceSnapshotDraft(buildInvoiceSnapshotDraft(initialOrder))
+    setInvoiceCodeDraft(initialOrder.invoice_code ?? '')
 
     if (params.id) {
       void fetchOrderHistory(params.id)
@@ -460,7 +479,10 @@ export function OrdersDetailPage(): ReactElement {
   }, [order])
 
   const runAction = useCallback(
-    async (action: OrderActionName, payload: Record<string, string | number | null | undefined> = {}) => {
+    async (
+      action: OrderActionName,
+      payload: Record<string, string | number | boolean | object | null | undefined> = {},
+    ) => {
       if (!params.id || !order) {
         return
       }
@@ -606,9 +628,21 @@ export function OrdersDetailPage(): ReactElement {
   const submitInvoiceRequest = useCallback(async () => {
     await runAction('request_invoice', {
       invoice_code: invoiceCodeDraft.trim(),
+      invoice_snapshot: invoiceSnapshotDraft,
     })
     setIsInvoiceDialogOpen(false)
-  }, [invoiceCodeDraft, runAction])
+  }, [invoiceCodeDraft, invoiceSnapshotDraft, runAction])
+
+  const handleInvoiceSnapshotDraftChange = useCallback(
+    (field: keyof OrderInvoiceSnapshot, value: string) => {
+      setInvoiceSnapshotDraft((current) => ({
+        ...current,
+        [field]:
+          field === 'invoice_type' ? (value.trim().toLowerCase() === 'b2b' ? 'b2b' : 'b2c') : value,
+      }))
+    },
+    [],
+  )
 
   const handleDuplicateOrder = useCallback(() => {
     if (!order) {
@@ -646,6 +680,48 @@ export function OrdersDetailPage(): ReactElement {
       appToast.error(ORDER_TOAST_MESSAGES.printPopupBlocked)
       return
     }
+  }, [order])
+
+  const handlePrintInvoice = useCallback(() => {
+    if (!order) {
+      return
+    }
+
+    void (async () => {
+      try {
+        const html = await orderApi.getInvoicePrintReadyHtml(order.id)
+        const didOpen = openPrintWindow(html)
+
+        if (!didOpen) {
+          appToast.error(ORDER_TOAST_MESSAGES.printPopupBlocked)
+        }
+      } catch (error) {
+        showErrorToast(error, 'Không thể mở bản in hóa đơn.')
+      }
+    })()
+  }, [order])
+
+  const handleDownloadInvoicePdf = useCallback(() => {
+    if (!order) {
+      return
+    }
+
+    void (async () => {
+      try {
+        const pdfBuffer = await orderApi.getInvoicePdf(order.id, { download: true })
+        const blob = new Blob([pdfBuffer], { type: 'application/pdf' })
+        const objectUrl = window.URL.createObjectURL(blob)
+        const link = window.document.createElement('a')
+        link.href = objectUrl
+        link.download = `${order.order_code}-invoice.pdf`
+        window.document.body.appendChild(link)
+        link.click()
+        link.remove()
+        window.setTimeout(() => window.URL.revokeObjectURL(objectUrl), 60_000)
+      } catch (error) {
+        showErrorToast(error, 'Không thể tạo PDF hóa đơn.')
+      }
+    })()
   }, [order])
 
   const handleCopyQrValue = useCallback(async () => {
@@ -720,6 +796,8 @@ export function OrdersDetailPage(): ReactElement {
     order?.processing_status ?? '',
   )
   const canExportInvoice = order?.payment_status === 'paid'
+  const canPrintInvoice = Boolean(order?.invoice_code)
+  const canDownloadInvoicePdf = Boolean(order?.invoice_code)
   const isMissingStoreShippingAddress = !hasStoreShippingAddress
   const isMissingCustomerShippingAddress = !hasCustomerShippingAddress
   const shippingAddressWarningTitle =
@@ -1120,12 +1198,20 @@ export function OrdersDetailPage(): ReactElement {
       invoiceStatusColor={invoiceStatusColor}
       invoiceCode={order.invoice_code}
       canExportInvoice={canExportInvoice}
+      canPrintInvoice={canPrintInvoice}
+      canDownloadInvoicePdf={canDownloadInvoicePdf}
       canGeneratePaymentQr={canGeneratePaymentQr}
       canAddPayment={canAddPayment}
       canEditOrder={canEditOrder}
       isActing={isActing}
       isGeneratingQr={isGeneratingQr}
-      onOpenInvoiceDialog={() => setIsInvoiceDialogOpen(true)}
+      onOpenInvoiceDialog={() => {
+        setInvoiceCodeDraft(order?.invoice_code ?? '')
+        setInvoiceSnapshotDraft(buildInvoiceSnapshotDraft(order))
+        setIsInvoiceDialogOpen(true)
+      }}
+      onPrintInvoice={handlePrintInvoice}
+      onDownloadInvoicePdf={handleDownloadInvoicePdf}
       onOpenPaymentQr={() => void handleOpenPaymentQr()}
       onOpenAddPaymentDialog={openAddPaymentDialog}
       onOpenConfirmPaidDialog={openConfirmPaidDialog}
@@ -1678,7 +1764,9 @@ export function OrdersDetailPage(): ReactElement {
         onSavePayment={() => void handleSavePayment()}
         isInvoiceDialogOpen={isInvoiceDialogOpen}
         invoiceCodeDraft={invoiceCodeDraft}
+        invoiceSnapshotDraft={invoiceSnapshotDraft}
         onInvoiceCodeDraftChange={setInvoiceCodeDraft}
+        onInvoiceSnapshotDraftChange={handleInvoiceSnapshotDraftChange}
         onCloseInvoiceDialog={() => setIsInvoiceDialogOpen(false)}
         onSubmitInvoiceRequest={() => void submitInvoiceRequest()}
         isQrDialogOpen={isQrDialogOpen}

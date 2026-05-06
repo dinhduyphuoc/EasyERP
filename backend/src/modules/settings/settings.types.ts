@@ -21,6 +21,45 @@ export type GeneralSettingsResponse = {
       enabled: boolean;
       rate_percent: number;
     };
+    invoice: InvoiceSettings;
+  };
+};
+
+export type InvoiceTemplateMode = "b2b" | "b2c" | "hybrid";
+
+export type InvoiceSettings = {
+  issuing_mode: InvoiceTemplateMode;
+  seller: {
+    legal_name: string;
+    brand_name: string;
+    tax_code: string;
+    address_line: string;
+    email: string;
+    phone: string;
+  };
+  numbering: {
+    invoice_series_prefix: string;
+    starting_sequence: number;
+  };
+  display: {
+    primary_color: string;
+    accent_color: string;
+    show_company_stamp_note: boolean;
+    show_bank_account: boolean;
+    show_payment_qr: boolean;
+    footer_note_b2b: string;
+    footer_note_b2c: string;
+  };
+  templates: {
+    b2b_html: string;
+    b2c_html: string;
+  };
+  compliance: {
+    decree_reference: string;
+    effective_from: string;
+    separate_digital_signature_time: boolean;
+    buyer_info_on_request_for_b2c: boolean;
+    include_tax_authority_qr: boolean;
   };
 };
 
@@ -45,6 +84,41 @@ export type UpdateGeneralSettingsInput = {
     vat?: {
       enabled?: boolean | null;
       rate_percent?: number | string | null;
+    };
+    invoice?: {
+      issuing_mode?: InvoiceTemplateMode | null;
+      seller?: {
+        legal_name?: string | null;
+        brand_name?: string | null;
+        tax_code?: string | null;
+        address_line?: string | null;
+        email?: string | null;
+        phone?: string | null;
+      };
+      numbering?: {
+        invoice_series_prefix?: string | null;
+        starting_sequence?: number | string | null;
+      };
+      display?: {
+        primary_color?: string | null;
+        accent_color?: string | null;
+        show_company_stamp_note?: boolean | null;
+        show_bank_account?: boolean | null;
+        show_payment_qr?: boolean | null;
+        footer_note_b2b?: string | null;
+        footer_note_b2c?: string | null;
+      };
+      templates?: {
+        b2b_html?: string | null;
+        b2c_html?: string | null;
+      };
+      compliance?: {
+        decree_reference?: string | null;
+        effective_from?: string | null;
+        separate_digital_signature_time?: boolean | null;
+        buyer_info_on_request_for_b2c?: boolean | null;
+        include_tax_authority_qr?: boolean | null;
+      };
     };
   };
 };

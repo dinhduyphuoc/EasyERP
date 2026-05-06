@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Box, Button, Chip, Stack, Typography } from '@mui/material'
+import { Box, Button, Chip, Typography } from '@mui/material'
 import AddOutlinedIcon from '@mui/icons-material/AddOutlined'
 import { useNavigate } from 'react-router'
 import { CommonListLayout } from '@/shared/ui/list/common-list-layout'
@@ -273,16 +273,6 @@ export function InventoryAuditListPage() {
         },
         pageSizeOptions: [10, 20, 50],
       }}
-      metaBar={
-        <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
-          <Typography variant="body2" color="text.secondary">
-            Hoàn thành: <strong>{rows.filter((row) => row.status === 'completed').length}</strong>
-          </Typography>
-          <Typography variant="body2" color="text.secondary">
-            Nháp: <strong>{rows.filter((row) => row.status === 'draft').length}</strong>
-          </Typography>
-        </Stack>
-      }
     />
   )
 }

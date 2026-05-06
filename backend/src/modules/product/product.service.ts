@@ -620,7 +620,10 @@ const normalizeProductInput = async (
 
   return {
     product_name: productName,
-    default_variant_sku: attributes.length === 0 ? variants[0]?.sku ?? defaultVariantSku ?? null : null,
+    default_variant_sku:
+      attributes.length === 0
+        ? variants[0]?.sku ?? defaultVariantSku ?? null
+        : defaultVariantSku ?? null,
     unit: toOptionalTrimmedString(payload.unit),
     base_price: attributes.length === 0 ? variants[0]?.selling_price ?? null : null,
     cogs:

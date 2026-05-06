@@ -8,6 +8,20 @@ export type OrderProcessingStatusInput =
   | "cancelled"
   | "returned";
 export type OrderTypeInput = "sale" | "return";
+export type OrderInvoiceTypeInput = "b2b" | "b2c";
+
+export interface OrderInvoiceSnapshotInput {
+  invoice_type?: OrderInvoiceTypeInput | null;
+  buyer_name?: string | null;
+  company_name?: string | null;
+  tax_code?: string | null;
+  personal_id?: string | null;
+  budget_unit_code?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  address_line?: string | null;
+  note?: string | null;
+}
 
 export interface OrderListQuery {
   search?: string;
@@ -231,6 +245,7 @@ export interface OrderRequestInput {
   tracking_code?: string | null;
   shipping_status?: string | null;
   invoice_code?: string | null;
+  invoice_snapshot?: OrderInvoiceSnapshotInput | null;
   created_by?: string | null;
   confirmed_by?: string | null;
   status_timeline?: Record<string, unknown>;
@@ -255,6 +270,7 @@ export interface OrderActionRequestInput {
   from_phone?: string | null;
   warehouse_status?: string | null;
   invoice_code?: string | null;
+  invoice_snapshot?: OrderInvoiceSnapshotInput | null;
 }
 
 export type OrderActionName =

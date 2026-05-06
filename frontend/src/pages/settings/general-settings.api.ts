@@ -25,12 +25,47 @@ export type GeneralSettings = {
       enabled: boolean
       rate_percent: number
     }
+    invoice: {
+      issuing_mode: 'b2b' | 'b2c' | 'hybrid'
+      seller: {
+        legal_name: string
+        brand_name: string
+        tax_code: string
+        address_line: string
+        email: string
+        phone: string
+      }
+      numbering: {
+        invoice_series_prefix: string
+        starting_sequence: number
+      }
+      display: {
+        primary_color: string
+        accent_color: string
+        show_company_stamp_note: boolean
+        show_bank_account: boolean
+        show_payment_qr: boolean
+        footer_note_b2b: string
+        footer_note_b2c: string
+      }
+      templates: {
+        b2b_html: string
+        b2c_html: string
+      }
+      compliance: {
+        decree_reference: string
+        effective_from: string
+        separate_digital_signature_time: boolean
+        buyer_info_on_request_for_b2c: boolean
+        include_tax_authority_qr: boolean
+      }
+    }
   }
 }
 
 export type UpdateGeneralSettingsPayload = {
   defaults: {
-    shipping_address: {
+    shipping_address?: {
       contact_name: string
       phone: string
       state_id: number | null
@@ -38,7 +73,7 @@ export type UpdateGeneralSettingsPayload = {
       district_id: number | null
       address_line: string
     }
-    bank_account: {
+    bank_account?: {
       bank_name: string
       bank_bin: string
       bank_code: string
@@ -46,9 +81,44 @@ export type UpdateGeneralSettingsPayload = {
       account_holder: string
       qr_template: string
     }
-    vat: {
+    vat?: {
       enabled: boolean
       rate_percent: number
+    }
+    invoice?: {
+      issuing_mode: 'b2b' | 'b2c' | 'hybrid'
+      seller: {
+        legal_name: string
+        brand_name: string
+        tax_code: string
+        address_line: string
+        email: string
+        phone: string
+      }
+      numbering: {
+        invoice_series_prefix: string
+        starting_sequence: number
+      }
+      display: {
+        primary_color: string
+        accent_color: string
+        show_company_stamp_note: boolean
+        show_bank_account: boolean
+        show_payment_qr: boolean
+        footer_note_b2b: string
+        footer_note_b2c: string
+      }
+      templates: {
+        b2b_html: string
+        b2c_html: string
+      }
+      compliance: {
+        decree_reference: string
+        effective_from: string
+        separate_digital_signature_time: boolean
+        buyer_info_on_request_for_b2c: boolean
+        include_tax_authority_qr: boolean
+      }
     }
   }
 }

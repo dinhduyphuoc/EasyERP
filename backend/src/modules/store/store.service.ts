@@ -32,6 +32,7 @@ const buildStoreProfile = (value: unknown) => {
     legal_full_name: toTrimmedString(profile.legal_full_name),
     contact_email: toTrimmedString(profile.contact_email),
     contact_phone: toTrimmedString(profile.contact_phone),
+    avatar_url: toTrimmedString(profile.avatar_url),
     state_id: toOptionalInt(profile.state_id),
     city_id: toOptionalInt(profile.city_id),
     district_id: toOptionalInt(profile.district_id),

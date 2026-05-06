@@ -45,6 +45,7 @@ import { showErrorToast } from '@/shared/ui/toast/toast-error'
 import { StackedTextField } from '@/shared/ui/form/stacked-text-field'
 import { StackedDropdown } from '@/shared/ui/form/stacked-dropdown'
 import { StackedAutocomplete } from '@/shared/ui/form/stacked-autocomplete'
+import { InfoTooltip } from '@/shared/ui/info-tooltip'
 import { ManagedImageField, type ManagedImageFieldHandle } from '@/shared/ui/image'
 import { UnsavedChangesBanner, useUnsavedChangesPrompt } from '@/shared/ui/unsaved-changes'
 import { formatCurrencyInput as formatCurrency } from '@/shared/utils/currency'
@@ -532,7 +533,7 @@ export function ProductCreatePage(): ReactElement {
 
       const payload: ProductUpsertPayload = {
         product_name: name.trim(),
-        default_variant_sku: variantMode ? undefined : sku.trim() || undefined,
+        default_variant_sku: sku.trim() || undefined,
         unit: unit.trim() || undefined,
         status,
         image_url: imagePreview.trim() && !isObjectUrl(imagePreview.trim()) ? imagePreview.trim() : null,
@@ -730,10 +731,10 @@ export function ProductCreatePage(): ReactElement {
 
               <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' } }}>
                 <Box sx={{ gridColumn: '1 / -1' }}>
-                  <StackedTextField fullWidth layout={fieldLayout} label="Tên sản phẩm *" placeholder="Ví dụ: Túi deo chéo canvas" value={name} onChange={(event) => { setDirty(true); setName(event.target.value) }} error={Boolean(errors.name)} helperText={errors.name} />
+                  <StackedTextField fullWidth layout={fieldLayout} label="Tên sản phẩm *" placeholder="Nhập tên sản phẩm" value={name} onChange={(event) => { setDirty(true); setName(event.target.value) }} error={Boolean(errors.name)} helperText={errors.name} />
                 </Box>
 
-                <StackedTextField fullWidth layout={fieldLayout} label="Mã sản phẩm *" placeholder="Ví dụ: TUI-CANVAS-01" value={sku} onChange={(event) => { setDirty(true); setSku(sanitizeSku(event.target.value)) }} error={Boolean(errors.sku)} helperText={errors.sku} />
+                <StackedTextField fullWidth layout={fieldLayout} label="Mã sản phẩm *" placeholder="Nhập mã sản phẩm" value={sku} onChange={(event) => { setDirty(true); setSku(sanitizeSku(event.target.value)) }} error={Boolean(errors.sku)} helperText={errors.sku} />
 
                 <StackedTextField fullWidth layout={fieldLayout} label="Đơn vị" placeholder="Ví dụ: cái, hộp, kg" value={unit} onChange={(event) => { setDirty(true); setUnit(event.target.value) }} />
 
@@ -845,19 +846,19 @@ export function ProductCreatePage(): ReactElement {
                     <StackedTextField
                       fullWidth
                       layout={fieldLayout}
-                      label="Giá bán"
-                      value={basePrice}
-                      onChange={(event) => { setDirty(true); setBasePrice(formatCurrency(event.target.value, { zeroAsEmpty: false })) }}
-                      error={Boolean(errors.basePrice)}
-                      helperText={errors.basePrice}
+                      label="Giá vốn"
+                      value={baseCogs}
+                      onChange={(event) => { setDirty(true); setBaseCogs(formatCurrency(event.target.value, { zeroAsEmpty: false })) }}
                       endAdornment={<InputAdornment sx={{ fontSize: 14 }} position="end">đ</InputAdornment>}
                     />
                     <StackedTextField
                       fullWidth
                       layout={fieldLayout}
-                      label="Giá vốn"
-                      value={baseCogs}
-                      onChange={(event) => { setDirty(true); setBaseCogs(formatCurrency(event.target.value, { zeroAsEmpty: false })) }}
+                      label="Giá bán"
+                      value={basePrice}
+                      onChange={(event) => { setDirty(true); setBasePrice(formatCurrency(event.target.value, { zeroAsEmpty: false })) }}
+                      error={Boolean(errors.basePrice)}
+                      helperText={errors.basePrice}
                       endAdornment={<InputAdornment sx={{ fontSize: 14 }} position="end">đ</InputAdornment>}
                     />
                   </Box>
@@ -884,8 +885,8 @@ export function ProductCreatePage(): ReactElement {
                         <TableCell sx={{ width: '10%', pr: 0.5 }}></TableCell>
                         <TableCell sx={{ width: '20%', pl: 0.5 }}>Biến thể</TableCell>
                         <TableCell sx={{ width: '24%' }}>SKU *</TableCell>
-                        <TableCell sx={{ width: '19%' }}>Giá bán</TableCell>
                         <TableCell sx={{ width: '19%' }}>Giá vốn</TableCell>
+                        <TableCell sx={{ width: '19%' }}>Giá bán</TableCell>
                         <TableCell sx={{ width: '8%'}} />
                       </TableRow>
                     </TableHead>
@@ -983,11 +984,15 @@ export function ProductCreatePage(): ReactElement {
           <Paper sx={defaultCardSx}>
             <Stack spacing={2}>
               <Stack direction="row" spacing={2} sx={{ justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap' }}>
-                <Box>
+                <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
                   <Typography variant="h6" sx={{ fontWeight: 600 }}>
                     Thuộc tính
                   </Typography>
-                </Box>
+                  <InfoTooltip
+                    title="Tạo phiên bản của sản phẩm bằng cách tạo và kết hợp các thuộc tính cho từng phiên bản. Ví dụ: Màu sắc, Kích thước,..."
+                    ariaLabel="Hướng dẫn khai báo thuộc tính"
+                  />
+                </Stack>
                 <Button variant="outlined" size="small" onClick={() => { setDirty(true); setAttributes((current) => [...current, createAttribute()]) }}>
                   Thêm thuộc tính
                 </Button>
@@ -995,7 +1000,7 @@ export function ProductCreatePage(): ReactElement {
 
               {!attributes.length ? (
                 <Box sx={{ py: 3, textAlign: 'center', color: '#667085' }}>
-                  Chưa có thuộc tính nào. Bạn có thể lưu sản phẩm đơn hoặc thêm thuộc tính để tạo biến thể.
+                  Chưa có thuộc tính nào.
                 </Box>
               ) : (
                 <Stack spacing={1.5}>
@@ -1008,7 +1013,7 @@ export function ProductCreatePage(): ReactElement {
                             fullWidth
                             layout={fieldLayout}
                             label="Giá trị"
-                            placeholder={attribute.values.length === 0 ? 'Nhập giá trị rồi nhấn Enter' : 'Nhập thêm giá trị'}
+                            placeholder={attribute.values.length === 0 ? 'Nhập giá trị và nhấn Enter.' : 'Nhập thêm giá trị'}
                             value={attribute.draft}
                             onChange={(event) => {
                               setDirty(true)
@@ -1017,7 +1022,6 @@ export function ProductCreatePage(): ReactElement {
                             onKeyDown={(event: KeyboardEvent<HTMLInputElement>) => handleAttributeKeyDown(event, attribute.id)}
                             onBlur={() => commitAttributeValues(attribute.id)}
                             error={Boolean(errors[`attr-${attribute.id}`])}
-                            helperText={errors[`attr-${attribute.id}`] || 'Nhấn Enter để thêm từng giá trị. Ví dụ: Đỏ, Xanh, Đen'}
                             startAdornment={
                               attribute.values.length > 0 ? (
                                 <Box sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 0.75, mr: 0.75, py: 0.5 }}>
@@ -1121,7 +1125,7 @@ export function ProductCreatePage(): ReactElement {
                     <CloudUploadOutlinedIcon sx={{ fontSize: 40 }} />
                     <Typography sx={{ fontWeight: 700 }}>Chọn hoặc kéo thả ảnh sản phẩm</Typography>
                     <Typography variant="body2" sx={{ color: '#667085' }}>
-                      Hỗ trợ JPG, PNG. Tự động resize tối đa 720p trước khi tải lên.
+                      Hỗ trợ ảnh định dạng JPG, PNG.
                     </Typography>
                   </Stack>
                 )}

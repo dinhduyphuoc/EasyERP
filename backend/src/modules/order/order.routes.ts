@@ -42,6 +42,8 @@ orderRouter.get("/:id/shipping/ghn/order-info", requirePermission("orders.read")
 orderRouter.get("/:id/shipping/ghn/tracking-logs", requirePermission("orders.read"), OrderController.getGHNTrackingLogs);
 orderRouter.get("/:id/shipping/ghn/print-token", requirePermission("orders.read"), OrderController.getGHNPrintInfo);
 orderRouter.get("/:id/history", requirePermission("orders.read"), OrderController.getOrderHistory);
+orderRouter.get("/:id/invoice/pdf", requirePermission("orders.read"), OrderController.getInvoicePdf);
+orderRouter.get("/:id/invoice/print-ready", requirePermission("orders.read"), OrderController.getInvoicePrintReadyHtml);
 orderRouter.get("/:id/edit", requirePermission("orders.read"), OrderController.getOrderForEdit);
 orderRouter.get("/:id", requirePermission("orders.read"), OrderController.getOrderById);
 orderRouter.post("/", requirePermission("orders.create"), OrderController.createOrder);

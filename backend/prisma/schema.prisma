@@ -503,6 +503,7 @@ model Customer {
   birth_date           DateTime?
   gender               CustomerGender?
   tax_code             String?
+  invoice_profile_json Json              @default("{}")
   status               CustomerStatus    @default(active)
   customer_category_id Int?
   created_at           DateTime          @default(now())
@@ -708,6 +709,7 @@ model Order {
   tracking_code             String?
   shipping_status           String?
   invoice_code              String?
+  invoice_snapshot_json     Json                  @default("{}")
   created_by                String?
   confirmed_by              String?
   status_timeline           Json                  @default("{}")
@@ -890,6 +892,7 @@ model Tenant {
   default_shipping_address_json Json @default("{}")
   default_bank_account_json     Json @default("{}")
   default_vat_json              Json @default("{}")
+  default_invoice_settings_json Json @default("{}")
   created_at  DateTime    @default(now())
   updated_at  DateTime    @default(now()) @updatedAt
 

@@ -15,6 +15,7 @@ import {
   toOptionalTrimmedString,
   updateOrderStageTimeline,
 } from "./order.helpers";
+import { normalizeInvoiceSnapshot } from "./order.write.shared";
 import type { OrderActionHistoryEntry } from "./order.actions.shared";
 
 export const runAction = async (
@@ -182,8 +183,26 @@ export const runAction = async (
   }
 
   if (action === "request_invoice") {
+    const existingInvoiceSnapshot =
+      existingOrder.invoice_snapshot_json &&
+      typeof existingOrder.invoice_snapshot_json === "object" &&
+      !Array.isArray(existingOrder.invoice_snapshot_json)
+        ? (existingOrder.invoice_snapshot_json as Record<string, unknown>)
+        : {};
+    const nextInvoiceSnapshot = normalizeInvoiceSnapshot(input.invoice_snapshot, {
+      customerName: existingOrder.customer_name,
+      customerPhone: existingOrder.customer_phone,
+      customerEmail: existingOrder.customer_email,
+      customerAddress: existingOrder.customer_address,
+      customerTaxCode:
+        typeof existingInvoiceSnapshot.tax_code === "string"
+          ? existingInvoiceSnapshot.tax_code
+          : null,
+      existing: existingInvoiceSnapshot,
+    });
     nextData = {
       invoice_code: invoiceCode,
+      invoice_snapshot_json: nextInvoiceSnapshot,
       status_timeline: updateOrderStageTimeline(existingOrder.status_timeline, "completed", {
         actor: actorName,
         invoice_code: invoiceCode,
@@ -195,6 +214,7 @@ export const runAction = async (
       actor_name: actorName,
       metadata: {
         invoice_code: invoiceCode,
+        invoice_snapshot: nextInvoiceSnapshot,
         note,
       },
     };

@@ -29,26 +29,26 @@ export type SettingsCardSection = {
 export const settingsSections: SettingsCardSection[] = [
   {
     id: 'general',
-    title: 'Thiết lập nền tảng',
+    title: 'Cấu hình chung',
     description: 'Cấu hình cốt lõi cho vận hành cửa hàng, giao hàng và các thiết lập kinh doanh mặc định.',
     items: [
       {
         title: 'Cài đặt chung',
-        description: 'Cấu hình thông tin cửa hàng, hồ sơ pháp lý, liên hệ và các thiết lập mặc định.',
+        description: 'Cấu hình thông tin cửa hàng.',
         path: '/settings/general',
         icon: SettingsOutlinedIcon,
         permissions: ['settings.read'],
       },
       {
         title: 'Quản lý địa chỉ',
-        description: 'Quản lý địa chỉ giao hàng mặc định và thông tin vị trí dùng lại.',
+        description: 'Quản lý địa chỉ giao hàng mặc định.',
         path: '/settings/address-management',
         icon: ApartmentOutlinedIcon,
         permissions: ['settings.read'],
       },
       {
-        title: 'Giao hàng',
-        description: 'Thiết lập kết nối đơn vị vận chuyển và các quy tắc vận hành liên quan.',
+        title: 'Đơn vị vận chuyển',
+        description: 'Kết nối & quản lý đơn vị vận chuyển.',
         path: '/settings/shipping-settings',
         icon: LocalShippingOutlinedIcon,
         permissions: ['settings.read'],
@@ -57,7 +57,7 @@ export const settingsSections: SettingsCardSection[] = [
   },
   {
     id: 'accounts',
-    title: 'Nhân sự và phân quyền',
+    title: 'Tài khoản & phân quyền',
     description: 'Quản lý người dùng, vai trò, quyền hạn và cách phân công công việc trong hệ thống.',
     items: [
       {
@@ -106,7 +106,7 @@ export const settingsSections: SettingsCardSection[] = [
   },
   {
     id: 'system',
-    title: 'Mở rộng và vận hành',
+    title: 'vận hành',
     description: 'Quản lý kênh vận hành, tích hợp, thông báo và tài nguyên dùng chung.',
     items: [
       {

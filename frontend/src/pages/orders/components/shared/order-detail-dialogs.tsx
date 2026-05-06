@@ -21,7 +21,7 @@ import {
 import { formatCurrency } from '../../lib'
 import { PaymentInformationCard, type PaymentMethod } from '../../lib/order-payment'
 import type { PaymentCollectionMethod } from '../../lib/payment-display.helpers'
-import type { OrderDetailItem } from '../../api'
+import type { OrderDetailItem, OrderInvoiceSnapshot } from '../../api'
 
 type OrderDetailDialogsProps = {
   shippingDialog: {
@@ -72,7 +72,9 @@ type OrderDetailDialogsProps = {
   onSavePayment: () => void
   isInvoiceDialogOpen: boolean
   invoiceCodeDraft: string
+  invoiceSnapshotDraft: OrderInvoiceSnapshot
   onInvoiceCodeDraftChange: (value: string) => void
+  onInvoiceSnapshotDraftChange: (field: keyof OrderInvoiceSnapshot, value: string) => void
   onCloseInvoiceDialog: () => void
   onSubmitInvoiceRequest: () => void
   isQrDialogOpen: boolean
@@ -142,7 +144,9 @@ export function OrderDetailDialogs(props: OrderDetailDialogsProps): ReactElement
     onSavePayment,
     isInvoiceDialogOpen,
     invoiceCodeDraft,
+    invoiceSnapshotDraft,
     onInvoiceCodeDraftChange,
+    onInvoiceSnapshotDraftChange,
     onCloseInvoiceDialog,
     onSubmitInvoiceRequest,
     isQrDialogOpen,
@@ -297,8 +301,69 @@ export function OrderDetailDialogs(props: OrderDetailDialogsProps): ReactElement
               fullWidth
               placeholder="Nếu để trống, backend sẽ tạo mã mặc định"
             />
+            <StackedTextField
+              label="Loại hóa đơn"
+              value={invoiceSnapshotDraft.invoice_type}
+              onChange={(event) => onInvoiceSnapshotDraftChange('invoice_type', event.target.value)}
+              fullWidth
+              placeholder="b2b hoặc b2c"
+            />
+            <StackedTextField
+              label="Người mua / người nhận hóa đơn"
+              value={invoiceSnapshotDraft.buyer_name}
+              onChange={(event) => onInvoiceSnapshotDraftChange('buyer_name', event.target.value)}
+              fullWidth
+            />
+            <StackedTextField
+              label="Tên công ty"
+              value={invoiceSnapshotDraft.company_name}
+              onChange={(event) => onInvoiceSnapshotDraftChange('company_name', event.target.value)}
+              fullWidth
+            />
+            <StackedTextField
+              label="Mã số thuế"
+              value={invoiceSnapshotDraft.tax_code}
+              onChange={(event) => onInvoiceSnapshotDraftChange('tax_code', event.target.value)}
+              fullWidth
+            />
+            <StackedTextField
+              label="Số định danh cá nhân"
+              value={invoiceSnapshotDraft.personal_id}
+              onChange={(event) => onInvoiceSnapshotDraftChange('personal_id', event.target.value)}
+              fullWidth
+            />
+            <StackedTextField
+              label="Mã đơn vị NSNN"
+              value={invoiceSnapshotDraft.budget_unit_code}
+              onChange={(event) => onInvoiceSnapshotDraftChange('budget_unit_code', event.target.value)}
+              fullWidth
+            />
+            <StackedTextField
+              label="Email nhận hóa đơn"
+              value={invoiceSnapshotDraft.email}
+              onChange={(event) => onInvoiceSnapshotDraftChange('email', event.target.value)}
+              fullWidth
+            />
+            <StackedTextField
+              label="Số điện thoại"
+              value={invoiceSnapshotDraft.phone}
+              onChange={(event) => onInvoiceSnapshotDraftChange('phone', event.target.value)}
+              fullWidth
+            />
+            <StackedTextField
+              label="Địa chỉ xuất hóa đơn"
+              value={invoiceSnapshotDraft.address_line}
+              onChange={(event) => onInvoiceSnapshotDraftChange('address_line', event.target.value)}
+              fullWidth
+            />
+            <StackedTextField
+              label="Ghi chú"
+              value={invoiceSnapshotDraft.note}
+              onChange={(event) => onInvoiceSnapshotDraftChange('note', event.target.value)}
+              fullWidth
+            />
             <Typography variant="body2" color="text.secondary">
-              Mã hóa đơn sẽ được lưu vào lịch sử đơn hàng để đội vận hành đối soát sau này.
+              Mã hóa đơn và snapshot người mua sẽ được lưu vào lịch sử đơn hàng để đội vận hành đối soát sau này.
             </Typography>
           </Stack>
         </DialogContent>

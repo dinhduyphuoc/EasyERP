@@ -1,28 +1,20 @@
 import { PrismaPg } from "@prisma/adapter-pg";
+import { Pool } from "pg";
 import type { DatabaseConnectionName } from "./database-connection.types";
 import { DatabaseConnectionRegistry } from "./database-connection.registry";
-import { AwsPostgresConnectionStrategy } from "./aws-pg.strategy";
-import { getDatabaseProfile } from "./database-env";
 import { LocalPostgresConnectionStrategy } from "./local-pg.strategy";
 
 const DEFAULT_CONNECTION_NAME: DatabaseConnectionName = "local-pg";
 
 const databaseConnectionRegistry = new DatabaseConnectionRegistry()
-  .register(new LocalPostgresConnectionStrategy())
-  .register(new AwsPostgresConnectionStrategy());
+  .register(new LocalPostgresConnectionStrategy());
 
 const isDatabaseConnectionName = (value: string): value is DatabaseConnectionName => {
   return databaseConnectionRegistry.names().includes(value as DatabaseConnectionName);
 };
 
 export const getDatabaseConnectionName = (): DatabaseConnectionName => {
-  const profile = getDatabaseProfile();
-  const configuredName =
-    profile === "production"
-      ? "aws-pg"
-      : profile === "development"
-        ? "local-pg"
-        : DEFAULT_CONNECTION_NAME;
+  const configuredName = DEFAULT_CONNECTION_NAME;
 
   if (!isDatabaseConnectionName(configuredName)) {
     throw new Error(
@@ -36,6 +28,10 @@ export const getDatabaseConnectionName = (): DatabaseConnectionName => {
 export const createPrismaPgAdapter = () => {
   const strategy = databaseConnectionRegistry.get(getDatabaseConnectionName());
   const config = strategy.createConfig();
+  const pool = new Pool(config.poolConfig);
 
-  return new PrismaPg(config.poolConfig, config.prismaOptions);
+  return new PrismaPg(pool, {
+    ...config.prismaOptions,
+    disposeExternalPool: true,
+  });
 };

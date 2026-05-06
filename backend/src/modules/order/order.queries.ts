@@ -40,6 +40,7 @@ const orderListSelect = {
   tracking_code: true,
   shipping_status: true,
   invoice_code: true,
+  invoice_snapshot_json: true,
   created_by: true,
   confirmed_by: true,
   created_at: true,

@@ -1,22 +1,8 @@
 import { useEffect, useMemo, useState, type ReactElement } from 'react'
 import ChevronRightRoundedIcon from '@mui/icons-material/ChevronRightRounded'
 import CreditCardOutlinedIcon from '@mui/icons-material/CreditCardOutlined'
-import EmailOutlinedIcon from '@mui/icons-material/EmailOutlined'
-import FmdGoodOutlinedIcon from '@mui/icons-material/FmdGoodOutlined'
-import PhoneOutlinedIcon from '@mui/icons-material/PhoneOutlined'
 import StorefrontOutlinedIcon from '@mui/icons-material/StorefrontOutlined'
-import {
-  Box,
-  CircularProgress,
-  Divider,
-  InputAdornment,
-  Paper,
-  Stack,
-  Switch,
-  TextField,
-  Typography,
-} from '@mui/material'
-import { customerApi, type CityItem, type DistrictItem, type LocationItem } from '@/pages/customers/customer.api'
+import { Box, InputAdornment, Paper, Skeleton, Stack, Switch, TextField, Typography } from '@mui/material'
 import { useAuth } from '@/modules/auth/use-auth'
 import { storeApi } from '@/modules/store/store.api'
 import { useStore } from '@/modules/store/use-store'
@@ -49,7 +35,7 @@ function SummaryRow({
         width: '100%',
         alignItems: 'center',
         justifyContent: 'space-between',
-        borderRadius: 3,
+        borderRadius: 1,
         border: '1px solid #eaecf0',
         px: 1.5,
         py: 1.25,
@@ -94,21 +80,59 @@ function SummaryRow({
   )
 }
 
+function SummaryRowSkeleton(): ReactElement {
+  return (
+    <Stack
+      direction="row"
+      spacing={1.5}
+      sx={{
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        borderRadius: 1,
+        border: '1px solid #eaecf0',
+        px: 1.5,
+        py: 1.25,
+        bgcolor: '#ffffff',
+      }}
+    >
+      <Stack direction="row" spacing={1.25} sx={{ alignItems: 'center', minWidth: 0, flex: 1 }}>
+        <Skeleton variant="rounded" width={38} height={38} sx={{ borderRadius: 2.5, flexShrink: 0 }} />
+        <Box sx={{ minWidth: 0, flex: 1 }}>
+          <Skeleton variant="text" width="32%" height={24} />
+          <Skeleton variant="text" width="58%" height={20} />
+        </Box>
+      </Stack>
+      <Skeleton variant="circular" width={20} height={20} />
+    </Stack>
+  )
+}
+
+function VatSectionSkeleton(): ReactElement {
+  return (
+    <Stack spacing={2}>
+      <Stack
+        direction={{ xs: 'column', md: 'row' }}
+        spacing={1.5}
+        sx={{ justifyContent: 'space-between', alignItems: { md: 'center' } }}
+      >
+        <Box sx={{ flex: 1 }}>
+          <Skeleton variant="text" width={120} height={26} />
+          <Skeleton variant="text" width="62%" height={20} />
+        </Box>
+        <Skeleton variant="rounded" width={44} height={24} />
+      </Stack>
+      <Skeleton variant="text" width={180} height={32} />
+    </Stack>
+  )
+}
+
 export function SettingsGeneralPage(): ReactElement {
   const { user } = useAuth()
   const { activeStore } = useStore()
   const [isLoading, setIsLoading] = useState(true)
-  const [states, setStates] = useState<LocationItem[]>([])
-  const [cities, setCities] = useState<CityItem[]>([])
-  const [districts, setDistricts] = useState<DistrictItem[]>([])
   const [storeName, setStoreName] = useState('')
   const [contactEmail, setContactEmail] = useState('')
   const [contactPhone, setContactPhone] = useState('')
-  const [stateId, setStateId] = useState<number | ''>('')
-  const [cityId, setCityId] = useState<number | ''>('')
-  const [districtId, setDistrictId] = useState<number | ''>('')
-  const [currency, setCurrency] = useState('USD')
-  const [timezone, setTimezone] = useState('Asia/Saigon')
   const [bankName, setBankName] = useState('')
   const [accountHolder, setAccountHolder] = useState('')
   const [accountNumber, setAccountNumber] = useState('')
@@ -129,9 +153,8 @@ export function SettingsGeneralPage(): ReactElement {
     const load = async () => {
       setIsLoading(true)
       try {
-        const [store, nextStates, settings] = await Promise.all([
+        const [store, settings] = await Promise.all([
           storeApi.getStore(activeStore.id),
-          customerApi.getStates({ is_active: true }),
           generalSettingsApi.getGeneralSettings(),
         ])
 
@@ -139,15 +162,9 @@ export function SettingsGeneralPage(): ReactElement {
           return
         }
 
-        setStates(nextStates)
         setStoreName(store.name)
         setContactEmail(store.profile.contact_email || user?.email || '')
         setContactPhone(store.profile.contact_phone)
-        setStateId(settings.defaults.shipping_address.state_id ?? '')
-        setCityId(settings.defaults.shipping_address.city_id ?? '')
-        setDistrictId(settings.defaults.shipping_address.district_id ?? '')
-        setCurrency(store.default_currency)
-        setTimezone(store.default_timezone)
         setBankName(settings.defaults.bank_account.bank_name)
         setAccountHolder(settings.defaults.bank_account.account_holder)
         setAccountNumber(settings.defaults.bank_account.account_number)
@@ -172,52 +189,6 @@ export function SettingsGeneralPage(): ReactElement {
       cancelled = true
     }
   }, [activeStore?.id, user?.email])
-
-  useEffect(() => {
-    if (!stateId) {
-      setCities([])
-      setCityId('')
-      setDistricts([])
-      setDistrictId('')
-      return
-    }
-
-    const loadCities = async () => {
-      try {
-        setCities(await customerApi.getCities({ state_id: stateId, is_active: true }))
-      } catch (error) {
-        showErrorToast(error, 'Không thể tải quận huyện.')
-      }
-    }
-
-    void loadCities()
-  }, [stateId])
-
-  useEffect(() => {
-    if (!cityId) {
-      setDistricts([])
-      setDistrictId('')
-      return
-    }
-
-    const loadDistricts = async () => {
-      try {
-        setDistricts(await customerApi.getDistricts({ city_id: cityId, is_active: true }))
-      } catch (error) {
-        showErrorToast(error, 'Không thể tải phường xã.')
-      }
-    }
-
-    void loadDistricts()
-  }, [cityId])
-
-  const storeAddressSummary = useMemo(() => {
-    const stateName = states.find((item) => item.id === stateId)?.name
-    const cityName = cities.find((item) => item.id === cityId)?.name
-    const districtName = districts.find((item) => item.id === districtId)?.name
-
-    return [districtName, cityName, stateName, 'Vietnam'].filter(Boolean).join(', ') || 'Vietnam'
-  }, [cities, cityId, districtId, districts, stateId, states])
 
   const hasUnsavedVatChanges = useMemo(
     () => vatEnabled !== initialVatEnabled || String(vatRatePercent) !== String(initialVatRatePercent),
@@ -271,28 +242,21 @@ export function SettingsGeneralPage(): ReactElement {
   return (
     <Stack spacing={2.5} sx={{ pb: 8 }}>
       <Paper sx={borderedCardSx}>
-        <Stack spacing={1.5}>
-          <SummaryPaperHeader title="Cài đặt chung" />
-        </Stack>
-      </Paper>
-
-      <Paper sx={borderedCardSx}>
         <Stack spacing={2.5}>
           <Stack spacing={0.75}>
             <SummaryPaperHeader title="Thông tin cửa hàng" />
-            <Typography sx={{ color: '#667085' }}>
-              Thông tin nhận diện, liên hệ, pháp lý và thiết lập kinh doanh mặc định.
-            </Typography>
           </Stack>
 
-          {isLoading ? <CircularProgress size={24} /> : null}
-
-          <SummaryRow
-            icon={<StorefrontOutlinedIcon fontSize="small" />}
-            label={storeName || 'Chưa có tên cửa hàng'}
-            value={`${contactEmail || 'Chưa có email'} • ${contactPhone || 'Chưa có số điện thoại'}`}
-            onClick={() => attemptNavigate('/settings/general/store-details')}
-          />
+          {isLoading ? (
+            <SummaryRowSkeleton />
+          ) : (
+            <SummaryRow
+              icon={<StorefrontOutlinedIcon fontSize="small" />}
+              label={storeName || 'Chưa có tên cửa hàng'}
+              value={`${contactEmail || 'Chưa có email'} • ${contactPhone || 'Chưa có số điện thoại'}`}
+              onClick={() => attemptNavigate('/settings/general/store-details')}
+            />
+          )}
         </Stack>
       </Paper>
 
@@ -306,43 +270,21 @@ export function SettingsGeneralPage(): ReactElement {
           </Stack>
 
           <Stack spacing={1.25}>
-            <SummaryRow
-              icon={<CreditCardOutlinedIcon fontSize="small" />}
-              label={bankName || 'Chưa có ngân hàng'}
-              value={
-                accountHolder || accountNumber
-                  ? `${accountHolder || 'Chưa có chủ tài khoản'} - ${accountNumber || 'Chưa có số tài khoản'}`
-                  : 'Thêm thông tin tài khoản ngân hàng mặc định'
-              }
-              onClick={() => attemptNavigate('/settings/general/payment-methods')}
-            />
+            {isLoading ? (
+              <SummaryRowSkeleton />
+            ) : (
+              <SummaryRow
+                icon={<CreditCardOutlinedIcon fontSize="small" />}
+                label={bankName || 'Chưa có ngân hàng'}
+                value={
+                  accountHolder || accountNumber
+                    ? `${accountHolder || 'Chưa có chủ tài khoản'} - ${accountNumber || 'Chưa có số tài khoản'}`
+                    : 'Thêm thông tin tài khoản ngân hàng mặc định'
+                }
+                onClick={() => attemptNavigate('/settings/general/payment-methods')}
+              />
+            )}
           </Stack>
-
-          <Divider />
-
-          <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5}>
-            <Stack direction="row" spacing={1} sx={{ alignItems: 'center', color: '#475467' }}>
-              <EmailOutlinedIcon fontSize="small" />
-              <Typography>{contactEmail || 'Chưa có email cửa hàng'}</Typography>
-            </Stack>
-            <Stack direction="row" spacing={1} sx={{ alignItems: 'center', color: '#475467' }}>
-              <PhoneOutlinedIcon fontSize="small" />
-              <Typography>{contactPhone || 'Chưa có số điện thoại'}</Typography>
-            </Stack>
-            <Stack direction="row" spacing={1} sx={{ alignItems: 'center', color: '#475467' }}>
-              <FmdGoodOutlinedIcon fontSize="small" />
-              <Typography>{storeAddressSummary}</Typography>
-            </Stack>
-          </Stack>
-        </Stack>
-      </Paper>
-
-      <Paper sx={borderedCardSx}>
-        <Stack spacing={0.75}>
-          <SummaryPaperHeader title="Thiết lập mặc định của cửa hàng" />
-          <Typography sx={{ color: '#667085' }}>
-            Thiết lập hiện tại: {currency} • {timezone}
-          </Typography>
         </Stack>
       </Paper>
 
@@ -355,50 +297,56 @@ export function SettingsGeneralPage(): ReactElement {
             </Typography>
           </Stack>
 
-          <Stack
-            direction={{ xs: 'column', md: 'row' }}
-            spacing={1.5}
-            sx={{ justifyContent: 'space-between', alignItems: { md: 'center' } }}
-          >
-            <Stack spacing={0.35}>
-              <Typography sx={{ fontWeight: 700, color: '#101828' }}>Bật thuế VAT</Typography>
-              <Typography variant="body2" sx={{ color: '#667085' }}>
-                Khi bật, hệ thống sẽ tự động tính VAT từ tạm tính theo tỷ lệ cấu hình.
-              </Typography>
-            </Stack>
-            <Switch
-              checked={vatEnabled}
-              disabled={isSavingVat}
-              onChange={(event) => setVatEnabled(event.target.checked)}
-            />
-          </Stack>
+          {isLoading ? (
+            <VatSectionSkeleton />
+          ) : (
+            <>
+              <Stack
+                direction={{ xs: 'column', md: 'row' }}
+                spacing={1.5}
+                sx={{ justifyContent: 'space-between', alignItems: { md: 'center' } }}
+              >
+                <Stack spacing={0.35}>
+                  <Typography sx={{ fontWeight: 700, color: '#101828' }}>Bật thuế VAT</Typography>
+                  <Typography variant="body2" sx={{ color: '#667085' }}>
+                    Khi bật, hệ thống sẽ tự động tính VAT từ tạm tính theo tỷ lệ cấu hình.
+                  </Typography>
+                </Stack>
+                <Switch
+                  checked={vatEnabled}
+                  disabled={isSavingVat}
+                  onChange={(event) => setVatEnabled(event.target.checked)}
+                />
+              </Stack>
 
-          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} sx={{ alignItems: { sm: 'flex-end' } }}>
-            {vatEnabled ? (
-              <TextField
-                label="Mức VAT"
-                variant="standard"
-                type="number"
-                value={vatRatePercent}
-                disabled={isSavingVat}
-                onChange={(event) => setVatRatePercent(event.target.value)}
-                sx={{ width: { xs: '100%', sm: 220 } }}
-                slotProps={{
-                  htmlInput: {
-                    min: 0,
-                    step: '0.01',
-                  },
-                  input: {
-                    endAdornment: <InputAdornment position="end">%</InputAdornment>,
-                  },
-                }}
-              />
-            ) : (
-              <Typography variant="body2" sx={{ color: '#667085' }}>
-                Tắt VAT thì hệ thống sẽ không hiển thị dòng thuế ở phần thanh toán.
-              </Typography>
-            )}
-          </Stack>
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} sx={{ alignItems: { sm: 'flex-end' } }}>
+                {vatEnabled ? (
+                  <TextField
+                    label="Mức VAT"
+                    variant="standard"
+                    type="number"
+                    value={vatRatePercent}
+                    disabled={isSavingVat}
+                    onChange={(event) => setVatRatePercent(event.target.value)}
+                    sx={{ width: { xs: '100%', sm: 220 } }}
+                    slotProps={{
+                      htmlInput: {
+                        min: 0,
+                        step: '0.01',
+                      },
+                      input: {
+                        endAdornment: <InputAdornment position="end">%</InputAdornment>,
+                      },
+                    }}
+                  />
+                ) : (
+                  <Typography variant="body2" sx={{ color: '#667085' }}>
+                    Tắt VAT thì hệ thống sẽ không hiển thị dòng thuế ở phần thanh toán.
+                  </Typography>
+                )}
+              </Stack>
+            </>
+          )}
         </Stack>
       </Paper>
     </Stack>

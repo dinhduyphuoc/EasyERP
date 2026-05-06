@@ -19,6 +19,7 @@ import {
   writeVatAuditLog,
 } from "./order.helpers";
 import {
+  buildInvoiceSnapshotFromCustomer,
   buildOrderRuntimeTimeline,
   buildOrderUpdateData,
   ensureCustomerContact,
@@ -78,6 +79,24 @@ export const updateOrder = async (
       ? existingOrder.customer_address
       : toOptionalTrimmedString(input.customer_info?.address) ?? null;
   const requiredCustomerContact = ensureCustomerContact(customerName, customerPhone);
+  const existingInvoiceSnapshot =
+    existingOrder.invoice_snapshot_json &&
+    typeof existingOrder.invoice_snapshot_json === "object" &&
+    !Array.isArray(existingOrder.invoice_snapshot_json)
+      ? (existingOrder.invoice_snapshot_json as Record<string, unknown>)
+      : {};
+  const invoiceSnapshot = buildInvoiceSnapshotFromCustomer({
+    input: input.invoice_snapshot,
+    customer,
+    customerName: requiredCustomerContact.customerName,
+    customerPhone: requiredCustomerContact.customerPhone,
+    customerEmail,
+    customerAddress,
+  });
+  const mergedInvoiceSnapshot = {
+    ...existingInvoiceSnapshot,
+    ...invoiceSnapshot,
+  };
 
   const subTotal = normalizedItems.reduce((sum, item) => sum.plus(item.sub_total), new Prisma.Decimal(0));
   const discountAmountInput =
@@ -241,6 +260,7 @@ export const updateOrder = async (
       paidAmount,
       outstandingAmount,
       statusTimeline: statusTimeline as Prisma.InputJsonValue,
+      invoiceSnapshot: mergedInvoiceSnapshot as Prisma.InputJsonValue,
     }),
     normalizedItems,
   });

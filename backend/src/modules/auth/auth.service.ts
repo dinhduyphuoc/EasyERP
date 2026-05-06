@@ -147,7 +147,7 @@ const getUserAuthContext = async (userId: string) => {
 
 const validatePasswordInput = (password: string) => {
   if (typeof password !== "string" || password.length < 8) {
-    throw new BadRequestError("Password must be at least 8 characters");
+    throw new BadRequestError("Mật khẩu phải có ít nhất 8 ký tự");
   }
 };
 
@@ -412,7 +412,7 @@ export const AuthService = {
 
     if (!user || user.status !== "active") {
       return {
-        message: "If the email exists, a reset link will be sent.",
+        message: "Đã gửi liên kết đặt lại mật khẩu qua email của bạn.",
       };
     }
 
@@ -440,7 +440,7 @@ export const AuthService = {
     });
 
     return {
-      message: "If the email exists, a reset link will be sent.",
+      message: "Đã gửi liên kết đặt lại mật khẩu qua email của bạn.",
       ...(process.env.NODE_ENV !== "production"
         ? {
             debug_reset_token: rawToken,
@@ -484,7 +484,7 @@ export const AuthService = {
     });
 
     return {
-      message: "Password has been reset successfully.",
+      message: "Mật khẩu đã được đặt lại thành công.",
     };
   },
 

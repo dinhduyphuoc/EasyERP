@@ -67,7 +67,7 @@ const getManagedS3KeyFromUrl = (url: string) => {
   }
 };
 
-export const uploadProductImageToS3 = async (input: {
+const uploadImageToS3 = async (prefix: string, input: {
   buffer: Buffer;
   fileName: string;
   mimeType: string;
@@ -79,7 +79,7 @@ export const uploadProductImageToS3 = async (input: {
   }
 
   const extension = getFileExtension(input.fileName, input.mimeType);
-  const objectKey = `products/${new Date().toISOString().slice(0, 10)}/${randomUUID()}${extension}`;
+  const objectKey = `${prefix}/${new Date().toISOString().slice(0, 10)}/${randomUUID()}${extension}`;
   const client = createS3Client();
 
   await client.send(
@@ -96,6 +96,18 @@ export const uploadProductImageToS3 = async (input: {
     image_url: buildObjectUrl(objectKey),
   };
 };
+
+export const uploadProductImageToS3 = async (input: {
+  buffer: Buffer;
+  fileName: string;
+  mimeType: string;
+}) => uploadImageToS3("products", input);
+
+export const uploadStoreAvatarToS3 = async (input: {
+  buffer: Buffer;
+  fileName: string;
+  mimeType: string;
+}) => uploadImageToS3("stores", input);
 
 export const getManagedProductImageBufferFromUrl = async (imageUrl: string) => {
   const key = getManagedS3KeyFromUrl(imageUrl);

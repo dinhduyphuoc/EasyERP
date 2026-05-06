@@ -16,7 +16,14 @@ import {
   type CreateEditPageHeaderAction,
 } from '@/shared/ui/page'
 import { useAuth } from '@/modules/auth/use-auth'
-import { orderApi, type OrderCreatePayload, type OrderDetailItem, type OrderEditItem, type OrderOptionLookup } from '../api'
+import {
+  orderApi,
+  type OrderCreatePayload,
+  type OrderDetailItem,
+  type OrderEditItem,
+  type OrderInvoiceSnapshot,
+  type OrderOptionLookup,
+} from '../api'
 import {
   CustomerModal,
   CustomerSection,
@@ -67,6 +74,19 @@ const createItemFromProduct = (product: ProductSearchOption): ItemForm => ({
   noteOpen: false,
 })
 
+const buildInvoiceSnapshotState = (order: Pick<OrderDetailItem, 'invoice_snapshot' | 'customer_info'> | null): OrderInvoiceSnapshot => ({
+  invoice_type: order?.invoice_snapshot?.invoice_type ?? 'b2c',
+  buyer_name: order?.invoice_snapshot?.buyer_name ?? order?.customer_info.name ?? '',
+  company_name: order?.invoice_snapshot?.company_name ?? '',
+  tax_code: order?.invoice_snapshot?.tax_code ?? '',
+  personal_id: order?.invoice_snapshot?.personal_id ?? '',
+  budget_unit_code: order?.invoice_snapshot?.budget_unit_code ?? '',
+  email: order?.invoice_snapshot?.email ?? order?.customer_info.email ?? '',
+  phone: order?.invoice_snapshot?.phone ?? order?.customer_info.phone ?? '',
+  address_line: order?.invoice_snapshot?.address_line ?? order?.customer_info.address ?? '',
+  note: order?.invoice_snapshot?.note ?? '',
+})
+
 export function OrdersCreatePage(): ReactElement {
   const location = useLocation()
   const navigate = useNavigate()
@@ -96,6 +116,7 @@ export function OrdersCreatePage(): ReactElement {
   const [states, setStates] = useState<LocationItem[]>([])
   const [isStatesLoading, setIsStatesLoading] = useState(false)
   const [invoiceCode, setInvoiceCode] = useState('')
+  const [invoiceSnapshot, setInvoiceSnapshot] = useState<OrderInvoiceSnapshot>(buildInvoiceSnapshotState(null))
   const [createdBy, setCreatedBy] = useState(user?.full_name ?? '')
   const [confirmedBy, setConfirmedBy] = useState('')
   const [orderNotes, setOrderNotes] = useState('')
@@ -223,6 +244,16 @@ export function OrdersCreatePage(): ReactElement {
   }, [createdBy, user?.full_name])
 
   useEffect(() => {
+    setInvoiceSnapshot((current) => ({
+      ...current,
+      buyer_name: current.buyer_name || customerName,
+      email: current.email || '',
+      phone: current.phone || customerPhone,
+      address_line: current.address_line || customerAddress,
+    }))
+  }, [customerAddress, customerName, customerPhone])
+
+  useEffect(() => {
     const timeoutId = window.setTimeout(() => {
       setDebouncedCustomerSearch(customerSearch.trim())
     }, 250)
@@ -294,6 +325,7 @@ export function OrdersCreatePage(): ReactElement {
           setSalesChannel(orderData.sales_channel ?? '')
           await applyOrderData(orderData, statesData)
           setInvoiceCode(orderData.invoice_code ?? '')
+          setInvoiceSnapshot(buildInvoiceSnapshotState(orderData))
           setCreatedBy(orderData.created_by ?? user?.full_name ?? '')
           setConfirmedBy(orderData.confirmed_by ?? '')
           setOrderNotes(orderData.order_notes ?? '')
@@ -355,6 +387,7 @@ export function OrdersCreatePage(): ReactElement {
           setSalesChannel(duplicateSource.sales_channel ?? '')
           await applyDuplicateOrderData(duplicateSource, statesData)
           setInvoiceCode('')
+          setInvoiceSnapshot(buildInvoiceSnapshotState(duplicateSource))
           setCreatedBy(user?.full_name ?? '')
           setConfirmedBy('')
           setOrderNotes(duplicateSource.order_notes ?? '')
@@ -395,6 +428,7 @@ export function OrdersCreatePage(): ReactElement {
           vat: storeSettings.defaults.vat,
           statesData,
         })
+        setInvoiceSnapshot(buildInvoiceSnapshotState(null))
       } catch (error) {
         if (!isCancelled) {
           console.error('Lỗi khi tải dữ liệu đơn hàng:', error)
@@ -580,6 +614,13 @@ export function OrdersCreatePage(): ReactElement {
     }, {})
   }
 
+  const handleInvoiceSnapshotChange = (field: keyof OrderInvoiceSnapshot, value: string) => {
+    setInvoiceSnapshot((current) => ({
+      ...current,
+      [field]: field === 'invoice_type' ? (value === 'b2b' ? 'b2b' : 'b2c') : value,
+    }))
+  }
+
   const handleSave = async () => {
     setHasAttemptedSave(true)
 
@@ -668,6 +709,18 @@ export function OrdersCreatePage(): ReactElement {
         tracking_code: trackingCode.trim() || null,
         shipping_status: shippingStatus.trim() || null,
         invoice_code: invoiceCode.trim() || null,
+        invoice_snapshot: {
+          ...invoiceSnapshot,
+          buyer_name: invoiceSnapshot.buyer_name.trim() || customerName.trim(),
+          email: invoiceSnapshot.email.trim() || undefined,
+          phone: invoiceSnapshot.phone.trim() || customerPhone.trim(),
+          address_line: invoiceSnapshot.address_line.trim() || customerAddress.trim() || undefined,
+          company_name: invoiceSnapshot.company_name.trim() || undefined,
+          tax_code: invoiceSnapshot.tax_code.trim() || undefined,
+          personal_id: invoiceSnapshot.personal_id.trim() || undefined,
+          budget_unit_code: invoiceSnapshot.budget_unit_code.trim() || undefined,
+          note: invoiceSnapshot.note.trim() || undefined,
+        },
         created_by: createdBy.trim() || null,
         confirmed_by: confirmedBy.trim() || null,
         status_timeline: isEditMode ? statusTimeline : buildStatusTimeline(),
@@ -814,6 +867,8 @@ export function OrdersCreatePage(): ReactElement {
           processingStatus={processingStatus}
           salesChannel={salesChannel}
           orderNotes={orderNotes}
+          invoiceCode={invoiceCode}
+          invoiceSnapshot={invoiceSnapshot}
           processingStatusOptions={options?.processing_statuses ?? []}
           processingStatusError={visibleErrors.processing_status}
           onOrderCodeChange={setOrderCode}
@@ -822,6 +877,8 @@ export function OrdersCreatePage(): ReactElement {
           onProcessingStatusChange={setProcessingStatus}
           onSalesChannelChange={setSalesChannel}
           onOrderNotesChange={setOrderNotes}
+          onInvoiceCodeChange={setInvoiceCode}
+          onInvoiceSnapshotChange={handleInvoiceSnapshotChange}
         />
       </Box>
 

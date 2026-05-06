@@ -29,8 +29,7 @@ if (!databaseUrl) {
 
 const getSslConfig = () => {
   const configuredPath =
-    process.env.DATABASE_PRODUCTION_SSL_CA_PATH ??
-    process.env.AWS_PG_SSL_CA_PATH ??
+    process.env.DATABASE_SSL_CA_PATH ??
     process.env.PGSSLROOTCERT
   const candidatePaths = configuredPath
     ? [path.resolve(process.cwd(), configuredPath)]

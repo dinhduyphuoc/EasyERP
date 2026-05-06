@@ -5,7 +5,9 @@
   "main": "src/server.ts",
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "start": "tsx src/server.ts",
+    "start": "node dist/src/server.js",
+    "start:tsx": "tsx src/server.ts",
+    "build": "node scripts/build-dist.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
@@ -15,6 +17,7 @@
     "db:studio": "prisma studio",
     "db:test": "tsx scripts/test-db-connection.ts",
     "seed": "tsx script.ts",
+    "seed:prod": "node dist/script.js",
     "seed:demo": "tsx scripts/seed-demo.ts",
     "seed:address:generate": "python scripts/generate_address_seed.py"
   },

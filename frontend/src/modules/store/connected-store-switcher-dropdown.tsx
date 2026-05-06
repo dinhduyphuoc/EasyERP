@@ -24,7 +24,7 @@ export function ConnectedStoreSwitcherDropdown({
         id: store.id,
         name: store.name,
         slug: store.slug,
-        avatarUrl: null,
+        avatarUrl: store.profile.avatar_url || null,
       }))}
       activeStoreId={activeStore?.id ?? user.active_store_id ?? ''}
       user={{

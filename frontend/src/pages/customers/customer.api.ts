@@ -21,6 +21,18 @@ export type CustomerListItem = {
   birth_date: string | null;
   gender: "male" | "female" | "other" | null;
   tax_code: string | null;
+  invoice_profile: {
+    entity_type: "individual" | "business";
+    company_name: string;
+    buyer_name: string;
+    tax_code: string;
+    personal_id: string;
+    budget_unit_code: string;
+    email: string;
+    phone: string;
+    address_line: string;
+    note: string;
+  };
   status: "active" | "inactive" | "soft_deleted" | "deleted";
   created_at: string;
   updated_at: string;
@@ -89,6 +101,18 @@ export type CustomerCreatePayload = {
   birth_date?: string | null;
   gender?: "male" | "female" | "other" | null;
   tax_code?: string | null;
+  invoice_profile?: {
+    entity_type?: "individual" | "business" | null;
+    company_name?: string | null;
+    buyer_name?: string | null;
+    tax_code?: string | null;
+    personal_id?: string | null;
+    budget_unit_code?: string | null;
+    email?: string | null;
+    phone?: string | null;
+    address_line?: string | null;
+    note?: string | null;
+  } | null;
   status?: "active" | "inactive";
   customer_category_id?: number | null;
   addresses?: CustomerAddressPayload[];

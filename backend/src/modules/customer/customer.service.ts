@@ -10,6 +10,7 @@ import type {
   CustomerAddressRequestInput,
   CustomerAddressTypeInput,
   CustomerGenderInput,
+  CustomerInvoiceProfileInput,
   CustomerListQuery,
   CustomerRequestInput,
   CustomerStatusInput,
@@ -303,6 +304,68 @@ const mapAddress = (address: {
   note: address.note,
 });
 
+const normalizeInvoiceProfile = (
+  input: CustomerInvoiceProfileInput | null | undefined,
+  fallback?: {
+    fullName?: string | null;
+    phone?: string | null;
+    email?: string | null;
+    taxCode?: string | null;
+    existing?: Record<string, unknown>;
+  },
+) => {
+  const existing = fallback?.existing ?? {};
+
+  const entityType =
+    input?.entity_type === "business" || input?.entity_type === "individual"
+      ? input.entity_type
+      : (existing.entity_type as "business" | "individual" | undefined) ?? "individual";
+
+  const buyerName =
+    toOptionalTrimmedString(input?.buyer_name) ??
+    (typeof existing.buyer_name === "string" ? existing.buyer_name.trim() : undefined) ??
+    fallback?.fullName ??
+    "";
+  const phone =
+    normalizePhone(input?.phone, "invoice_profile.phone") ??
+    (typeof existing.phone === "string" ? existing.phone.trim() : undefined) ??
+    fallback?.phone ??
+    "";
+  const email =
+    toOptionalTrimmedString(input?.email) ??
+    (typeof existing.email === "string" ? existing.email.trim() : undefined) ??
+    fallback?.email ??
+    "";
+  const taxCode =
+    toOptionalTrimmedString(input?.tax_code) ??
+    (typeof existing.tax_code === "string" ? existing.tax_code.trim() : undefined) ??
+    fallback?.taxCode ??
+    "";
+
+  return {
+    entity_type: entityType,
+    company_name:
+      toOptionalTrimmedString(input?.company_name) ??
+      (typeof existing.company_name === "string" ? existing.company_name.trim() : ""),
+    buyer_name: buyerName,
+    tax_code: taxCode,
+    personal_id:
+      toOptionalTrimmedString(input?.personal_id) ??
+      (typeof existing.personal_id === "string" ? existing.personal_id.trim() : ""),
+    budget_unit_code:
+      toOptionalTrimmedString(input?.budget_unit_code) ??
+      (typeof existing.budget_unit_code === "string" ? existing.budget_unit_code.trim() : ""),
+    email,
+    phone,
+    address_line:
+      toOptionalTrimmedString(input?.address_line) ??
+      (typeof existing.address_line === "string" ? existing.address_line.trim() : ""),
+    note:
+      toOptionalTrimmedString(input?.note) ??
+      (typeof existing.note === "string" ? existing.note.trim() : ""),
+  };
+};
+
 const mapCustomer = (customer: CustomerRecord) => ({
   id: customer.id,
   client_code: customer.client_code,
@@ -312,6 +375,18 @@ const mapCustomer = (customer: CustomerRecord) => ({
   birth_date: customer.birth_date?.toISOString() ?? null,
   gender: customer.gender,
   tax_code: customer.tax_code,
+  invoice_profile: normalizeInvoiceProfile(null, {
+    fullName: customer.full_name,
+    phone: restoreArchivedPhone(customer.phone ?? "") ?? customer.phone ?? "",
+    email: customer.email,
+    taxCode: customer.tax_code,
+    existing:
+      customer.invoice_profile_json &&
+      typeof customer.invoice_profile_json === "object" &&
+      !Array.isArray(customer.invoice_profile_json)
+        ? (customer.invoice_profile_json as Record<string, unknown>)
+        : {},
+  }),
   status: customer.status,
   created_at: customer.created_at.toISOString(),
   updated_at: customer.updated_at.toISOString(),
@@ -427,6 +502,12 @@ export const CustomerService = {
     const birthDate = parseOptionalDate(input.birth_date, "birth_date");
     const gender = parseCustomerGender(input.gender);
     const taxCode = toOptionalTrimmedString(input.tax_code) ?? null;
+    const invoiceProfile = normalizeInvoiceProfile(input.invoice_profile, {
+      fullName,
+      phone,
+      email,
+      taxCode,
+    });
     const customerCategoryId =
       input.customer_category_id === null || input.customer_category_id === undefined
         ? null
@@ -483,6 +564,7 @@ export const CustomerService = {
             birth_date: birthDate,
             gender,
             tax_code: taxCode,
+            invoice_profile_json: invoiceProfile,
             status,
             customer_category_id: customerCategoryId,
             store_id: storeId,
@@ -560,6 +642,12 @@ export const CustomerService = {
       input.tax_code === undefined
         ? existingCustomer.tax_code
         : toOptionalTrimmedString(input.tax_code) ?? null;
+    const existingInvoiceProfile =
+      existingCustomer.invoice_profile_json &&
+      typeof existingCustomer.invoice_profile_json === "object" &&
+      !Array.isArray(existingCustomer.invoice_profile_json)
+        ? (existingCustomer.invoice_profile_json as Record<string, unknown>)
+        : {};
     const status = input.status === undefined ? existingCustomer.status : parseCustomerStatus(input.status);
     const customerCategoryId =
       input.customer_category_id === undefined
@@ -579,6 +667,14 @@ export const CustomerService = {
     if (!status || DELETED_CUSTOMER_STATUSES.includes(status)) {
       throw new BadRequestError("status must be one of: active, inactive");
     }
+
+    const invoiceProfile = normalizeInvoiceProfile(input.invoice_profile, {
+      fullName,
+      phone,
+      email,
+      taxCode,
+      existing: existingInvoiceProfile,
+    });
 
     const updatedCustomer = await CustomerRepository.withTransaction(async (tx) => {
       const [existingClientCode, category] = await Promise.all([
@@ -612,6 +708,7 @@ export const CustomerService = {
         birth_date: birthDate,
         gender,
         tax_code: taxCode,
+        invoice_profile_json: invoiceProfile,
         status,
         customer_category_id: customerCategoryId,
       });

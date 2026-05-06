@@ -1,5 +1,19 @@
 export type CustomerStatusInput = "active" | "inactive" | "soft_deleted" | "deleted";
 export type CustomerGenderInput = "male" | "female" | "other";
+export type CustomerInvoiceEntityTypeInput = "individual" | "business";
+
+export interface CustomerInvoiceProfileInput {
+  entity_type?: CustomerInvoiceEntityTypeInput | null;
+  company_name?: string | null;
+  buyer_name?: string | null;
+  tax_code?: string | null;
+  personal_id?: string | null;
+  budget_unit_code?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  address_line?: string | null;
+  note?: string | null;
+}
 
 export interface CustomerListQuery {
   search?: string;
@@ -15,6 +29,7 @@ export interface CustomerRequestInput {
   birth_date?: string | null;
   gender?: CustomerGenderInput | null;
   tax_code?: string | null;
+  invoice_profile?: CustomerInvoiceProfileInput | null;
   status?: "active" | "inactive";
   customer_category_id?: number | null;
   addresses?: CustomerAddressRequestInput[];

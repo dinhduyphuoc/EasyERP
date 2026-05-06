@@ -13,6 +13,7 @@ export type StoreRecord = {
     legal_full_name: string
     contact_email: string
     contact_phone: string
+    avatar_url: string
     state_id: number | null
     city_id: number | null
     district_id: number | null
@@ -25,6 +26,11 @@ export type StoreRecord = {
   }
   created_at: string
   updated_at: string
+}
+
+export type StoreImageUploadResult = {
+  key: string
+  image_url: string
 }
 
 export const storeApi = {
@@ -52,6 +58,7 @@ export const storeApi = {
         legal_full_name?: string
         contact_email?: string
         contact_phone?: string
+        avatar_url?: string
         state_id?: number | null
         city_id?: number | null
         district_id?: number | null
@@ -63,6 +70,24 @@ export const storeApi = {
     },
   ) {
     return apiClient.patch<never, StoreRecord>(`/stores/${id}`, payload)
+  },
+
+  uploadStoreAvatar(id: string, file: File, onProgress?: (progress: number) => void) {
+    const formData = new FormData()
+    formData.append('image', file)
+
+    return apiClient.post<never, StoreImageUploadResult>(`/stores/${id}/upload-avatar`, formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+      onUploadProgress: (event) => {
+        if (!onProgress || !event.total) {
+          return
+        }
+
+        onProgress(Math.min(100, Math.max(0, Math.round((event.loaded / event.total) * 100))))
+      },
+    })
   },
 
   switchStore(storeId: string) {

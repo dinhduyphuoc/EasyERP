@@ -1,0 +1,5 @@
+services:
+  backend:
+    environment:
+      RUN_DB_MIGRATIONS: "true"
+      RUN_DB_SEED: "true"

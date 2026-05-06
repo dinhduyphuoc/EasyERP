@@ -1,15 +1,14 @@
-import AccountBalanceOutlinedIcon from '@mui/icons-material/AccountBalanceOutlined'
+﻿import AccountBalanceOutlinedIcon from '@mui/icons-material/AccountBalanceOutlined'
 import {
-  Autocomplete,
   Box,
   Button,
   CircularProgress,
   Paper,
   Stack,
-  TextField,
   Typography,
 } from '@mui/material'
 import { useEffect, useMemo, useState, type ReactElement } from 'react'
+import { StackedAutocomplete } from '@/shared/ui/form/stacked-autocomplete'
 import { StackedTextField } from '@/shared/ui/form/stacked-text-field'
 import { borderedCardSx } from '@/shared/ui/paper'
 import { appToast } from '@/shared/ui/toast/toast.helpers'
@@ -177,8 +176,10 @@ export function SettingsPaymentMethodsPage(): ReactElement {
           {isLoading ? <CircularProgress size={24} /> : null}
 
           <Stack spacing={2}>
-            <Autocomplete<VietQrBankItem, false, false, false>
+            <StackedAutocomplete<VietQrBankItem, false, false, false>
               options={bankOptions}
+              label="Ngân hàng"
+              placeholder="Chọn ngân hàng"
               value={selectedBank}
               loading={isLoading}
               autoHighlight
@@ -201,7 +202,6 @@ export function SettingsPaymentMethodsPage(): ReactElement {
                   </Stack>
                 </Box>
               )}
-              renderInput={(params) => <TextField {...params} label="Ngân hàng" placeholder="Chọn ngân hàng" />}
             />
 
             <StackedTextField fullWidth label="Số tài khoản" value={accountNumber} onChange={(event) => setAccountNumber(event.target.value)} />
@@ -218,3 +218,4 @@ export function SettingsPaymentMethodsPage(): ReactElement {
     </Stack>
   )
 }
+
